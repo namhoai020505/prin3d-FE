@@ -15,7 +15,7 @@ export default function Chatbot() {
     {
       id: 'welcome',
       sender: 'bot',
-      text: 'Xin chào! Tôi là trợ lý ảo G2Cinema. Tôi có thể giúp gì cho bạn hôm nay? (Ví dụ: hỏi về các mã voucher hiện có, cách đặt vé, lịch chiếu...)',
+      text: 'Xin chào! Tôi là trợ lý ảo Idea2Model. Tôi có thể giúp gì cho bạn hôm nay?',
       timestamp: new Date(),
     },
   ]);

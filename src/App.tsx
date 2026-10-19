@@ -23,6 +23,7 @@ import StaffSetPassword from './pages/auth/StaffSetPassword';
 
 // User pages — lazy loaded per route
 const Home = lazy(() => import('./pages/user/Home'));
+const Create3DStudio = lazy(() => import('./pages/user/Create3DStudio'));
 const TicketPrices = lazy(() => import('./pages/user/TicketPrices'));
 const Cinemas = lazy(() => import('./pages/user/Cinemas'));
 const CinemaSchedule = lazy(() => import('./pages/user/CinemaSchedule'));
@@ -96,6 +97,7 @@ const router = createBrowserRouter([
         element: <UserLayout />,
         children: [
           { path: '/', element: <Home /> },
+          { path: '/create', element: <Create3DStudio /> },
           { path: '/ticket-prices', element: <TicketPrices /> },
           { path: '/cinemas', element: <Cinemas /> },
           { path: '/cinema-schedule', element: <CinemaSchedule /> },

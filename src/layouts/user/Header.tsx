@@ -9,7 +9,7 @@ import {
 } from 'react-icons/fi';
 import { Link, useNavigate } from 'react-router-dom';
 import NotificationCenter from '../../components/NotificationCenter';
-import logo from '../../assets/logo.png';
+import logo from '../../assets/LOGOTheBoy.png';
 import { AUTH_SESSION_EVENT, getAccessToken, getAuthFullName } from '../../lib/auth';
 import {
   readSelectedCinemaId,
@@ -247,7 +247,7 @@ export default function Header() {
         <div className="container mx-auto flex items-center justify-between px-4">
           <div className="flex min-w-0 flex-1 items-center gap-3 lg:flex-none lg:gap-6">
             <Link to="/" onClick={() => sessionStorage.removeItem('home-scroll-y')} className="flex items-center">
-              <img src={logo} alt="G2C Logo" className="h-9 object-contain md:h-10" />
+              <img src={logo} alt="Idea2Model Logo" className="h-9 object-contain md:h-10" />
             </Link>
 
             <div

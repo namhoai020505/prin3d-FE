@@ -1,7 +1,7 @@
 import { FaFacebookF } from 'react-icons/fa';
 import { FiChevronRight, FiMail, FiMapPin, FiPhone } from 'react-icons/fi';
 import { Link } from 'react-router-dom';
-import logo from '../../assets/logo.png';
+import logo from '../../assets/LOGOTheBoy.png';
 
 const policyLinks = [
   'Tuyển dụng',
@@ -43,13 +43,12 @@ export default function Footer() {
         <div className="grid gap-8 lg:grid-cols-[1.15fr_1.6fr_1fr]">
           <section className="space-y-5">
             <Link to="/" className="inline-flex items-center gap-3">
-              <img src={logo} alt="G2Cinema" className="h-11 object-contain" />
-              <span className="sr-only">G2Cinema</span>
+              <img src={logo} alt="Idea2Model" className="h-11 object-contain" />
+              <span className="sr-only">Idea2Model</span>
             </Link>
 
             <p className="max-w-sm leading-6 text-slate-400">
-              G2Cinema mang đến trải nghiệm đặt vé nhanh, chọn ghế trực quan và
-              cập nhật lịch chiếu theo từng cụm rạp.
+              Idea2Model - Nền tảng sáng tạo mô hình 3D bằng AI và đặt thành phẩm cá nhân hóa.
             </p>
 
             <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
@@ -172,19 +171,18 @@ export default function Footer() {
 
             <div className="rounded-lg border border-[#FFD166]/25 bg-[#FFD166]/10 p-4">
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[#FFD166]">
-                G2Cinema
+                Idea2Model
               </p>
               <p className="mt-2 leading-6 text-slate-300">
-                Đặt vé, chọn ghế, thanh toán và nhận mã QR trong một luồng duy
-                nhất.
+                Sáng tạo mô hình 3D bằng AI và đặt thành phẩm cá nhân hóa dễ dàng, nhanh chóng.
               </p>
             </div>
           </section>
         </div>
 
         <div className="mt-10 flex flex-col gap-3 border-t border-white/10 pt-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 G2Cinema. All rights reserved.</p>
-          <p>Online movie ticket booking system.</p>
+          <p>© 2026 Idea2Model. All rights reserved.</p>
+          <p>Nền tảng sáng tạo mô hình 3D bằng AI.</p>
         </div>
       </div>
     </footer>

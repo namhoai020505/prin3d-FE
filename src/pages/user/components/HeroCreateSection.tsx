@@ -1,4 +1,5 @@
 import { useState, useRef, type ChangeEvent, type DragEvent, type MouseEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
   Image as ImageIcon,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react';
 
 export default function HeroCreateSection() {
+  const navigate = useNavigate();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -67,7 +69,10 @@ export default function HeroCreateSection() {
       </h1>
 
       {/* Mode Tag: Tạo nhanh with Gold Accent (Chế độ tác nhân removed as requested) */}
-      <div className="z-10 inline-flex items-center gap-1.5 px-4 py-1.5 bg-[#17140b] border border-amber-500/35 rounded-full shadow-inner mb-6 text-xs font-semibold text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)]">
+      <div
+        onClick={() => navigate('/create')}
+        className="z-10 inline-flex items-center gap-1.5 px-4 py-1.5 bg-[#17140b] border border-amber-500/35 rounded-full shadow-inner mb-6 text-xs font-semibold text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)] cursor-pointer hover:scale-105 transition-transform"
+      >
         <Sparkles className="w-3.5 h-3.5 text-amber-400" />
         <span>Tạo nhanh</span>
       </div>
@@ -259,12 +264,8 @@ export default function HeroCreateSection() {
 
             {/* Tạo ra Button in Gold Styling */}
             <button
-              disabled={!selectedFile}
-              className={`px-6 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${
-                selectedFile
-                  ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-400 text-black shadow-[0_0_20px_rgba(245,158,11,0.4)] cursor-pointer active:scale-95'
-                  : 'bg-[#181510] text-neutral-500 cursor-not-allowed border border-white/5'
-              }`}
+              onClick={() => navigate('/create')}
+              className="px-6 py-2 rounded-xl text-xs font-bold transition-all duration-200 bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 hover:from-amber-300 hover:to-yellow-400 text-black shadow-[0_0_20px_rgba(245,158,11,0.4)] cursor-pointer active:scale-95"
             >
               Tạo ra
             </button>
