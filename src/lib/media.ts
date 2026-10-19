@@ -5,7 +5,9 @@
  * - Nếu URL là relative (bắt đầu bằng /) → prefix bằng API base URL của backend.
  * - Nếu rỗng → trả về chuỗi rỗng.
  */
-const API_ORIGIN = import.meta.env.VITE_API_BASE_URL || 'https://localhost:7122';
+import { DEFAULT_API_BASE_URL } from './api';
+
+const API_ORIGIN = DEFAULT_API_BASE_URL;
 
 export function getMediaUrl(url?: string | null): string {
   if (!url || !url.trim()) return '';

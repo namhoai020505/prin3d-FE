@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { getAccessToken } from '../lib/auth';
+import { DEFAULT_API_BASE_URL } from '../lib/api';
 import type { ScanTicketResponse } from '../services/managerService';
 
 export type HubStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error';
@@ -25,7 +26,7 @@ export type UseTicketHubReturn = {
   hubStatus: HubStatus;
 };
 
-const HUB_URL = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5070'}/hubs/ticket`;
+const HUB_URL = `${DEFAULT_API_BASE_URL}/hubs/ticket`;
 
 export function useTicketHub(): UseTicketHubReturn {
   const connectionRef = useRef<signalR.HubConnection | null>(null);

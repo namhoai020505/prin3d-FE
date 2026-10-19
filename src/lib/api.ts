@@ -16,7 +16,10 @@ type RefreshTokenResponse = {
   } | null;
 };
 
-type RetryableRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+type RetryableRequestConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+  skipAuthRedirect?: boolean;
+};
 type RefreshOptions = {
   redirectOnFail?: boolean;
 };
@@ -25,8 +28,11 @@ const LOGIN_PATH = '/login';
 
 const UPLOAD_TIMEOUT_MS = 60_000; // 60s for file uploads (images, banners)
 
+export const DEFAULT_API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:5070';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'https://localhost:7122',
+  baseURL: DEFAULT_API_BASE_URL,
   timeout: 15_000, // 15s global timeout to prevent hanging requests
   headers: {
     'Content-Type': 'application/json',
@@ -34,7 +40,7 @@ const api = axios.create({
 });
 
 const refreshClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'https://localhost:7122',
+  baseURL: DEFAULT_API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -159,7 +165,9 @@ api.interceptors.response.use(
     if (errorStatus === 401 && originalRequest && !originalRequest._retry && !isLoginRequest && !isRefreshRequest) {
       originalRequest._retry = true;
 
-      const nextAccessToken = await refreshAccessToken();
+      const nextAccessToken = await refreshAccessToken({
+        redirectOnFail: !originalRequest.skipAuthRedirect,
+      });
 
       if (nextAccessToken) {
         if (originalRequest.headers) {

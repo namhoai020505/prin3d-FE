@@ -1,5 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import UserSidebar from './UserSidebar';
+import Footer from './Footer';
 
 export default function UserLayout() {
   const location = useLocation();
@@ -11,11 +12,14 @@ export default function UserLayout() {
       <UserSidebar />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen relative pl-[68px] md:pl-[72px]">
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen relative pl-[64px] md:pl-[72px]">
         {/* Page Content */}
-        <main className={`flex-1 w-full ${isStudioPage ? 'h-screen overflow-hidden' : 'pt-4'}`}>
+        <main className={`flex-1 w-full ${isStudioPage ? 'h-screen overflow-hidden' : 'pt-2 md:pt-4'}`}>
           <Outlet />
         </main>
+
+        {/* Footer rendered on standard pages, excluded from full-screen Studio */}
+        {!isStudioPage && <Footer />}
       </div>
     </div>
   );
