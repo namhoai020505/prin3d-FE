@@ -25,6 +25,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
+  Scissors,
+  Play,
+  Pause,
+  Clock,
+  ShieldCheck,
+  Activity,
+  Scale,
+  Flame,
 } from 'lucide-react';
 import { createImageGeneration, downloadGenerationFile, getGeneration, listGenerations, type GenerationStatus, type GenerationTask } from '../../services/generationService';
 import { AUTH_SESSION_EVENT, getAccessToken, isAccessTokenExpired } from '../../lib/auth';
@@ -284,6 +292,106 @@ export default function Create3DStudio() {
   // Right panel tabs: 'Assets' | 'Layer' | 'Property'
   const [rightTab, setRightTab] = useState<'Assets' | 'Layer' | 'Property'>('Assets');
 
+  // 3D Layer Slicing Simulation States
+  const [isSlicingActive, setIsSlicingActive] = useState(false);
+  const [slicingProgress, setSlicingProgress] = useState(100);
+  const [layerHeightMm, setLayerHeightMm] = useState(0.20);
+  const [infillDensity, setInfillDensity] = useState(20);
+  const [isSimulatingPrint, setIsSimulatingPrint] = useState(false);
+
+  // 3D Printing Support & Adhesion Stability States
+  const [isSupportActive, setIsSupportActive] = useState(true);
+  const [supportType, setSupportType] = useState<'tree' | 'lattice'>('tree');
+  const [supportStrength, setSupportStrength] = useState<'heavy' | 'standard' | 'light'>('heavy');
+  const [adhesionType, setAdhesionType] = useState<'raft' | 'brim' | 'skirt'>('raft');
+
+  // Time-lapse print simulation loop
+  useEffect(() => {
+    if (!isSimulatingPrint) return;
+    let animId: number;
+    let lastTime = performance.now();
+
+    const loop = (now: number) => {
+      const dt = now - lastTime;
+      lastTime = now;
+      setSlicingProgress((prev) => {
+        const next = prev + (dt / 7000) * 100;
+        if (next >= 100) {
+          setIsSimulatingPrint(false);
+          return 100;
+        }
+        return next;
+      });
+      animId = requestAnimationFrame(loop);
+    };
+
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, [isSimulatingPrint]);
+
+  const toggleSimulatingPrint = useCallback(() => {
+    if (isSimulatingPrint) {
+      setIsSimulatingPrint(false);
+    } else {
+      if (slicingProgress >= 100) {
+        setSlicingProgress(0);
+      }
+      setIsSlicingActive(true);
+      setIsSimulatingPrint(true);
+    }
+  }, [isSimulatingPrint, slicingProgress]);
+
+  const handleSlicingProgressChange = useCallback((val: number) => {
+    setSlicingProgress(Math.max(0, Math.min(100, Math.round(val * 10) / 10)));
+  }, []);
+
+  // Slicing telemetry calculations
+  const totalLayers = Math.max(1, Math.ceil(dimensions.y / layerHeightMm));
+  const currentLayer = Math.min(
+    totalLayers,
+    Math.max(1, Math.round((slicingProgress / 100) * totalLayers))
+  );
+  const currentHeightMm = (slicingProgress / 100) * dimensions.y;
+  const estPrintMinutes = Math.max(5, Math.round((totalLayers * 0.22) + (volumeCm3 * 1.1) * (infillDensity / 20)));
+  const estHours = Math.floor(estPrintMinutes / 60);
+  const estMins = estPrintMinutes % 60;
+  const printTimeFormatted = estHours > 0 ? `${estHours}h ${estMins}m` : `${estMins} phút`;
+  const filamentGrams = Math.max(1, Math.round(estimatedGrams * (0.8 + (infillDensity / 100) * 0.4)));
+
+  // Calculate support sacrificial plastic
+  const supportFactor = !isSupportActive
+    ? 0
+    : supportStrength === 'heavy'
+    ? 0.24
+    : supportStrength === 'light'
+    ? 0.09
+    : 0.16;
+  const supportGrams = Math.round(filamentGrams * supportFactor);
+
+  // Calculate bed adhesion sacrificial plastic (Raft / Brim / Skirt)
+  const adhesionGrams = adhesionType === 'raft'
+    ? Math.max(12, Math.round(filamentGrams * 0.11))
+    : adhesionType === 'brim'
+    ? Math.max(4, Math.round(filamentGrams * 0.035))
+    : 1;
+
+  const totalWasteGrams = supportGrams + (adhesionType !== 'skirt' ? adhesionGrams : 0);
+  const totalFilamentGrams = filamentGrams + totalWasteGrams;
+  const totalFilamentMeters = (totalFilamentGrams / 3).toFixed(1);
+  const totalEstimatedCostVnd = Math.round(totalFilamentGrams * 350).toLocaleString('vi-VN');
+  const wasteCostVnd = Math.round(totalWasteGrams * 350).toLocaleString('vi-VN');
+  const wasteRatioPercent = Math.max(1, Math.round((totalWasteGrams / totalFilamentGrams) * 100));
+  const netProductPercent = 100 - wasteRatioPercent;
+
+  // Mechanical Tipping Stability Score
+  const stabilityScore = !isSupportActive
+    ? 15
+    : adhesionType === 'raft'
+    ? (supportStrength === 'heavy' ? 98 : 92)
+    : adhesionType === 'brim'
+    ? (supportStrength === 'heavy' ? 88 : supportStrength === 'standard' ? 80 : 65)
+    : 42;
+
   // Generation status
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
@@ -489,15 +597,29 @@ export default function Create3DStudio() {
         onToggleBoundingBox={() => setShowBoundingBox((prev) => !prev)}
         meshScale={meshScale}
         onBaseDimensionsCalculated={onBaseDimensionsCalculated}
+        isSlicingActive={isSlicingActive}
+        onToggleSlicing={() => setIsSlicingActive((prev) => !prev)}
+        slicingProgress={slicingProgress}
+        onSlicingProgressChange={handleSlicingProgressChange}
+        layerHeightMm={layerHeightMm}
+        isSimulatingPrint={isSimulatingPrint}
+        onToggleSimulatingPrint={toggleSimulatingPrint}
+        dimensionsYMm={dimensions.y}
+        isSupportActive={isSupportActive}
+        onToggleSupport={() => setIsSupportActive((prev) => !prev)}
+        supportType={supportType}
+        supportStrength={supportStrength}
+        adhesionType={adhesionType}
+        hasBrim={adhesionType === 'brim'}
       />
 
       {/* Left Column Stack: Tạo hình mô hình 3D (trên) & Kích thước & Scale (dưới) */}
-      <div className="absolute top-4 left-4 z-20 flex flex-col gap-3 w-[336px] max-w-[calc(100vw-5rem)] max-h-[calc(100vh-2rem)] pointer-events-none">
+      <div className="absolute top-4 left-4 z-20 flex flex-col gap-2.5 w-[336px] max-w-[calc(100vw-4rem)] max-h-[calc(100vh-2rem)] overflow-y-auto no-scrollbar pointer-events-auto pb-8">
         {/* Panel 1: Tạo hình mô hình 3D */}
         {isLeftPanelOpen ? (
           <div
             ref={leftPanelRef}
-            className="pointer-events-auto w-full max-h-[58vh] overflow-y-auto no-scrollbar bg-[#0a0d13]/90 backdrop-blur-2xl border border-white/12 rounded-2xl p-4 shadow-2xl shadow-black/90 text-white flex flex-col gap-3.5"
+            className="w-full shrink-0 max-h-[44vh] overflow-y-auto no-scrollbar bg-[#0a0d13]/90 backdrop-blur-2xl border border-white/12 rounded-2xl p-4 shadow-2xl shadow-black/90 text-white flex flex-col gap-3.5"
           >
             {/* Header */}
             <div className="flex items-center justify-between pb-1 border-b border-white/8">
@@ -761,7 +883,7 @@ export default function Create3DStudio() {
         )}
 
         {/* Card 2: Kích thước & Scale (Nằm ngay dưới phần Tạo hình mô hình 3D) */}
-        <div className="pointer-events-auto w-full">
+        <div className="pointer-events-auto w-full shrink-0">
           {!isDimensionsPanelOpen ? (
             <button
               type="button"
@@ -951,7 +1073,7 @@ export default function Create3DStudio() {
                 <button
                   type="button"
                   onClick={() => setIsUniformScale((prev) => !prev)}
-                  className={`self-stretch px-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${isUniformScale
+                  className={`self-stretch px-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer shrink-0 ${isUniformScale
                       ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300'
                       : 'bg-white/5 border-white/10 text-zinc-500 hover:text-white'
                     }`}
@@ -1127,74 +1249,735 @@ export default function Create3DStudio() {
 
           {/* Tab Body */}
           <div className="flex-1 overflow-y-auto p-3.5 flex flex-col text-left no-scrollbar">
-            {assets.length === 0 ? (
-              <div className="flex flex-col items-center justify-center my-auto gap-2.5 py-8 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-zinc-400 shadow-inner">
-                  <Box className="w-6 h-6 stroke-[1.5]" />
+            {rightTab === 'Assets' && (
+              assets.length === 0 ? (
+                <div className="flex flex-col items-center justify-center my-auto gap-2.5 py-8 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-zinc-400 shadow-inner">
+                    <Box className="w-6 h-6 stroke-[1.5]" />
+                  </div>
+                  <p className="text-xs text-white/90 font-medium">
+                    Chưa có mô hình nào
+                  </p>
+                  <p className="text-[11px] text-neutral-500 max-w-[210px] leading-relaxed">
+                    Tải ảnh hoặc chọn mẫu nhanh ở bảng bên trái và nhấn &quot;Tạo model từ ảnh&quot;.
+                  </p>
                 </div>
-                <p className="text-xs text-white/90 font-medium">
-                  Chưa có mô hình nào
-                </p>
-                <p className="text-[11px] text-neutral-500 max-w-[210px] leading-relaxed">
-                  Tải ảnh hoặc chọn mẫu nhanh ở bảng bên trái và nhấn &quot;Tạo model từ ảnh&quot;.
-                </p>
-              </div>
-            ) : (
-              <div className="w-full flex flex-col gap-2.5">
-                {assets.map((asset) => (
-                  <div
-                    key={asset.id}
-                    onClick={() => setActiveModelMesh(asset)}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${activeModelMesh?.id === asset.id
-                        ? 'bg-cyan-950/25 border-cyan-400/50 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
-                        : 'bg-white/[0.03] border-white/8 hover:border-white/20'
+              ) : (
+                <div className="w-full flex flex-col gap-2.5">
+                  {assets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      onClick={() => setActiveModelMesh(asset)}
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${activeModelMesh?.id === asset.id
+                          ? 'bg-cyan-950/25 border-cyan-400/50 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
+                          : 'bg-white/[0.03] border-white/8 hover:border-white/20'
+                        }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-white truncate">{asset.name}</span>
+                        <span className={`text-[10px] font-medium ${asset.status === 'succeeded'
+                            ? 'text-emerald-300'
+                            : asset.status === 'failed'
+                              ? 'text-rose-300'
+                              : 'text-cyan-300'
+                          }`}>
+                          {statusLabel(asset.status)}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-neutral-400 block mt-1">
+                        {asset.status === 'succeeded' ? 'Hoàn tất' : `${asset.stage} · ${asset.progress}%`} · {asset.date}
+                      </span>
+                      {asset.errorMessage && (
+                        <span className="text-[10px] text-rose-300 block mt-1 leading-relaxed">{asset.errorMessage}</span>
+                      )}
+                      {(asset.glbUrl || asset.stlUrl) && (
+                        <div className="mt-2.5 flex gap-2">
+                          {asset.glbUrl && (
+                            <button
+                              type="button"
+                              onClick={(event) => void handleDownload(event, asset, 'glb')}
+                              disabled={downloadingFile === `${asset.id}-glb`}
+                              className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
+                            >
+                              <Download className="h-3 w-3" />
+                              {downloadingFile === `${asset.id}-glb` ? 'Đang tải...' : 'Tải GLB'}
+                            </button>
+                          )}
+                          {asset.stlUrl && (
+                            <button
+                              type="button"
+                              onClick={(event) => void handleDownload(event, asset, 'stl')}
+                              disabled={downloadingFile === `${asset.id}-stl`}
+                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+                            >
+                              <Download className="h-3 w-3" />
+                              {downloadingFile === `${asset.id}-stl` ? 'Đang tải...' : 'Tải STL in 3D'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+
+            {rightTab === 'Layer' && (
+              <div className="w-full flex flex-col gap-3 text-left">
+                {/* Slicing Mode Toggle Header Card */}
+                <div className={`p-3 rounded-xl border transition-all ${
+                  isSlicingActive 
+                    ? 'bg-cyan-950/30 border-cyan-400/40 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
+                    : 'bg-white/[0.03] border-white/8'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                        isSlicingActive ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/5 text-neutral-400'
+                      }`}>
+                        <Scissors className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-white">Mô phỏng Lát cắt</div>
+                        <div className="text-[10px] text-neutral-400">GPU Laser Slicing Plane</div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSlicingActive((prev) => !prev)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                        isSlicingActive
+                          ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.5)]'
+                          : 'bg-white/10 text-neutral-300 hover:bg-white/20'
                       }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-white truncate">{asset.name}</span>
-                      <span className={`text-[10px] font-medium ${asset.status === 'succeeded'
-                          ? 'text-emerald-300'
-                          : asset.status === 'failed'
-                            ? 'text-rose-300'
-                            : 'text-cyan-300'
-                        }`}>
-                        {statusLabel(asset.status)}
+                    >
+                      {isSlicingActive ? 'Đang bật' : 'Bật cắt'}
+                    </button>
+                  </div>
+
+                  {/* Simulation Play/Pause button */}
+                  <div className="mt-2.5 pt-2 border-t border-white/8 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={toggleSimulatingPrint}
+                      className={`w-full py-1.5 px-3 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        isSimulatingPrint
+                          ? 'bg-amber-500/20 border border-amber-400/50 text-amber-300 animate-pulse'
+                          : 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/30'
+                      }`}
+                    >
+                      {isSimulatingPrint ? (
+                        <>
+                          <Pause className="w-3.5 h-3.5" />
+                          <span>Tạm dừng in mô phỏng</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>Mô phỏng in thời gian thực (Time-lapse)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Slicing Scrub Slider & Layer Telemetry */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-neutral-300">Vị trí lát cắt</span>
+                    <span className="text-[11px] font-mono text-cyan-300 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-400/20">
+                      Layer {currentLayer} / {totalLayers} ({Math.round(slicingProgress)}%)
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={0.5}
+                    value={slicingProgress}
+                    onChange={(e) => {
+                      handleSlicingProgressChange(parseFloat(e.target.value));
+                      if (!isSlicingActive) setIsSlicingActive(true);
+                    }}
+                    className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-white/10 rounded-lg appearance-none"
+                  />
+
+                  {/* Step Buttons */}
+                  <div className="grid grid-cols-4 gap-1 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSlicingProgressChange(slicingProgress - (100 / totalLayers) * 5);
+                        if (!isSlicingActive) setIsSlicingActive(true);
+                      }}
+                      className="py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-neutral-300 transition-colors text-center cursor-pointer"
+                      title="Lùi 5 lớp"
+                    >
+                      -5 Lớp
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSlicingProgressChange(slicingProgress - (100 / totalLayers));
+                        if (!isSlicingActive) setIsSlicingActive(true);
+                      }}
+                      className="py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-neutral-300 transition-colors text-center cursor-pointer"
+                      title="Lùi 1 lớp"
+                    >
+                      -1 Lớp
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSlicingProgressChange(slicingProgress + (100 / totalLayers));
+                        if (!isSlicingActive) setIsSlicingActive(true);
+                      }}
+                      className="py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-neutral-300 transition-colors text-center cursor-pointer"
+                      title="Tới 1 lớp"
+                    >
+                      +1 Lớp
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSlicingProgressChange(slicingProgress + (100 / totalLayers) * 5);
+                        if (!isSlicingActive) setIsSlicingActive(true);
+                      }}
+                      className="py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-neutral-300 transition-colors text-center cursor-pointer"
+                      title="Tới 5 lớp"
+                    >
+                      +5 Lớp
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[10px] text-neutral-400 pt-1 border-t border-white/5">
+                    <span>Độ cao tia cắt:</span>
+                    <span className="font-mono text-white font-medium">
+                      {currentHeightMm.toFixed(2)} / {dimensions.y.toFixed(1)} mm
+                    </span>
+                  </div>
+                </div>
+
+                {/* Layer Height Presets */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-neutral-300">Độ dày mỗi lớp (Layer Height)</span>
+                    <span className="text-[10px] font-mono text-cyan-300">{layerHeightMm} mm</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { val: 0.05, label: '0.05mm', desc: 'Siêu nét' },
+                      { val: 0.12, label: '0.12mm', desc: 'Chi tiết cao' },
+                      { val: 0.20, label: '0.20mm', desc: 'Tiêu chuẩn' },
+                      { val: 0.28, label: '0.28mm', desc: 'In nhanh' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.val}
+                        type="button"
+                        onClick={() => setLayerHeightMm(preset.val)}
+                        className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                          layerHeightMm === preset.val
+                            ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-200'
+                            : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                        }`}
+                      >
+                        <div className="text-xs font-semibold">{preset.label}</div>
+                        <div className="text-[9.5px] opacity-75">{preset.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Infill Density */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-neutral-300">Mật độ đặc bên trong (Infill)</span>
+                    <span className="text-[10px] font-mono text-cyan-300">{infillDensity}%</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[15, 20, 40, 100].map((density) => (
+                      <button
+                        key={density}
+                        type="button"
+                        onClick={() => setInfillDensity(density)}
+                        className={`py-1.5 rounded-lg border text-xs font-medium transition-all text-center cursor-pointer ${
+                          infillDensity === density
+                            ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
+                            : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                        }`}
+                      >
+                        {density}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Physical Stability & Mechanical Equilibrium Card */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-5 h-5 rounded bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-400">
+                        <Scale className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-[11px] font-semibold text-white">Độ Ổn định Thăng bằng (Stability)</span>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold border font-mono ${
+                        stabilityScore >= 90
+                          ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                          : stabilityScore >= 75
+                          ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300'
+                          : 'bg-amber-500/20 border-amber-400/50 text-amber-300'
+                      }`}
+                    >
+                      {stabilityScore}% Vững chắc
+                    </span>
+                  </div>
+
+                  {/* Stability Progress Gauge */}
+                  <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        stabilityScore >= 90
+                          ? 'bg-gradient-to-r from-emerald-500 to-cyan-400'
+                          : stabilityScore >= 75
+                          ? 'bg-cyan-400'
+                          : 'bg-amber-400'
+                      }`}
+                      style={{ width: `${stabilityScore}%` }}
+                    />
+                  </div>
+
+                  {/* Physics Center of Mass Analysis */}
+                  <div className="p-2 rounded-lg bg-black/40 border border-white/6 text-[10px] space-y-1 text-neutral-300">
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Độ cao Trọng tâm (CoM):</span>
+                      <span className="font-mono text-white font-medium">~{(dimensions.y * 0.5).toFixed(1)} mm</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-400">Diện tích chân tiếp xúc:</span>
+                      <span className="font-mono text-cyan-300 font-medium">
+                        {adhesionType === 'raft'
+                          ? '~42.0 cm² (Tăng 15x nhờ Bè Raft)'
+                          : adhesionType === 'brim'
+                          ? '~18.5 cm² (Vành Brim)'
+                          : '~2.8 cm² (Chỉ chạm 1 điểm đáy)'}
                       </span>
                     </div>
-                    <span className="text-[10px] text-neutral-400 block mt-1">
-                      {asset.status === 'succeeded' ? 'Hoàn tất' : `${asset.stage} · ${asset.progress}%`} · {asset.date}
-                    </span>
-                    {asset.errorMessage && (
-                      <span className="text-[10px] text-rose-300 block mt-1 leading-relaxed">{asset.errorMessage}</span>
-                    )}
-                    {(asset.glbUrl || asset.stlUrl) && (
-                      <div className="mt-2.5 flex gap-2">
-                        {asset.glbUrl && (
-                          <button
-                            type="button"
-                            onClick={(event) => void handleDownload(event, asset, 'glb')}
-                            disabled={downloadingFile === `${asset.id}-glb`}
-                            className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
-                          >
-                            <Download className="h-3 w-3" />
-                            {downloadingFile === `${asset.id}-glb` ? 'Đang tải...' : 'Tải GLB'}
-                          </button>
-                        )}
-                        {asset.stlUrl && (
-                          <button
-                            type="button"
-                            onClick={(event) => void handleDownload(event, asset, 'stl')}
-                            disabled={downloadingFile === `${asset.id}-stl`}
-                            className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
-                          >
-                            <Download className="h-3 w-3" />
-                            {downloadingFile === `${asset.id}-stl` ? 'Đang tải...' : 'Tải STL in 3D'}
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    <p className="text-[9px] text-neutral-400 pt-1 border-t border-white/5 leading-relaxed">
+                      {adhesionType === 'raft'
+                        ? '✓ Bè in Raft khoá chặt mô hình vào bàn nhiệt, triệt tiêu 100% mô-men uốn khi đầu in chạy tốc độ cao.'
+                        : adhesionType === 'brim'
+                        ? '⚠ Vành Brim tăng độ bám nhưng cần cẩn thận quán tính rung chấn nếu in tốc độ trên 150mm/s.'
+                        : '❌ Cực kỳ nguy hiểm: Mô hình nặng chỉ tiếp xúc 1 điểm nhỏ, rất dễ bị gãy đổ khi in!'}
+                    </p>
                   </div>
-                ))}
+                </div>
+
+                {/* Bed Adhesion Platform Selector (Bè in Raft vs Vành Brim vs Skirt) */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-white">Bệ đế Bàn in (Bed Adhesion)</span>
+                    <span className="text-[9.5px] text-neutral-400 font-mono">
+                      {adhesionType === 'raft' ? '+11% Nhựa hao hụt' : adhesionType === 'brim' ? '+3.5% Nhựa' : '0% Nhựa'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setAdhesionType('raft')}
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                        adhesionType === 'raft'
+                          ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
+                          : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                      }`}
+                    >
+                      <div className="text-[10.5px] font-semibold flex items-center justify-between">
+                        <span>Bè Raft</span>
+                        <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/30 text-emerald-300 font-normal">Khuyên dùng</span>
+                      </div>
+                      <div className="text-[8.5px] opacity-75 mt-0.5 leading-tight">Khối đệm đặc 1.8mm, chống lật tuyệt đối</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAdhesionType('brim')}
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                        adhesionType === 'brim'
+                          ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
+                          : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                      }`}
+                    >
+                      <div className="text-[10.5px] font-semibold">Vành Brim</div>
+                      <div className="text-[8.5px] opacity-75 mt-0.5 leading-tight">Vành 1 lớp mỏng, tiết kiệm nhựa hơn</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAdhesionType('skirt')}
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                        adhesionType === 'skirt'
+                          ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
+                          : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                      }`}
+                    >
+                      <div className="text-[10.5px] font-semibold">Chỉ Skirt</div>
+                      <div className="text-[8.5px] opacity-75 mt-0.5 leading-tight">Chỉ viền xả đầu in, không bám đáy</div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3D Printing Support & Strength Card */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-5 h-5 rounded bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-[11px] font-semibold text-white">Điểm tựa & Cột đỡ (Support)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSupportActive((prev) => !prev)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all cursor-pointer border ${
+                        isSupportActive
+                          ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                          : 'bg-red-500/15 border-red-400/30 text-red-300'
+                      }`}
+                    >
+                      {isSupportActive ? 'BẬT' : 'TẮT'}
+                    </button>
+                  </div>
+
+                  {/* Overhang Status Alert */}
+                  {!isSupportActive && (
+                    <div className="p-2 rounded-lg bg-amber-500/15 border border-amber-400/30 flex items-start gap-2 text-amber-200">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                      <div className="text-[9.5px] leading-tight">
+                        <span className="font-semibold">Cảnh báo: </span>
+                        Các vòng xoắn lơ lửng sẽ in trên không khí và biến thành sợi nhựa rơi (Spaghetti failure) nếu không có cột đỡ!
+                      </div>
+                    </div>
+                  )}
+
+                  {isSupportActive && (
+                    <>
+                      {/* Pattern Selector */}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setSupportType('tree')}
+                          className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                            supportType === 'tree'
+                              ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200'
+                              : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                          }`}
+                        >
+                          <div className="text-[10.5px] font-semibold">Tree Support</div>
+                          <div className="text-[8.5px] opacity-75">Cành cây uốn lượn ôm sát</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSupportType('lattice')}
+                          className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                            supportType === 'lattice'
+                              ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200'
+                              : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                          }`}
+                        >
+                          <div className="text-[10.5px] font-semibold">Lattice Grid</div>
+                          <div className="text-[8.5px] opacity-75">Khung giàn lưới chịu lực</div>
+                        </button>
+                      </div>
+
+                      {/* Sturdiness Load Rating */}
+                      <div className="flex flex-col gap-1.5 pt-1 border-t border-white/6">
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="text-neutral-400">Độ dày & Tải trọng thân trụ:</span>
+                          <span className="font-mono text-cyan-300 font-semibold">
+                            {supportStrength === 'heavy' ? 'Trụ Kết Cấu (Ø14mm + Gân V)' : supportStrength === 'standard' ? 'Tiêu chuẩn (Ø8mm)' : 'Thanh mảnh (Ø4mm)'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1">
+                          {[
+                            { id: 'heavy', label: 'Trụ Kết Cấu', desc: 'Khóa rung & sai số' },
+                            { id: 'standard', label: 'Tiêu chuẩn', desc: 'Cân bằng' },
+                            { id: 'light', label: 'Thanh mảnh', desc: 'Tiết kiệm' },
+                          ].map((s) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => setSupportStrength(s.id as 'heavy' | 'standard' | 'light')}
+                              className={`p-1 rounded border text-center transition-all cursor-pointer ${
+                                supportStrength === s.id
+                                  ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
+                                  : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                              }`}
+                            >
+                              <div className="text-[10px] font-semibold">{s.label}</div>
+                              <div className="text-[8px] opacity-70">{s.desc}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Structural Cantilever & Precision Engineering Insight */}
+                      <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/25 text-[10px] space-y-1.5 text-neutral-300">
+                        <div className="flex items-center justify-between text-emerald-300 font-semibold text-[10.5px]">
+                          <span className="flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            Phân tích Nhánh Yếu & Sai số in
+                          </span>
+                          <span className="font-mono text-[9.5px]">
+                            {supportStrength === 'heavy' ? '±0.08 mm (Siêu chuẩn)' : supportStrength === 'standard' ? '±0.25 mm' : '±0.85 mm (Rủi ro lệch)'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5 text-[9px] pt-1 border-t border-white/5">
+                          <div className="bg-black/30 p-1.5 rounded border border-white/5">
+                            <div className="text-neutral-400">Nhánh yếu phát hiện:</div>
+                            <div className="font-semibold text-white mt-0.5">2 vòm treo trên cao + 2 đáy</div>
+                          </div>
+                          <div className="bg-black/30 p-1.5 rounded border border-white/5">
+                            <div className="text-neutral-400">Độ võng uốn vòi phun:</div>
+                            <div className={`font-semibold mt-0.5 ${supportStrength === 'heavy' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                              {supportStrength === 'heavy' ? '< 0.05 mm (Khóa cứng)' : '0.85 - 1.20 mm'}
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-[8.5px] text-neutral-400 leading-tight pt-1 border-t border-white/5">
+                          {supportStrength === 'heavy'
+                            ? '💡 Trụ kết cấu Ø14mm cắm thẳng lên nhánh yếu trên cao, giảm 90% sai số in. Bạn có thể an tâm chuyển sang Vành Brim để tiết kiệm 16g nhựa ở đế.'
+                            : '⚠ Trụ mảnh dễ bị uốn cong theo vòi phun khi in lên cao, gây gợn sóng bề mặt hoặc sai lệch lớp.'}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Filament Waste & Telemetry Breakdown Card */}
+                <div className="p-3 rounded-xl bg-cyan-950/20 border border-cyan-500/20 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between text-xs font-semibold text-cyan-300">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Ước tính Nhựa & Hao hụt (Waste Analysis)</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-amber-300">
+                      Hao hụt: {wasteRatioPercent}%
+                    </span>
+                  </div>
+
+                  {/* Stacked Visual Bar Chart */}
+                  <div className="space-y-1">
+                    <div className="w-full bg-black/40 rounded-full h-2.5 flex overflow-hidden border border-white/10">
+                      <div
+                        className="bg-cyan-400 transition-all duration-300"
+                        style={{ width: `${netProductPercent}%` }}
+                        title={`Sản phẩm: ${filamentGrams}g (${netProductPercent}%)`}
+                      />
+                      <div
+                        className="bg-amber-400 transition-all duration-300"
+                        style={{ width: `${Math.round((adhesionGrams / totalFilamentGrams) * 100)}%` }}
+                        title={`Bệ đế: ${adhesionGrams}g`}
+                      />
+                      <div
+                        className="bg-emerald-400 transition-all duration-300"
+                        style={{ width: `${Math.round((supportGrams / totalFilamentGrams) * 100)}%` }}
+                        title={`Cột đỡ: ${supportGrams}g`}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[9px] text-neutral-400 pt-0.5">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" />
+                        Sản phẩm ({filamentGrams}g)
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                        Bệ đế ({adhesionGrams}g)
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                        Cột đỡ ({supportGrams}g)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-[11px] pt-1 border-t border-cyan-500/15">
+                    <div className="flex justify-between text-neutral-300">
+                      <span className="text-neutral-400">Thời gian in dự kiến:</span>
+                      <span className="font-semibold text-white font-mono">{printTimeFormatted}</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-300">
+                      <span className="text-neutral-400">Tổng số lớp in:</span>
+                      <span className="font-semibold text-white font-mono">{totalLayers.toLocaleString()} layers</span>
+                    </div>
+                    <div className="flex justify-between text-amber-300/90">
+                      <span className="text-neutral-400">Nhựa hao hụt bóc bỏ:</span>
+                      <span className="font-semibold text-amber-300 font-mono">+{totalWasteGrams} g (~{wasteCostVnd} đ)</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-300 pt-1 border-t border-cyan-500/15">
+                      <span className="text-neutral-400">Tổng nhựa PLA tiêu thụ:</span>
+                      <span className="font-bold text-cyan-200 font-mono">{totalFilamentGrams} g (~{totalFilamentMeters}m)</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-300">
+                      <span className="text-neutral-400">Tổng chi phí ước tính:</span>
+                      <span className="font-bold text-emerald-300 font-mono">~{totalEstimatedCostVnd} đ</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pre-flight Print Checks */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
+                  <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Kiểm tra chuẩn in (Pre-flight Checks)</span>
+                  </div>
+                  <div className="space-y-1.5 text-[10.5px]">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="text-neutral-300">Khổ bàn in (220×220×250mm):</span>
+                      <span className={`ml-auto font-medium ${isWithinStandardPrintBed ? 'text-emerald-300' : 'text-amber-300'}`}>
+                        {isWithinStandardPrintBed ? 'Đạt' : 'Vượt khổ'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="text-neutral-300">Tính kín nước (Manifold):</span>
+                      <span className="ml-auto text-emerald-300 font-medium">100% Watertight</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isSupportActive ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span className="text-neutral-300">Điểm tựa góc nghiêng:</span>
+                          <span className="ml-auto text-emerald-300 font-medium">Đã có Cột đỡ ({supportType === 'tree' ? 'Tree' : 'Lattice'})</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span className="text-neutral-300">Điểm tựa góc nghiêng:</span>
+                          <span className="ml-auto text-amber-400 font-medium">Cảnh báo: Rơi sợi nhựa!</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {stabilityScore >= 75 ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      )}
+                      <span className="text-neutral-300">Độ vững cơ học chống lật:</span>
+                      <span className={`ml-auto font-medium ${stabilityScore >= 90 ? 'text-emerald-300' : stabilityScore >= 75 ? 'text-cyan-300' : 'text-amber-300'}`}>
+                        {stabilityScore >= 90 ? 'Xuất sắc (Chống lật 98%)' : stabilityScore >= 75 ? 'Đạt chuẩn (80%)' : 'Nguy cơ lật (42%)'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {rightTab === 'Property' && (
+              <div className="w-full flex flex-col gap-3 text-left">
+                {/* Model Overview Card */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center text-cyan-300">
+                      <Box className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="overflow-hidden">
+                      <div className="text-xs font-semibold text-white truncate">
+                        {activeModelMesh?.name || 'Mô hình 3D Hiện tại'}
+                      </div>
+                      <div className="text-[10px] text-neutral-400">
+                        {activeModelMesh ? 'AI Generated GLB' : 'Procedural Mesh Preview'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Topology Specifications */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
+                  <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Thông số lưới hình học (Topology)</span>
+                  </div>
+                  <div className="space-y-2 text-[11px]">
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span className="text-neutral-400">Số mặt (Polygons / Triangles):</span>
+                      <span className="font-semibold text-white font-mono">
+                        {faceCount === '1.5M' ? '1,500,000 tris' : faceCount === '1M' ? '1,000,000 tris' : faceCount === '500k' ? '500,000 tris' : '50,000 tris'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span className="text-neutral-400">Số đỉnh (Vertices):</span>
+                      <span className="font-semibold text-white font-mono">
+                        {faceCount === '1.5M' ? '~750,000' : faceCount === '1M' ? '~500,000' : faceCount === '500k' ? '~250,000' : '~25,000'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span className="text-neutral-400">Mức độ chi tiết:</span>
+                      <span className="font-semibold text-cyan-300 capitalize">{faceCount}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span className="text-neutral-400">Vật liệu & Texture:</span>
+                      <span className="font-semibold text-white">{shouldTexture ? 'PBR Texture Có màu' : 'Đơn sắc (Clay Solid)'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Physical Dimensions & Volume */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
+                  <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                    <Scale className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Kích thước & Thể tích vật lý</span>
+                  </div>
+                  <div className="space-y-2 text-[11px]">
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span className="text-neutral-400">Hộp bao (X × Y × Z):</span>
+                      <span className="font-semibold text-white font-mono">
+                        {dimensions.x} × {dimensions.y} × {dimensions.z} mm
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span className="text-neutral-400">Tỷ lệ Scale:</span>
+                      <span className="font-semibold text-white font-mono">{scalePercent}%</span>
+                    </div>
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span className="text-neutral-400">Thể tích vật thể:</span>
+                      <span className="font-semibold text-white font-mono">{volumeCm3.toLocaleString()} cm³</span>
+                    </div>
+                    <div className="flex justify-between items-center text-neutral-300">
+                      <span className="text-neutral-400">Khối lượng ước tính:</span>
+                      <span className="font-semibold text-white font-mono">{estimatedGrams} g (PLA)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3D Printing Recommendations */}
+                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
+                  <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                    <Flame className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Khuyến nghị thông số máy in</span>
+                  </div>
+                  <div className="space-y-1.5 text-[10.5px]">
+                    <div className="flex justify-between text-neutral-300">
+                      <span className="text-neutral-400">Nhiệt độ đầu phun (Nozzle):</span>
+                      <span className="font-mono text-white">200°C - 215°C</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-300">
+                      <span className="text-neutral-400">Nhiệt độ bàn nhiệt (Bed):</span>
+                      <span className="font-mono text-white">55°C - 60°C</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-300">
+                      <span className="text-neutral-400">Tốc độ in khuyên dùng:</span>
+                      <span className="font-mono text-white">50 - 150 mm/s</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-300">
+                      <span className="text-neutral-400">Định dạng file xuất:</span>
+                      <span className="font-mono text-cyan-300">STL / GLB / OBJ</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>

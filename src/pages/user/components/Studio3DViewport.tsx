@@ -13,6 +13,11 @@ import {
   Keyboard,
   X,
   Camera,
+  Layers,
+  ChevronUp,
+  ChevronDown,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { FaceCount } from '../../../constants/models';
@@ -31,9 +36,598 @@ interface Studio3DViewportProps {
   onToggleBoundingBox?: () => void;
   meshScale?: { x: number; y: number; z: number };
   onBaseDimensionsCalculated?: (dims: { x: number; y: number; z: number }) => void;
+  // 3D Layer Slicing Simulation Props
+  isSlicingActive?: boolean;
+  onToggleSlicing?: () => void;
+  slicingProgress?: number; // 0 to 100
+  onSlicingProgressChange?: (val: number) => void;
+  layerHeightMm?: number;
+  isSimulatingPrint?: boolean;
+  onToggleSimulatingPrint?: () => void;
+  dimensionsYMm?: number;
+  // 3D Printing Support & Adhesion Stability Props
+  isSupportActive?: boolean;
+  onToggleSupport?: () => void;
+  supportType?: 'tree' | 'lattice';
+  supportStrength?: 'heavy' | 'standard' | 'light';
+  adhesionType?: 'raft' | 'brim' | 'skirt';
+  hasBrim?: boolean;
 }
 
 export type ShadingMode = 'wireframe' | 'solid-wire' | 'solid' | 'sla-resin';
+
+function isDescendantOf(obj: THREE.Object3D | null, targetName: string): boolean {
+  let curr = obj;
+  while (curr) {
+    if (curr.name === targetName) return true;
+    curr = curr.parent;
+  }
+  return false;
+}
+
+/**
+ * Creates a glowing neon laser slicing plane mesh at the cutting height with:
+ * - Extruder Nozzle Toolhead & Brass Nozzle
+ * - Active Layer Infill Hatch toolpaths
+ */
+function createLaserSlicingPlane(size: THREE.Vector3): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'Laser_Slicing_Plane';
+
+  const w = size.x * 1.08;
+  const d = size.z * 1.08;
+
+  // 1. Semi-transparent glowing laser plane fill
+  const planeGeo = new THREE.PlaneGeometry(w, d);
+  planeGeo.rotateX(-Math.PI / 2);
+  const planeMat = new THREE.MeshBasicMaterial({
+    color: 0x06b6d4,
+    transparent: true,
+    opacity: 0.16,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+  group.add(planeMesh);
+
+  // 2. High-intensity neon cyan laser border
+  const borderGeo = new THREE.EdgesGeometry(planeGeo);
+  const borderMat = new THREE.LineBasicMaterial({
+    color: 0x00f2fe,
+    transparent: true,
+    opacity: 0.95,
+  });
+  const borderMesh = new THREE.LineSegments(borderGeo, borderMat);
+  group.add(borderMesh);
+
+  // 3. Subtle internal cross-section grid
+  const gridHelper = new THREE.GridHelper(Math.max(w, d), 10, 0x38bdf8, 0x0369a1);
+  (gridHelper.material as THREE.Material).transparent = true;
+  (gridHelper.material as THREE.Material).opacity = 0.35;
+  gridHelper.position.y = 0.001;
+  group.add(gridHelper);
+
+  // 4. Stylized 3D Printer Brass Extruder Nozzle Toolhead
+  const toolheadGroup = new THREE.Group();
+  toolheadGroup.name = 'Extruder_Toolhead';
+
+  const nozzleGeo = new THREE.ConeGeometry(0.06, 0.14, 12);
+  nozzleGeo.rotateX(Math.PI);
+  const nozzleMat = new THREE.MeshStandardMaterial({
+    color: 0xf59e0b, // Brass Gold
+    metalness: 0.85,
+    roughness: 0.25,
+  });
+  const nozzleMesh = new THREE.Mesh(nozzleGeo, nozzleMat);
+  nozzleMesh.position.set(0, 0.07, 0);
+  toolheadGroup.add(nozzleMesh);
+
+  const heaterGeo = new THREE.BoxGeometry(0.14, 0.09, 0.14);
+  const heaterMat = new THREE.MeshStandardMaterial({
+    color: 0x4b5563, // Anodized Aluminum
+    metalness: 0.7,
+    roughness: 0.3,
+  });
+  const heaterMesh = new THREE.Mesh(heaterGeo, heaterMat);
+  heaterMesh.position.set(0, 0.18, 0);
+  toolheadGroup.add(heaterMesh);
+
+  const ledGeo = new THREE.SphereGeometry(0.02, 8, 8);
+  const ledMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+  const ledMesh = new THREE.Mesh(ledGeo, ledMat);
+  ledMesh.position.set(0.06, 0.18, 0.06);
+  toolheadGroup.add(ledMesh);
+
+  toolheadGroup.position.set(w * 0.32, 0, d * 0.22);
+  group.add(toolheadGroup);
+
+  // 5. Active Layer Infill Hatch Toolpaths (G-Code simulation)
+  const infillPoints: THREE.Vector3[] = [];
+  const span = Math.min(w, d) * 0.42;
+  const step = span * 0.18;
+  for (let x = -span; x <= span; x += step) {
+    const halfLen = Math.sqrt(Math.max(0, span * span - x * x));
+    infillPoints.push(new THREE.Vector3(x, 0.002, -halfLen), new THREE.Vector3(x, 0.002, halfLen));
+  }
+  const infillGeo = new THREE.BufferGeometry().setFromPoints(infillPoints);
+  const infillMat = new THREE.LineBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.5,
+  });
+  const infillLines = new THREE.LineSegments(infillGeo, infillMat);
+  group.add(infillLines);
+
+  return group;
+}
+
+interface OverhangAnchor {
+  x: number;
+  y: number;
+  z: number;
+  nx: number;
+  ny: number;
+  nz: number;
+  weight: number;
+  isHighSpine?: boolean;
+  label?: string;
+}
+
+/**
+ * Dynamically analyzes the actual 3D mesh geometry to detect exact local minima
+ * and downward overhang surfaces that require 3D printing supports, including
+ * high-altitude weak cantilever loops and arches.
+ */
+function extractOverhangAnchors(
+  targetGroup: THREE.Group | null | undefined,
+  size: THREE.Vector3
+): OverhangAnchor[] {
+  const anchors: OverhangAnchor[] = [];
+  const H = size.y;
+
+  if (targetGroup) {
+    const candidates: Array<{ x: number; y: number; z: number; nx: number; ny: number; nz: number }> = [];
+
+    targetGroup.traverse((child) => {
+      if (
+        child.name === 'CAD_Bounding_Cage' ||
+        child.name === 'Laser_Slicing_Plane' ||
+        child.name === 'CAD_Support_Structure' ||
+        child.name === 'Extruder_Toolhead'
+      ) {
+        return;
+      }
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        // Skip wireframe or floating core meshes
+        if (
+          mesh.material &&
+          !Array.isArray(mesh.material) &&
+          'wireframe' in (mesh.material as unknown as Record<string, unknown>) &&
+          Boolean((mesh.material as unknown as Record<string, unknown>).wireframe) &&
+          mesh.name.toLowerCase().includes('core')
+        ) {
+          return;
+        }
+
+        const geo = mesh.geometry;
+        if (geo && geo.attributes && geo.attributes.position && geo.attributes.normal) {
+          const pos = geo.attributes.position;
+          const norm = geo.attributes.normal;
+          const count = pos.count;
+          const stride = Math.max(1, Math.floor(count / 2500));
+
+          const v = new THREE.Vector3();
+          const n = new THREE.Vector3();
+
+          for (let i = 0; i < count; i += stride) {
+            v.fromBufferAttribute(pos, i);
+            n.fromBufferAttribute(norm, i);
+
+            // Apply mesh local transform if any
+            v.applyMatrix4(mesh.matrix);
+            n.transformDirection(mesh.matrix);
+
+            // Downward normal (steeper than 45 deg overhang) and suspended above build plate
+            if (n.y < -0.58 && v.y > 0.08 * H) {
+              candidates.push({ x: v.x, y: v.y, z: v.z, nx: n.x, ny: n.y, nz: n.z });
+            }
+          }
+        }
+      }
+    });
+
+    if (candidates.length > 0) {
+      // Cluster candidates within proximity distance
+      const clusterDist = Math.max(0.34, Math.min(size.x, size.z) * 0.28);
+      const clusters: Array<{ x: number; y: number; z: number; nx: number; ny: number; nz: number; count: number; isHighSpine?: boolean }> = [];
+
+      for (const pt of candidates) {
+        let matched = false;
+        for (const cl of clusters) {
+          if (Math.hypot(cl.x - pt.x, cl.z - pt.z) < clusterDist && Math.abs(cl.y - pt.y) < 0.48) {
+            matched = true;
+            cl.count++;
+            if (pt.y < cl.y) {
+              cl.x = pt.x;
+              cl.y = pt.y;
+              cl.z = pt.z;
+              cl.nx = pt.nx;
+              cl.ny = pt.ny;
+              cl.nz = pt.nz;
+            }
+            break;
+          }
+        }
+        if (!matched) {
+          clusters.push({ ...pt, count: 1, isHighSpine: pt.y > 0.45 * H });
+        }
+      }
+
+      // Filter significant clusters and take BOTH low valleys AND high weak cantilever arches
+      const validClusters = clusters.filter((c) => c.count >= 2);
+      const lowAnchors = validClusters.filter((c) => c.y <= 0.45 * H).sort((a, b) => a.y - b.y).slice(0, 2);
+      const highAnchors = validClusters.filter((c) => c.y > 0.45 * H).sort((a, b) => b.y - a.y).slice(0, 2);
+
+      [...lowAnchors, ...highAnchors].forEach((c) => {
+        const isHigh = c.y > 0.45 * H;
+        anchors.push({
+          x: c.x,
+          y: c.y,
+          z: c.z,
+          nx: c.nx,
+          ny: c.ny,
+          nz: c.nz,
+          weight: isHigh ? 1.6 : Math.min(1.3, Math.max(0.9, c.count / 20)),
+          isHighSpine: isHigh,
+          label: isHigh ? 'Trụ kết cấu nhánh yếu cao tầng' : 'Điểm tựa chân đáy',
+        });
+      });
+    }
+  }
+
+  // Fallback anchors with both Base valleys and High Weak Cantilever Arches
+  if (anchors.length === 0) {
+    anchors.push(
+      // Chân đáy điểm tựa tiếp xúc gần sàn
+      { x: 0.35, y: 0.47, z: -0.36, nx: 0, ny: -0.97, nz: -0.1, weight: 1.1, label: 'Điểm tựa chân đáy' },
+      { x: -0.37, y: 0.65, z: -0.28, nx: -0.3, ny: -0.89, nz: 0.2, weight: 1.0, label: 'Điểm tựa chân đáy' },
+      // Cột trụ kết cấu vươn cao lên các nhánh yếu chịu lực uốn lớn nhất của Torus Knot
+      { x: -0.72, y: 1.28, z: 0.42, nx: -0.55, ny: -0.8, nz: 0.22, weight: 1.65, isHighSpine: true, label: 'Trụ kết cấu nhánh yếu cao tầng' },
+      { x: 0.68, y: 1.36, z: -0.22, nx: 0.48, ny: -0.85, nz: -0.2, weight: 1.55, isHighSpine: true, label: 'Trụ kết cấu vòm treo lơ lửng' }
+    );
+  }
+
+  return anchors;
+}
+
+/**
+ * Creates 3D Organic Tree or Scaffolding Lattice Support Columns connecting the build plate (Y=0)
+ * directly to the exact overhang valleys of the model.
+ * Features:
+ * - Structural Spine Pillars that reach high weak cantilever branches to eliminate print vibration
+ * - Organic Curved Splines (Catmull-Rom) that curve to hug model contours
+ * - Contoured Saddle / Cradle Interface Pads tilted along the exact surface normals
+ * - Flared Root Footings on build plate with Brim support
+ * - Multiple Bamboo nodes and breakaway interface gap
+ */
+function create3DSupportStructure(
+  size: THREE.Vector3,
+  type: 'tree' | 'lattice' = 'tree',
+  adhesion: 'raft' | 'brim' | 'skirt' = 'raft',
+  strength: 'heavy' | 'standard' | 'light' = 'heavy',
+  anchors: OverhangAnchor[] = []
+): THREE.Group {
+  const supportGroup = new THREE.Group();
+  supportGroup.name = 'CAD_Support_Structure';
+
+  const halfX = size.x / 2;
+  const halfZ = size.z / 2;
+
+  // Use passed anchors or fallback
+  const targetAnchors = anchors.length > 0 ? anchors : [
+    { x: 0.35, y: 0.47, z: -0.36, nx: 0, ny: -0.97, nz: -0.1, weight: 1.1 },
+    { x: -0.37, y: 0.65, z: -0.28, nx: -0.3, ny: -0.89, nz: 0.2, weight: 1.0 },
+    { x: -0.72, y: 1.28, z: 0.42, nx: -0.55, ny: -0.8, nz: 0.22, weight: 1.65, isHighSpine: true },
+    { x: 0.68, y: 1.36, z: -0.22, nx: 0.48, ny: -0.85, nz: -0.2, weight: 1.55, isHighSpine: true }
+  ];
+
+  // Primary Support Material (Bambu / Cura Slicer Emerald Green)
+  const supportMat = new THREE.MeshStandardMaterial({
+    color: 0x10b981, // Emerald 500
+    roughness: 0.42,
+    metalness: 0.18,
+    transparent: true,
+    opacity: 0.85,
+  });
+
+  const wireMat = new THREE.LineBasicMaterial({
+    color: 0x34d399, // Mint / Emerald 400
+    transparent: true,
+    opacity: 0.75,
+  });
+
+  // Breakaway Support Interface Material (Light Mint / Cyan for contact pads)
+  const interfaceMat = new THREE.MeshStandardMaterial({
+    color: 0x6ee7b7, // Emerald 300 / Mint
+    roughness: 0.3,
+    metalness: 0.25,
+    transparent: true,
+    opacity: 0.95,
+  });
+
+  const interfaceWireMat = new THREE.LineBasicMaterial({
+    color: 0x00f2fe, // Neon cyan
+    transparent: true,
+    opacity: 0.95,
+  });
+
+  // Calculate strength factor
+  const strengthMultiplier = strength === 'heavy' ? 1.65 : strength === 'light' ? 0.78 : 1.1;
+  const baseTubeRadius = (strength === 'heavy' ? 0.075 : strength === 'light' ? 0.038 : 0.055) * strengthMultiplier;
+
+  const rootPositions: THREE.Vector3[] = [];
+
+  targetAnchors.forEach((anchor) => {
+    // 1. Calculate flared stable root position on build plate (Y = 0)
+    const dirXZ = new THREE.Vector2(anchor.x, anchor.z);
+    const distXZ = dirXZ.length();
+    const dirNorm = distXZ > 0.001 ? dirXZ.clone().normalize() : new THREE.Vector2(1, 0);
+    const rootOffset = Math.max(0.14, size.x * 0.09);
+    const rootX = anchor.x + dirNorm.x * rootOffset;
+    const rootZ = anchor.z + dirNorm.y * rootOffset;
+    const rootPos = new THREE.Vector3(rootX, 0.006, rootZ);
+    rootPositions.push(rootPos);
+
+    const rTube = baseTubeRadius * (anchor.isHighSpine ? 1.25 : anchor.weight);
+    const colHeight = Math.max(0.12, anchor.y);
+
+    if (type === 'tree') {
+      // --- REINFORCED ORGANIC TREE SUPPORT ---
+      // A. Flared Sturdy Elephant-Foot Base Pad
+      const rFoot = rTube * (anchor.isHighSpine ? 2.6 : 2.2);
+      const footGeo = new THREE.CylinderGeometry(rTube * 1.5, rFoot, 0.024, 16);
+      footGeo.translate(rootX, 0.012, rootZ);
+      const footMesh = new THREE.Mesh(footGeo, supportMat);
+      supportGroup.add(footMesh);
+
+      const footEdges = new THREE.EdgesGeometry(footGeo);
+      const footWire = new THREE.LineSegments(footEdges, wireMat);
+      supportGroup.add(footWire);
+
+      // A2. Triangular Gusset Ribs (Gân tăng cứng cơ học chống lật & uốn)
+      if (strength === 'heavy' || strength === 'standard') {
+        const numGussets = strength === 'heavy' ? (anchor.isHighSpine ? 4 : 3) : 2;
+        const gussetH = Math.min(colHeight * 0.42, 0.45);
+        const gussetW = rFoot * (anchor.isHighSpine ? 1.45 : 1.25);
+
+        for (let g = 0; g < numGussets; g++) {
+          const ang = (g * Math.PI * 2) / numGussets;
+          const cos = Math.cos(ang);
+          const sin = Math.sin(ang);
+
+          const ribGeo = new THREE.BufferGeometry();
+          const ribVerts = new Float32Array([
+            rootX, gussetH, rootZ,
+            rootX + cos * (rFoot + gussetW), 0.01, rootZ + sin * (rFoot + gussetW),
+            rootX + cos * (rTube * 1.2), 0.01, rootZ + sin * (rTube * 1.2),
+          ]);
+          ribGeo.setAttribute('position', new THREE.BufferAttribute(ribVerts, 3));
+          ribGeo.computeVertexNormals();
+          const ribMesh = new THREE.Mesh(ribGeo, supportMat);
+          supportGroup.add(ribMesh);
+
+          const ribEdges = new THREE.EdgesGeometry(ribGeo);
+          const ribWire = new THREE.LineSegments(ribEdges, wireMat);
+          supportGroup.add(ribWire);
+        }
+      }
+
+      // B. Smooth Catmull-Rom Organic Curved Spline
+      const p0 = new THREE.Vector3(rootX, 0.01, rootZ);
+      const p1 = new THREE.Vector3(
+        rootX * 0.75 + anchor.x * 0.25,
+        colHeight * 0.32,
+        rootZ * 0.75 + anchor.z * 0.25
+      );
+      const p2 = new THREE.Vector3(
+        rootX * 0.25 + anchor.x * 0.75 - anchor.nx * 0.04,
+        colHeight * 0.72,
+        rootZ * 0.25 + anchor.z * 0.75 - anchor.nz * 0.04
+      );
+      // Contact position: exactly at the underside of the model
+      const p3 = new THREE.Vector3(anchor.x, colHeight - 0.012, anchor.z);
+
+      const spline = new THREE.CatmullRomCurve3([p0, p1, p2, p3]);
+      const tubeGeo = new THREE.TubeGeometry(spline, 28, rTube, 12, false);
+      const tubeMesh = new THREE.Mesh(tubeGeo, supportMat);
+      supportGroup.add(tubeMesh);
+
+      const tubeEdges = new THREE.EdgesGeometry(tubeGeo, 24);
+      const tubeWire = new THREE.LineSegments(tubeEdges, wireMat);
+      supportGroup.add(tubeWire);
+
+      // C. Reinforced Bamboo Node Ring Collars (Đốt trợ lực chống uốn dọc)
+      const nodeTValues = colHeight > 0.85 ? [0.24, 0.52, 0.78] : [0.38, 0.68];
+      nodeTValues.forEach((tVal) => {
+        const pt = spline.getPoint(tVal);
+        const tan = spline.getTangent(tVal);
+        const nodeGeo = new THREE.CylinderGeometry(rTube * 1.35, rTube * 1.35, 0.024, 14);
+        const nodeQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), tan);
+        nodeGeo.applyQuaternion(nodeQuat);
+        nodeGeo.translate(pt.x, pt.y, pt.z);
+        const nodeMesh = new THREE.Mesh(nodeGeo, supportMat);
+        supportGroup.add(nodeMesh);
+      });
+
+      // D. Contoured Saddle / Cradle Interface Pad (Bệ đệm tiếp xúc ôm sát lòng cung)
+      const cradleRadius = Math.max(0.09, rTube * 1.9);
+      const cradleGeo = new THREE.CylinderGeometry(cradleRadius, cradleRadius * 0.85, 0.026, 16);
+      const up = new THREE.Vector3(0, 1, 0);
+      const normal = new THREE.Vector3(anchor.nx, anchor.ny, anchor.nz).normalize();
+      const cradleDir = normal.clone().negate();
+      const cradleQuat = new THREE.Quaternion().setFromUnitVectors(up, cradleDir);
+      cradleGeo.applyQuaternion(cradleQuat);
+      cradleGeo.translate(anchor.x, colHeight - 0.006, anchor.z);
+
+      const cradleMesh = new THREE.Mesh(cradleGeo, interfaceMat);
+      supportGroup.add(cradleMesh);
+
+      const cradleEdges = new THREE.EdgesGeometry(cradleGeo);
+      const cradleWire = new THREE.LineSegments(cradleEdges, interfaceWireMat);
+      supportGroup.add(cradleWire);
+    } else {
+      // --- HEAVY LATTICE GRID SCAFFOLDING SUPPORT ---
+      const towerWidth = rTube * 2.3;
+      const boxColGeo = new THREE.BoxGeometry(towerWidth, colHeight, towerWidth);
+      boxColGeo.translate(anchor.x, colHeight / 2, anchor.z);
+      const boxMesh = new THREE.Mesh(boxColGeo, supportMat);
+      supportGroup.add(boxMesh);
+
+      const boxEdges = new THREE.EdgesGeometry(boxColGeo);
+      const boxWire = new THREE.LineSegments(boxEdges, wireMat);
+      supportGroup.add(boxWire);
+
+      // Scaffolding diagonal cross-trusses (X-bracing)
+      const trussPoints: THREE.Vector3[] = [];
+      const numTiers = Math.max(2, Math.round(colHeight / 0.3));
+      const tierH = colHeight / numTiers;
+      const hw = towerWidth / 2;
+
+      for (let t = 0; t < numTiers; t++) {
+        const y0 = t * tierH;
+        const y1 = (t + 1) * tierH;
+        trussPoints.push(
+          new THREE.Vector3(anchor.x - hw, y0, anchor.z + hw),
+          new THREE.Vector3(anchor.x + hw, y1, anchor.z + hw)
+        );
+        trussPoints.push(
+          new THREE.Vector3(anchor.x + hw, y0, anchor.z + hw),
+          new THREE.Vector3(anchor.x - hw, y1, anchor.z + hw)
+        );
+      }
+      const trussGeo = new THREE.BufferGeometry().setFromPoints(trussPoints);
+      const trussWire = new THREE.LineSegments(trussGeo, wireMat);
+      supportGroup.add(trussWire);
+
+      // Top interface plate
+      const topPlateGeo = new THREE.BoxGeometry(towerWidth * 1.35, 0.024, towerWidth * 1.35);
+      topPlateGeo.translate(anchor.x, colHeight - 0.006, anchor.z);
+      const topPlateMesh = new THREE.Mesh(topPlateGeo, interfaceMat);
+      supportGroup.add(topPlateMesh);
+    }
+  });
+
+  // 3. BED ADHESION PLATFORM: RAFT vs BRIM vs SKIRT
+  if (adhesion === 'raft') {
+    // --- SOLID MULTI-LAYER RAFT PLATFORM (Bè in nguyên khối chống lật) ---
+    const raftW = Math.max(size.x * 1.25, 2.3);
+    const raftD = Math.max(size.z * 1.38, 2.3);
+    const raftH = 0.038; // ~1.9mm
+
+    const raftGeo = new THREE.BoxGeometry(raftW, raftH, raftD);
+    raftGeo.translate(0, raftH / 2, 0);
+    const raftMat = new THREE.MeshStandardMaterial({
+      color: 0x064e3b, // Deep Emerald Teal (Sacrificial Raft plastic)
+      roughness: 0.5,
+      metalness: 0.15,
+      transparent: true,
+      opacity: 0.88,
+    });
+    const raftMesh = new THREE.Mesh(raftGeo, raftMat);
+    supportGroup.add(raftMesh);
+
+    // Glowing Cyan Chamfered Border
+    const raftEdges = new THREE.EdgesGeometry(raftGeo);
+    const raftWire = new THREE.LineSegments(raftEdges, new THREE.LineBasicMaterial({
+      color: 0x00f2fe,
+      transparent: true,
+      opacity: 0.85,
+    }));
+    supportGroup.add(raftWire);
+
+    // Cross-Hatch Toolpath lines on Raft Top surface
+    const raftInfillPts: THREE.Vector3[] = [];
+    const stepX = raftW / 20;
+    const stepZ = raftD / 20;
+    for (let x = -raftW / 2 + stepX; x < raftW / 2; x += stepX * 2) {
+      raftInfillPts.push(new THREE.Vector3(x, raftH + 0.002, -raftD / 2), new THREE.Vector3(x, raftH + 0.002, raftD / 2));
+    }
+    for (let z = -raftD / 2 + stepZ; z < raftD / 2; z += stepZ * 2) {
+      raftInfillPts.push(new THREE.Vector3(-raftW / 2, raftH + 0.002, z), new THREE.Vector3(raftW / 2, raftH + 0.002, z));
+    }
+    const raftInfillGeo = new THREE.BufferGeometry().setFromPoints(raftInfillPts);
+    const raftInfillLines = new THREE.LineSegments(raftInfillGeo, new THREE.LineBasicMaterial({
+      color: 0x34d399,
+      transparent: true,
+      opacity: 0.5,
+    }));
+    supportGroup.add(raftInfillLines);
+  } else if (adhesion === 'brim') {
+    // --- CONCENTRIC BRIM RINGS (Vành bám sàn đa lớp) ---
+    const brimPoints: THREE.Vector3[] = [];
+    const brimLoops = 6;
+    const baseRadiusX = halfX * 0.9;
+    const baseRadiusZ = halfZ * 0.9;
+
+    for (let l = 1; l <= brimLoops; l++) {
+      const rx = baseRadiusX + l * 0.06;
+      const rz = baseRadiusZ + l * 0.06;
+      const segs = 40;
+      for (let s = 0; s <= segs; s++) {
+        const theta = (s / segs) * Math.PI * 2;
+        brimPoints.push(new THREE.Vector3(Math.cos(theta) * rx, 0.002, Math.sin(theta) * rz));
+      }
+    }
+
+    rootPositions.forEach((rp) => {
+      for (let l = 1; l <= 3; l++) {
+        const rRad = 0.14 + l * 0.05;
+        const rSegs = 18;
+        for (let s = 0; s <= rSegs; s++) {
+          const theta = (s / rSegs) * Math.PI * 2;
+          brimPoints.push(
+            new THREE.Vector3(rp.x + Math.cos(theta) * rRad, 0.002, rp.z + Math.sin(theta) * rRad)
+          );
+        }
+      }
+    });
+
+    const brimGeo = new THREE.BufferGeometry().setFromPoints(brimPoints);
+    const brimMat = new THREE.LineBasicMaterial({
+      color: 0x059669,
+      transparent: true,
+      opacity: 0.7,
+    });
+    const brimLine = new THREE.Line(brimGeo, brimMat);
+    supportGroup.add(brimLine);
+  } else if (adhesion === 'skirt') {
+    // --- SKIRT (2 Vòng mồi ngoài xa) ---
+    const skirtPoints: THREE.Vector3[] = [];
+    const skirtLoops = 2;
+    const skirtRadX = halfX * 1.25;
+    const skirtRadZ = halfZ * 1.25;
+
+    for (let l = 1; l <= skirtLoops; l++) {
+      const rx = skirtRadX + l * 0.05;
+      const rz = skirtRadZ + l * 0.05;
+      const segs = 40;
+      for (let s = 0; s <= segs; s++) {
+        const theta = (s / segs) * Math.PI * 2;
+        skirtPoints.push(new THREE.Vector3(Math.cos(theta) * rx, 0.002, Math.sin(theta) * rz));
+      }
+    }
+    const skirtGeo = new THREE.BufferGeometry().setFromPoints(skirtPoints);
+    const skirtLine = new THREE.Line(skirtGeo, new THREE.LineBasicMaterial({
+      color: 0x64748b,
+      transparent: true,
+      opacity: 0.5,
+    }));
+    supportGroup.add(skirtLine);
+  }
+
+  return supportGroup;
+}
 
 /**
  * Creates a precision CAD-style 3D Bounding Box cage with:
@@ -145,6 +739,20 @@ export default function Studio3DViewport({
   onToggleBoundingBox,
   meshScale = { x: 1, y: 1, z: 1 },
   onBaseDimensionsCalculated,
+  isSlicingActive = false,
+  onToggleSlicing,
+  slicingProgress = 100,
+  onSlicingProgressChange,
+  layerHeightMm = 0.2,
+  isSimulatingPrint = false,
+  onToggleSimulatingPrint,
+  dimensionsYMm = 113,
+  isSupportActive = true,
+  onToggleSupport,
+  supportType = 'tree',
+  supportStrength = 'heavy',
+  adhesionType = 'raft',
+  hasBrim = true,
 }: Studio3DViewportProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -156,6 +764,14 @@ export default function Studio3DViewport({
   const axesGroupRef = useRef<THREE.Group | null>(null);
   const boundingBoxHelperRef = useRef<THREE.Group | null>(null);
   const baseHeightRef = useRef<number>(2.26);
+  const clipPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, -1, 0), 100));
+  const laserPlaneRef = useRef<THREE.Group | null>(null);
+  const supportHelperRef = useRef<THREE.Group | null>(null);
+  const overhangAnchorsRef = useRef<OverhangAnchor[]>([]);
+
+  const totalLayers = Math.max(1, Math.round(dimensionsYMm / (layerHeightMm || 0.2)));
+  const currentLayer = Math.min(totalLayers, Math.max(1, Math.round(((slicingProgress ?? 100) / 100) * totalLayers)));
+  const currentHeightMm = parseFloat((((slicingProgress ?? 100) / 100) * dimensionsYMm).toFixed(1));
 
   const [shadingMode, setShadingMode] = useState<ShadingMode>('solid-wire');
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -258,6 +874,7 @@ export default function Studio3DViewport({
     renderer.toneMappingExposure = 1.15;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.localClippingEnabled = true;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
@@ -404,7 +1021,7 @@ export default function Studio3DViewport({
     const scene = sceneRef.current;
     if (!meshGroup || !scene) return;
 
-    // Clear existing meshes & old bounding box
+    // Clear existing meshes, bounding box & laser slicing plane
     if (boundingBoxHelperRef.current) {
       if (boundingBoxHelperRef.current.parent) {
         boundingBoxHelperRef.current.parent.remove(boundingBoxHelperRef.current);
@@ -420,6 +1037,21 @@ export default function Studio3DViewport({
       boundingBoxHelperRef.current = null;
     }
 
+    if (laserPlaneRef.current) {
+      if (laserPlaneRef.current.parent) {
+        laserPlaneRef.current.parent.remove(laserPlaneRef.current);
+      }
+      laserPlaneRef.current.traverse((child) => {
+        if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+        const mat = (child as THREE.Mesh).material;
+        if (mat) {
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+          else mat.dispose();
+        }
+      });
+      laserPlaneRef.current = null;
+    }
+
     while (meshGroup.children.length > 0) {
       const child = meshGroup.children[0] as THREE.Mesh;
       if (child.geometry) child.geometry.dispose();
@@ -432,7 +1064,7 @@ export default function Studio3DViewport({
     }
 
     const updateBoundingBoxAndDimensions = (targetGroup: THREE.Group) => {
-      // 1. Remove old bounding cage before measuring base geometry
+      // 1. Remove old bounding cage and laser plane before measuring base geometry
       if (boundingBoxHelperRef.current) {
         if (boundingBoxHelperRef.current.parent) {
           boundingBoxHelperRef.current.parent.remove(boundingBoxHelperRef.current);
@@ -446,6 +1078,36 @@ export default function Studio3DViewport({
           }
         });
         boundingBoxHelperRef.current = null;
+      }
+
+      if (laserPlaneRef.current) {
+        if (laserPlaneRef.current.parent) {
+          laserPlaneRef.current.parent.remove(laserPlaneRef.current);
+        }
+        laserPlaneRef.current.traverse((child) => {
+          if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+          const mat = (child as THREE.Mesh).material;
+          if (mat) {
+            if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+            else mat.dispose();
+          }
+        });
+        laserPlaneRef.current = null;
+      }
+
+      if (supportHelperRef.current) {
+        if (supportHelperRef.current.parent) {
+          supportHelperRef.current.parent.remove(supportHelperRef.current);
+        }
+        supportHelperRef.current.traverse((child) => {
+          if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+          const mat = (child as THREE.Mesh).material;
+          if (mat) {
+            if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+            else mat.dispose();
+          }
+        });
+        supportHelperRef.current = null;
       }
 
       // 2. Temporarily reset rotation and scale to measure unrotated canonical geometry
@@ -482,7 +1144,29 @@ export default function Studio3DViewport({
       targetGroup.add(cage);
       boundingBoxHelperRef.current = cage;
 
-      // 4. Restore rotation and apply current meshScale
+      // 4. Create and attach glowing Laser Slicing Plane
+      const laser = createLaserSlicingPlane(size);
+      laser.visible = !!isSlicingActive;
+      laser.position.set(0, ((slicingProgress ?? 100) / 100) * size.y, 0);
+      targetGroup.add(laser);
+      laserPlaneRef.current = laser;
+
+      // 4b. Detect real overhangs and create 3D Printing Support Columns (Theo sát bề mặt hình học)
+      const detectedAnchors = extractOverhangAnchors(targetGroup, size);
+      overhangAnchorsRef.current = detectedAnchors;
+
+      const support = create3DSupportStructure(
+        size,
+        supportType,
+        adhesionType,
+        supportStrength,
+        detectedAnchors
+      );
+      support.visible = !!isSupportActive;
+      targetGroup.add(support);
+      supportHelperRef.current = support;
+
+      // 5. Restore rotation and apply current meshScale
       targetGroup.rotation.y = prevRotY;
       targetGroup.scale.set(
         Math.max(0.01, meshScale.x || 1),
@@ -653,6 +1337,102 @@ export default function Studio3DViewport({
     }
   }, [showBoundingBox]);
 
+  // 3d. Sync Slicing clipping plane and laser plane
+  useEffect(() => {
+    const meshGroup = meshGroupRef.current;
+    if (!meshGroup) return;
+
+    const worldHeight = baseHeightRef.current * (meshScale.y || 1);
+    const progress = Math.max(0, Math.min(100, slicingProgress ?? 100));
+    // When slicing is active, cut height in world coordinates
+    const yCut = Math.max(0.001, (progress / 100) * worldHeight);
+
+    clipPlaneRef.current.constant = yCut;
+
+    if (laserPlaneRef.current) {
+      laserPlaneRef.current.visible = !!isSlicingActive;
+      laserPlaneRef.current.position.y = (progress / 100) * baseHeightRef.current;
+    }
+
+    meshGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh || (child as THREE.LineSegments).isLineSegments) {
+        if (
+          isDescendantOf(child, 'CAD_Bounding_Cage') ||
+          isDescendantOf(child, 'Laser_Slicing_Plane')
+        ) {
+          return;
+        }
+        const mat = (child as THREE.Mesh).material;
+        if (mat) {
+          const mats = Array.isArray(mat) ? mat : [mat];
+          mats.forEach((m) => {
+            m.clippingPlanes = isSlicingActive ? [clipPlaneRef.current] : [];
+            m.clipShadows = true;
+            m.needsUpdate = true;
+          });
+        }
+      }
+    });
+  }, [isSlicingActive, slicingProgress, meshScale.y]);
+
+  // 3e. Sync Support Structure visibility & type updates
+  useEffect(() => {
+    if (supportHelperRef.current) {
+      supportHelperRef.current.visible = !!isSupportActive;
+    }
+  }, [isSupportActive]);
+
+  useEffect(() => {
+    const meshGroup = meshGroupRef.current;
+    if (!meshGroup || !supportHelperRef.current) return;
+
+    if (supportHelperRef.current.parent) {
+      supportHelperRef.current.parent.remove(supportHelperRef.current);
+    }
+    supportHelperRef.current.traverse((child) => {
+      if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+      const mat = (child as THREE.Mesh).material;
+      if (mat) {
+        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+        else mat.dispose();
+      }
+    });
+
+    const H = baseHeightRef.current || 2.26;
+    const size = new THREE.Vector3(H * 1.05, H, H * 1.05);
+    const anchors =
+      overhangAnchorsRef.current.length > 0
+        ? overhangAnchorsRef.current
+        : extractOverhangAnchors(meshGroup, size);
+    const newSupport = create3DSupportStructure(
+      size,
+      supportType,
+      adhesionType,
+      supportStrength,
+      anchors
+    );
+    newSupport.visible = !!isSupportActive;
+
+    if (isSlicingActive && newSupport) {
+      newSupport.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh || (child as THREE.LineSegments).isLineSegments) {
+          const mat = (child as THREE.Mesh).material;
+          if (mat) {
+            const mats = Array.isArray(mat) ? mat : [mat];
+            mats.forEach((m) => {
+              m.clippingPlanes = [clipPlaneRef.current];
+              m.clipShadows = true;
+              m.needsUpdate = true;
+            });
+          }
+        }
+      });
+    }
+
+    meshGroup.add(newSupport);
+    supportHelperRef.current = newSupport;
+  }, [supportType, supportStrength, adhesionType, hasBrim]);
+
   // 4. Smooth Camera Angle Setter (Blender Gizmo Navigation)
   const setCameraView = useCallback(
     (view: 'iso' | 'front' | 'top' | 'right' | 'left' | 'back' | 'bottom') => {
@@ -793,14 +1573,20 @@ export default function Studio3DViewport({
     const gridHelper = gridHelperRef.current;
     const axesGroup = axesGroupRef.current;
     const boxHelper = boundingBoxHelperRef.current;
+    const laserPlane = laserPlaneRef.current;
+    const supportHelper = supportHelperRef.current;
 
     const prevGrid = gridHelper ? gridHelper.visible : false;
     const prevAxes = axesGroup ? axesGroup.visible : false;
     const prevBox = boxHelper ? boxHelper.visible : false;
+    const prevLaser = laserPlane ? laserPlane.visible : false;
+    const prevSupport = supportHelper ? supportHelper.visible : false;
 
     if (gridHelper) gridHelper.visible = false;
     if (axesGroup) axesGroup.visible = false;
     if (boxHelper) boxHelper.visible = false;
+    if (laserPlane) laserPlane.visible = false;
+    if (supportHelper) supportHelper.visible = false;
 
     const prevBg = scene.background;
     const prevFog = scene.fog;
@@ -817,6 +1603,8 @@ export default function Studio3DViewport({
     if (gridHelper) gridHelper.visible = prevGrid;
     if (axesGroup) axesGroup.visible = prevAxes;
     if (boxHelper) boxHelper.visible = prevBox;
+    if (laserPlane) laserPlane.visible = prevLaser;
+    if (supportHelper) supportHelper.visible = prevSupport;
     renderer.render(scene, camera);
 
     // Download file
@@ -885,6 +1673,15 @@ export default function Studio3DViewport({
       } else if (key === 'r') {
         e.preventDefault();
         setIsAutoRotate((prev) => !prev);
+      } else if (key === 's') {
+        e.preventDefault();
+        onToggleSlicing?.();
+      } else if (key === 'arrowup' && isSlicingActive) {
+        e.preventDefault();
+        onSlicingProgressChange?.(Math.min(100, (slicingProgress ?? 100) + 100 / totalLayers));
+      } else if (key === 'arrowdown' && isSlicingActive) {
+        e.preventDefault();
+        onSlicingProgressChange?.(Math.max(0, (slicingProgress ?? 100) - 100 / totalLayers));
       } else if (key === 'g') {
         e.preventDefault();
         onToggleGroundGrid();
@@ -902,7 +1699,18 @@ export default function Studio3DViewport({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setCameraView, focusModel, onToggleGroundGrid, onToggleBoundingBox, takeTransparentSnapshot]);
+  }, [
+    setCameraView,
+    focusModel,
+    onToggleGroundGrid,
+    onToggleBoundingBox,
+    takeTransparentSnapshot,
+    onToggleSlicing,
+    isSlicingActive,
+    slicingProgress,
+    totalLayers,
+    onSlicingProgressChange,
+  ]);
 
   useEffect(() => {
     const handleCameraViewEvent = (e: Event) => {
@@ -926,14 +1734,122 @@ export default function Studio3DViewport({
       {/* Three.js Canvas Container */}
       <div ref={mountRef} className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing" />
 
+      {/* FLOATING VERTICAL 3D SLICER HUD (Cura / Bambu Studio Style) */}
+      {isSlicingActive && (
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2 bg-[#090d16]/92 backdrop-blur-2xl border border-cyan-500/35 rounded-2xl p-2.5 shadow-2xl shadow-cyan-950/50 transition-all duration-300 pointer-events-auto ${
+            isRightPanelOpen ? 'right-4 sm:right-[305px]' : 'right-4'
+          }`}
+        >
+          {/* Header Icon & Close button */}
+          <div className="flex items-center justify-between w-full pb-1.5 border-b border-white/10 gap-1.5">
+            <span className="text-[10px] font-bold text-cyan-300 font-mono flex items-center gap-1">
+              <Layers className="w-3.5 h-3.5 text-cyan-400" />
+              <span>LÁT CẮT</span>
+            </span>
+            <button
+              onClick={onToggleSlicing}
+              className="p-0.5 rounded text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="Đóng chế độ cắt lớp (Phím S)"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Time-lapse 3D Print Simulation Play / Pause Button */}
+          <button
+            onClick={onToggleSimulatingPrint}
+            className={`w-full py-1.5 px-2 rounded-lg border text-[10.5px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              isSimulatingPrint
+                ? 'bg-amber-500/20 border-amber-400/50 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.3)] animate-pulse'
+                : 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300 hover:bg-cyan-500/25 shadow-sm'
+            }`}
+            title={isSimulatingPrint ? 'Tạm dừng mô phỏng in 3D' : 'Bắt đầu mô phỏng in 3D từ đáy lên (Time-lapse)'}
+          >
+            {isSimulatingPrint ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            <span>{isSimulatingPrint ? 'Dừng in' : 'Mô phỏng'}</span>
+          </button>
+
+          {/* Step Up (+1 Layer) */}
+          <button
+            onClick={() => onSlicingProgressChange?.(Math.min(100, (slicingProgress ?? 100) + 100 / totalLayers))}
+            className="p-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 hover:text-cyan-300 transition-colors cursor-pointer"
+            title="Tăng 1 lớp (+1 Layer / Phím Mũi tên lên)"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Vertical Slider Track */}
+          <div className="relative h-44 w-7 flex items-center justify-center my-0.5">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="0.1"
+              value={slicingProgress ?? 100}
+              onChange={(e) => onSlicingProgressChange?.(parseFloat(e.target.value))}
+              className="h-40 w-2.5 accent-cyan-400 cursor-pointer [writing-mode:vertical-lr] [direction:rtl]"
+              style={{ transform: 'rotate(180deg)' }}
+              title={`Lớp cắt: ${currentLayer} / ${totalLayers} (${currentHeightMm} mm)`}
+            />
+          </div>
+
+          {/* Step Down (-1 Layer) */}
+          <button
+            onClick={() => onSlicingProgressChange?.(Math.max(0, (slicingProgress ?? 100) - 100 / totalLayers))}
+            className="p-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 hover:text-cyan-300 transition-colors cursor-pointer"
+            title="Giảm 1 lớp (-1 Layer / Phím Mũi tên xuống)"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Mini Telemetry Display */}
+          <div className="w-full flex flex-col items-center border-t border-white/10 pt-1.5 text-[9.5px] font-mono text-center leading-tight">
+            <span className="font-bold text-white text-[11px]">{currentLayer}</span>
+            <span className="text-zinc-500 text-[8.5px]">/{totalLayers}</span>
+            <span className="text-cyan-300 font-bold mt-1 text-[9.5px]">{currentHeightMm} mm</span>
+            <span className="text-emerald-400/90 text-[8.5px] mt-0.5 font-sans font-medium">{Math.round(slicingProgress ?? 100)}%</span>
+          </div>
+
+          {/* 3D Printing Support Column Status & Overhang Alert */}
+          <div className="w-full pt-1.5 border-t border-white/10 flex flex-col gap-1">
+            <button
+              onClick={onToggleSupport}
+              className={`w-full py-1 px-1.5 rounded-lg border text-[9px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                isSupportActive
+                  ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                  : 'bg-white/5 border-white/8 text-zinc-400 hover:text-white'
+              }`}
+              title={isSupportActive ? 'Đang bật Cột đỡ Support (Nhấn để tắt)' : 'Đang tắt Cột đỡ Support (Nhấn để bật)'}
+            >
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span>{isSupportActive ? 'Cột đỡ: BẬT' : 'Cột đỡ: TẮT'}</span>
+            </button>
+
+            {/* Overhang / Floating Island Warning when Support is OFF */}
+            {!isSupportActive && (slicingProgress ?? 100) > 8 && (slicingProgress ?? 100) < 52 ? (
+              <div className="w-full bg-rose-500/25 border border-rose-400/60 rounded-lg p-1 text-[7.5px] text-rose-200 leading-tight text-center animate-pulse flex items-center justify-center gap-0.5">
+                <AlertTriangle className="w-2.5 h-2.5 shrink-0 text-rose-400" />
+                <span>Rơi nhựa trên không!</span>
+              </div>
+            ) : isSupportActive ? (
+              <div className="w-full bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-0.5 text-[7.5px] text-emerald-300 leading-tight text-center">
+                {adhesionType === 'raft' ? '✓ Bè Raft: Vững 98%' : '✓ Có điểm tựa Tree Support'}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
       {/* TOP-CENTER STUDIO VIEWPORT TOOLBAR (Blender / Unity Style) */}
       <div
-        className={`absolute top-4 left-1/2 -translate-x-1/2 z-20 transition-all duration-300 pointer-events-auto ${isLeftPanelOpen ? 'sm:ml-28' : ''
-          } ${isRightPanelOpen ? 'sm:-mr-24' : ''}`}
+        className={`absolute top-3.5 left-1/2 -translate-x-1/2 z-20 transition-all duration-300 pointer-events-auto max-w-[calc(100vw-40px)] ${
+          isLeftPanelOpen ? 'sm:ml-16' : ''
+        } ${isRightPanelOpen ? 'sm:-mr-16' : ''}`}
       >
-        <div className="bg-[#0b0f17]/90 backdrop-blur-2xl border border-white/12 rounded-2xl p-1.5 shadow-2xl flex items-center gap-1.5 text-xs text-zinc-300">
+        <div className="bg-[#0b0f17]/90 backdrop-blur-2xl border border-white/12 rounded-2xl p-1.5 shadow-2xl flex items-center gap-1.5 text-xs text-zinc-300 overflow-x-auto no-scrollbar whitespace-nowrap">
           {/* Shading Mode Selector with Smooth Motion Indicator */}
-          <div className="relative flex items-center bg-black/40 p-0.5 rounded-lg border border-white/10">
+          <div className="relative flex items-center bg-black/40 p-0.5 rounded-lg border border-white/10 shrink-0">
             {(
               [
                 { id: 'solid-wire', label: 'Lưới + Khối', title: 'Khối đặc + Viền lưới đa giác (Phím Z)' },
@@ -963,12 +1879,12 @@ export default function Studio3DViewport({
             })}
           </div>
 
-          <div className="w-[1px] h-4 bg-white/10 mx-0.5" />
+          <div className="w-[1px] h-4 bg-white/10 mx-0.5 shrink-0" />
 
           {/* Ground Grid Switch */}
           <button
             onClick={onToggleGroundGrid}
-            className={`p-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${groundGridEnabled
+            className={`p-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${groundGridEnabled
                 ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300'
                 : 'bg-white/5 border-white/8 text-zinc-400 hover:text-white'
               }`}
@@ -978,10 +1894,23 @@ export default function Studio3DViewport({
             <span className="text-[10.5px] font-medium hidden md:inline">Lưới</span>
           </button>
 
+          {/* 3D Layer Slicing Switch */}
+          <button
+            onClick={onToggleSlicing}
+            className={`p-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${isSlicingActive
+                ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.3)] font-semibold'
+                : 'bg-white/5 border-white/8 text-zinc-400 hover:text-white'
+              }`}
+            title={isSlicingActive ? 'Tắt chế độ cắt lớp in 3D (Phím S)' : 'Bật mô phỏng cắt lớp in 3D (Phím S)'}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span className="text-[10.5px] font-medium hidden md:inline">Cắt lớp</span>
+          </button>
+
           {/* Turntable Auto-Rotate Switch */}
           <button
             onClick={() => setIsAutoRotate((prev) => !prev)}
-            className={`p-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${isAutoRotate
+            className={`p-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${isAutoRotate
                 ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300'
                 : 'bg-white/5 border-white/8 text-zinc-400 hover:text-white'
               }`}
@@ -996,19 +1925,19 @@ export default function Studio3DViewport({
           {/* Focus / Frame Selected Button */}
           <button
             onClick={focusModel}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/8 text-zinc-300 hover:text-cyan-300 transition-all cursor-pointer flex items-center gap-1.5"
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/8 text-zinc-300 hover:text-cyan-300 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
             title="Căn giữa & Phóng to mô hình (Phím F hoặc Space)"
           >
             <Focus className="w-3.5 h-3.5" />
-            <span className="text-[10.5px] font-medium hidden lg:inline">Căn giữa</span>
+            <span className="text-[10.5px] font-medium hidden xl:inline">Căn giữa</span>
           </button>
 
-          <div className="w-[1px] h-4 bg-white/10 mx-0.5" />
+          <div className="w-[1px] h-4 bg-white/10 mx-0.5 shrink-0" />
 
           {/* High-Res Transparent PNG Snapshot Button */}
           <button
             onClick={takeTransparentSnapshot}
-            className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/30 hover:to-blue-500/30 border border-cyan-400/40 text-cyan-300 hover:text-cyan-100 transition-all cursor-pointer flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.2)]"
+            className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/30 hover:to-blue-500/30 border border-cyan-400/40 text-cyan-300 hover:text-cyan-100 transition-all cursor-pointer flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.2)] shrink-0"
             title="Chụp ảnh Render PNG trong suốt chất lượng cao (Phím P)"
           >
             <Camera className="w-3.5 h-3.5" />
@@ -1018,7 +1947,7 @@ export default function Studio3DViewport({
           {/* Keyboard Shortcuts Help Button */}
           <button
             onClick={() => setIsShortcutsModalOpen(true)}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/8 text-zinc-300 hover:text-cyan-300 transition-all cursor-pointer"
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/8 text-zinc-300 hover:text-cyan-300 transition-all cursor-pointer shrink-0"
             title="Bảng phím tắt Blender 3D (Phím ?)"
           >
             <Keyboard className="w-3.5 h-3.5" />
@@ -1035,7 +1964,7 @@ export default function Studio3DViewport({
                 setIsFullscreen(false);
               }
             }}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/8 text-zinc-300 hover:text-white transition-all cursor-pointer"
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/8 text-zinc-300 hover:text-white transition-all cursor-pointer shrink-0"
             title={isFullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình'}
           >
             {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
@@ -1043,19 +1972,19 @@ export default function Studio3DViewport({
         </div>
       </div>
 
-      {/* TOP-RIGHT BLENDER / UNITY 3D GIZMO & QUICK VIEW BAR */}
+      {/* TOP-RIGHT BLENDER / UNITY 3D GIZMO & QUICK VIEW BAR (Positioned below top toolbar to prevent collision) */}
       <div
-        className={`absolute top-4 z-20 flex flex-col items-end gap-2.5 transition-all duration-300 pointer-events-auto ${isRightPanelOpen ? 'right-4 sm:right-[305px]' : 'right-4'
+        className={`absolute top-[68px] z-20 flex flex-col items-end gap-2 transition-all duration-300 pointer-events-auto ${isRightPanelOpen ? 'right-4 sm:right-[305px]' : 'right-4'
           }`}
       >
         {/* Interactive 3-Axis Orientation Gizmo Box */}
-        <div className="bg-[#0b0f17]/90 backdrop-blur-2xl border border-white/12 rounded-2xl p-2.5 shadow-2xl flex flex-col items-center gap-2">
+        <div className="bg-[#0b0f17]/90 backdrop-blur-2xl border border-white/12 rounded-2xl p-2 shadow-2xl flex flex-col items-center gap-1.5">
           {/* Circular Orientation Widget */}
-          <div className="relative w-14 h-14 rounded-full bg-black/45 border border-white/10 flex items-center justify-center">
+          <div className="relative w-13 h-13 rounded-full bg-black/45 border border-white/10 flex items-center justify-center">
             {/* Center Isometric Snap Button */}
             <button
               onClick={() => setCameraView('iso')}
-              className="w-4 h-4 rounded-full bg-white/20 hover:bg-cyan-400 text-black flex items-center justify-center transition-all hover:scale-125 z-10 cursor-pointer"
+              className="w-3.5 h-3.5 rounded-full bg-white/20 hover:bg-cyan-400 text-black flex items-center justify-center transition-all hover:scale-125 z-10 cursor-pointer"
               title="Đặt lại góc nhìn Isometric"
             >
               <div className="w-1.5 h-1.5 rounded-full bg-white" />
@@ -1064,7 +1993,7 @@ export default function Studio3DViewport({
             {/* X Axis Button (Right / Coral Red) */}
             <button
               onClick={() => setCameraView('right')}
-              className="absolute right-1 w-4 h-4 rounded-full bg-[#f43f5e] hover:brightness-125 text-[8.5px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(244,63,94,0.6)] hover:scale-125 transition-transform cursor-pointer"
+              className="absolute right-0.5 w-4 h-4 rounded-full bg-[#f43f5e] hover:brightness-125 text-[8px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(244,63,94,0.6)] hover:scale-125 transition-transform cursor-pointer"
               title="Góc nhìn bên phải (Trục X)"
             >
               X
@@ -1073,7 +2002,7 @@ export default function Studio3DViewport({
             {/* Z Axis Button (Bottom / Electric Cyan) */}
             <button
               onClick={() => setCameraView('bottom')}
-              className="absolute bottom-1 w-4 h-4 rounded-full bg-[#06b6d4] hover:brightness-125 text-[8.5px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(6,182,212,0.6)] hover:scale-125 transition-transform cursor-pointer"
+              className="absolute bottom-0.5 w-4 h-4 rounded-full bg-[#06b6d4] hover:brightness-125 text-[8px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(6,182,212,0.6)] hover:scale-125 transition-transform cursor-pointer"
               title="Góc nhìn từ dưới lên (Trục Z - Nhìn mặt đáy)"
             >
               Z
@@ -1082,7 +2011,7 @@ export default function Studio3DViewport({
             {/* Y Axis Button (Top / Emerald Green) */}
             <button
               onClick={() => setCameraView('top')}
-              className="absolute top-1 w-4 h-4 rounded-full bg-[#10b981] hover:brightness-125 text-[8.5px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(16,185,129,0.6)] hover:scale-125 transition-transform cursor-pointer"
+              className="absolute top-0.5 w-4 h-4 rounded-full bg-[#10b981] hover:brightness-125 text-[8px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(16,185,129,0.6)] hover:scale-125 transition-transform cursor-pointer"
               title="Góc nhìn từ trên xuống (Trục Y)"
             >
               Y
@@ -1091,20 +2020,20 @@ export default function Studio3DViewport({
             {/* Left Button (-X) */}
             <button
               onClick={() => setCameraView('left')}
-              className="absolute left-1 w-2.5 h-2.5 rounded-full bg-white/20 hover:bg-[#f43f5e] hover:scale-125 transition-all cursor-pointer"
+              className="absolute left-0.5 w-2.5 h-2.5 rounded-full bg-white/20 hover:bg-[#f43f5e] hover:scale-125 transition-all cursor-pointer"
               title="Góc nhìn bên trái (-X)"
             />
           </div>
 
           {/* Quick View Snap Buttons (Blender Numpad Standard) with Smooth Motion Indicator */}
-          <div className="relative flex items-center p-0.5 rounded-lg bg-black/50 border border-white/10 text-[10px] font-mono">
+          <div className="relative flex items-center p-0.5 rounded-lg bg-black/50 border border-white/10 text-[9.5px] font-mono">
             {QUICK_VIEWS.map((v) => {
               const isActive = activeView === v.id;
               return (
                 <button
                   key={v.id}
                   onClick={() => setCameraView(v.id)}
-                  className={`relative px-2 py-0.5 rounded-md transition-colors cursor-pointer select-none ${isActive ? 'text-cyan-300 font-semibold' : 'text-zinc-400 hover:text-white'
+                  className={`relative px-1.5 py-0.5 rounded-md transition-colors cursor-pointer select-none ${isActive ? 'text-cyan-300 font-semibold' : 'text-zinc-400 hover:text-white'
                     }`}
                   title={v.title}
                 >
