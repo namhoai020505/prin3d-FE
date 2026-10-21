@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useVTNavigate as useNavigate } from '../../../hooks/useVTNavigate';
 import { motion, useInView } from 'framer-motion';
 import { ArrowUpRight } from 'lucide-react';
 

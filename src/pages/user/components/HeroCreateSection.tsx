@@ -6,7 +6,7 @@ import {
   type DragEvent,
   type MouseEvent,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useVTNavigate as useNavigate } from '../../../hooks/useVTNavigate';
 import {
   Sparkles,
   Box,

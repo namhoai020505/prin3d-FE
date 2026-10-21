@@ -7,7 +7,7 @@ import {
   useCallback,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useVTNavigate as useNavigate } from '../../../hooks/useVTNavigate';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
   Search,

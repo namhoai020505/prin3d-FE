@@ -77,6 +77,7 @@ export default function MobileBottomNav() {
             <Link
               key={item.label}
               to={href}
+              viewTransition
               className={`flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD166] ${
                 isActive
                   ? 'text-[#E11D48] dark:text-[#FFD166]'

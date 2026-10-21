@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useVTNavigate as useNavigate } from '../../hooks/useVTNavigate';
 import {
   User as UserIcon,
   Sparkles,
@@ -160,7 +160,7 @@ export default function UserSidebar() {
                   type="button"
                   onClick={() => {
                     setIsAccountMenuOpen(false);
-                    navigate('/profile');
+                    navigate('/profile', { viewTransition: true });
                   }}
                   className="w-full px-3 py-2 rounded-lg hover:bg-white/10 text-left text-white/85 hover:text-white flex items-center justify-between cursor-pointer"
                 >
@@ -171,7 +171,7 @@ export default function UserSidebar() {
                   type="button"
                   onClick={() => {
                     setIsAccountMenuOpen(false);
-                    navigate('/my-bookings');
+                    navigate('/my-bookings', { viewTransition: true });
                   }}
                   className="w-full px-3 py-2 rounded-lg hover:bg-white/10 text-left text-white/85 hover:text-white flex items-center justify-between cursor-pointer"
                 >
@@ -182,7 +182,7 @@ export default function UserSidebar() {
                   type="button"
                   onClick={() => {
                     setIsAccountMenuOpen(false);
-                    navigate('/ticket-prices');
+                    navigate('/ticket-prices', { viewTransition: true });
                   }}
                   className="w-full px-3 py-2 rounded-lg hover:bg-white/10 text-left text-white/85 hover:text-white flex items-center justify-between cursor-pointer"
                 >

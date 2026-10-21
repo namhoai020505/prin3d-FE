@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { useVTNavigate as useNavigate } from '../../hooks/useVTNavigate';
 import { Globe } from 'lucide-react';
 import AboutSection from './footer/AboutSection';
 import FeaturedVideoSection from './footer/FeaturedVideoSection';
@@ -242,13 +243,13 @@ export default function Footer() {
             <span>© 2026 THE BOYS · Idea2Model (AI Image-to-3D &amp; 3D Printing)</span>
             <span>Hotline: 1900 1234</span>
             <span>studio@idea2model.com</span>
-            <Link to="/create" className="hover:text-[#7ef7e1] transition-colors">
+            <Link to="/create" viewTransition className="hover:text-[#7ef7e1] transition-colors">
               AI 3D Studio
             </Link>
-            <Link to="/profile" className="hover:text-[#7ef7e1] transition-colors">
+            <Link to="/profile" viewTransition className="hover:text-[#7ef7e1] transition-colors">
               Hồ sơ cá nhân
             </Link>
-            <Link to="/my-bookings" className="hover:text-[#7ef7e1] transition-colors">
+            <Link to="/my-bookings" viewTransition className="hover:text-[#7ef7e1] transition-colors">
               Đơn hàng &amp; Lịch sử in 3D
             </Link>
           </div>

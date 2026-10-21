@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import {
@@ -16,10 +16,16 @@ import {
   getRoleFromAccessToken,
   setAuthSession,
 } from '../../lib/auth';
-import loginBgVideo from '../../assets/videos/gemini_generated_video_2aa76173.mp4';
+import heroCharacterVideo from '../../assets/videos/hero_character.mp4';
+
+const TECH_3D_BG_VIDEO_URL =
+  'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260402_054547_9875cfc5-155a-4229-8ec8-b7ba7125cbf8.mp4';
 
 export default function Login() {
   const navigate = useNavigate();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoSource, setVideoSource] = useState<string>(TECH_3D_BG_VIDEO_URL);
+  const [isVideoReady, setIsVideoReady] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('open') === 'true' || params.get('auth') === '1';
@@ -34,6 +40,13 @@ export default function Login() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Auto-detect ready state on mount if video was already cached
+  useEffect(() => {
+    if (videoRef.current && videoRef.current.readyState >= 3) {
+      setIsVideoReady(true);
+    }
+  }, [videoSource]);
 
   // Close modal when pressing Escape key
   useEffect(() => {
@@ -75,10 +88,10 @@ export default function Login() {
         };
         setErrorMessage(
           error.response?.data?.detail ||
-            error.response?.data?.message ||
-            error.response?.data?.title ||
-            error.message ||
-            'Không thể gửi yêu cầu đặt lại mật khẩu.'
+          error.response?.data?.message ||
+          error.response?.data?.title ||
+          error.message ||
+          'Không thể gửi yêu cầu đặt lại mật khẩu.'
         );
       } finally {
         setIsLoading(false);
@@ -155,10 +168,10 @@ export default function Login() {
       };
       setErrorMessage(
         error.response?.data?.detail ||
-          error.response?.data?.message ||
-          error.response?.data?.title ||
-          error.message ||
-          (isSignUp ? 'Đăng ký thất bại. Vui lòng thử lại.' : 'Đăng nhập thất bại. Kiểm tra lại thông tin.')
+        error.response?.data?.message ||
+        error.response?.data?.title ||
+        error.message ||
+        (isSignUp ? 'Đăng ký thất bại. Vui lòng thử lại.' : 'Đăng nhập thất bại. Kiểm tra lại thông tin.')
       );
     } finally {
       setIsLoading(false);
@@ -222,10 +235,10 @@ export default function Login() {
       };
       setErrorMessage(
         error.response?.data?.detail ||
-          error.response?.data?.message ||
-          error.response?.data?.title ||
-          error.message ||
-          'Máy chủ chưa hỗ trợ đồng bộ Google OAuth. Vui lòng đăng nhập bằng Email/Password.'
+        error.response?.data?.message ||
+        error.response?.data?.title ||
+        error.message ||
+        'Máy chủ chưa hỗ trợ đồng bộ Google OAuth. Vui lòng đăng nhập bằng Email/Password.'
       );
     } finally {
       setIsGoogleLoading(false);
@@ -234,29 +247,43 @@ export default function Login() {
 
   return (
     <div className="relative min-h-screen w-full flex flex-col justify-between overflow-x-hidden bg-[#020907] text-white select-none">
-      {/* Background Video: gemini_generated_video_2aa76173.mp4 */}
+      {/* Background Video: High-Tech 3D Spatial Mesh / 3D Studio Video */}
       <video
-        src={loginBgVideo}
+        ref={videoRef}
+        src={videoSource}
         autoPlay
         loop
         muted
         playsInline
         preload="auto"
         disablePictureInPicture
-        className="fixed inset-0 w-full h-full object-cover object-center pointer-events-none select-none z-0"
+        onLoadedData={() => setIsVideoReady(true)}
+        onCanPlay={() => setIsVideoReady(true)}
+        onError={() => setVideoSource(heroCharacterVideo)}
+        className={`fixed inset-0 w-full h-full object-cover object-center pointer-events-none select-none z-0 transition-opacity duration-1000 ease-out ${
+          isVideoReady ? 'opacity-100' : 'opacity-0'
+        }`}
       />
 
-      {/* Atmospheric Overlays & Vignettes */}
+      {/* Atmospheric Overlays & Vignettes (Dark Emerald / Cyan Studio Tint) */}
       <div
-        className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(3,13,11,0.25)_0%,rgba(2,10,8,0.78)_100%)] z-[1]"
+        className="pointer-events-none fixed inset-0 bg-[#020b09]/55 z-[1]"
         aria-hidden="true"
       />
       <div
-        className="pointer-events-none fixed inset-x-0 top-0 h-44 bg-gradient-to-b from-[#020907]/90 via-[#030d0b]/45 to-transparent z-[1]"
+        className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(4,20,17,0.45)_0%,rgba(2,10,8,0.85)_100%)] z-[1]"
         aria-hidden="true"
       />
       <div
-        className="pointer-events-none fixed inset-x-0 bottom-0 h-44 bg-gradient-to-t from-[#020907]/95 via-[#030d0b]/50 to-transparent z-[1]"
+        className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_center,rgba(45,212,191,0.07)_0%,transparent_65%)] z-[1]"
+        aria-hidden="true"
+      />
+      <div
+        className="pointer-events-none fixed inset-x-0 top-0 h-44 bg-gradient-to-b from-[#020907]/95 via-[#020d0b]/55 to-transparent z-[1]"
+        aria-hidden="true"
+      />
+      <div
+        className="pointer-events-none fixed inset-x-0 bottom-0 h-44 bg-gradient-to-t from-[#020907]/98 via-[#020d0b]/60 to-transparent z-[1]"
         aria-hidden="true"
       />
 
@@ -298,12 +325,12 @@ export default function Login() {
           <div
             className="w-full max-w-[390px] sm:max-w-[410px] rounded-[34px] px-8 py-9 sm:px-9 sm:py-10 text-white flex flex-col relative transition-all duration-300 animate-in fade-in zoom-in-95"
             style={{
-              background: 'rgba(255, 255, 255, 0.06)',
-              backdropFilter: 'blur(26px)',
-              WebkitBackdropFilter: 'blur(26px)',
-              border: '1.5px solid rgba(255, 255, 255, 0.22)',
+              background: 'rgba(5, 18, 15, 0.72)',
+              backdropFilter: 'blur(30px)',
+              WebkitBackdropFilter: 'blur(30px)',
+              border: '1.5px solid rgba(45, 212, 191, 0.28)',
               boxShadow:
-                '0 24px 64px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(255, 255, 255, 0.35)',
+                '0 24px 64px rgba(0, 0, 0, 0.75), 0 0 40px rgba(45, 212, 191, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.25)',
             }}
           >
             {/* Close Button to hide card and view background logo */}
@@ -311,7 +338,7 @@ export default function Login() {
               type="button"
               onClick={() => setIsModalOpen(false)}
               className="absolute top-5 right-5 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-white/80 hover:text-white flex items-center justify-center transition-all cursor-pointer group shadow-sm"
-              title="Đóng bảng để ngắm logo và phong cảnh"
+              title="Đóng bảng để ngắm không gian 3D"
               aria-label="Đóng bảng đăng nhập"
             >
               <X className="w-4 h-4 group-hover:rotate-90 transition-transform" />
@@ -322,216 +349,216 @@ export default function Login() {
               {isForgotPassword ? 'Reset Password' : isSignUp ? 'Register' : 'Login'}
             </h1>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
-            {/* Full name input (if register) */}
-            {isSignUp && !isForgotPassword && (
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
+              {/* Full name input (if register) */}
+              {isSignUp && !isForgotPassword && (
+                <div className="relative flex items-center w-full">
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Full Name"
+                    className="w-full bg-transparent border border-white/35 focus:border-white focus:bg-white/[0.08] rounded-full px-5 py-3.5 pr-12 text-sm text-white placeholder:text-white/60 outline-none transition-all shadow-inner"
+                  />
+                  <UserIcon className="w-4 h-4 text-white/80 absolute right-4.5 pointer-events-none" />
+                </div>
+              )}
+
+              {/* Email / Username Input */}
               <div className="relative flex items-center w-full">
                 <input
                   type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Full Name"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={isForgotPassword ? 'Email address' : 'Username'}
                   className="w-full bg-transparent border border-white/35 focus:border-white focus:bg-white/[0.08] rounded-full px-5 py-3.5 pr-12 text-sm text-white placeholder:text-white/60 outline-none transition-all shadow-inner"
                 />
-                <UserIcon className="w-4 h-4 text-white/80 absolute right-4.5 pointer-events-none" />
+                <MailIcon className="w-4 h-4 text-white/80 absolute right-4.5 pointer-events-none" />
               </div>
-            )}
 
-            {/* Email / Username Input */}
-            <div className="relative flex items-center w-full">
-              <input
-                type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder={isForgotPassword ? 'Email address' : 'Username'}
-                className="w-full bg-transparent border border-white/35 focus:border-white focus:bg-white/[0.08] rounded-full px-5 py-3.5 pr-12 text-sm text-white placeholder:text-white/60 outline-none transition-all shadow-inner"
-              />
-              <MailIcon className="w-4 h-4 text-white/80 absolute right-4.5 pointer-events-none" />
-            </div>
-
-            {/* Password Input (hidden in Forgot Password mode) */}
-            {!isForgotPassword && (
-              <div className="relative flex items-center w-full">
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
-                  className="w-full bg-transparent border border-white/35 focus:border-white focus:bg-white/[0.08] rounded-full px-5 py-3.5 pr-12 text-sm text-white placeholder:text-white/60 outline-none transition-all shadow-inner"
-                />
-                <LockIcon className="w-4 h-4 text-white/80 absolute right-4.5 pointer-events-none" />
-              </div>
-            )}
-
-            {/* Options row (Remember me & Forgot Password) */}
-            {!isForgotPassword && (
-              <div className="flex items-center justify-between text-xs text-white/85 px-1 pt-0.5">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
+              {/* Password Input (hidden in Forgot Password mode) */}
+              {!isForgotPassword && (
+                <div className="relative flex items-center w-full">
                   <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border border-white/40 bg-transparent text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-emerald-500"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Password"
+                    className="w-full bg-transparent border border-white/35 focus:border-white focus:bg-white/[0.08] rounded-full px-5 py-3.5 pr-12 text-sm text-white placeholder:text-white/60 outline-none transition-all shadow-inner"
                   />
-                  <span>Remember me</span>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsForgotPassword(true);
-                    setErrorMessage('');
-                    setSuccessMessage('');
-                  }}
-                  className="text-white hover:underline transition-all cursor-pointer font-medium"
-                >
-                  Forgot Password?
-                </button>
-              </div>
-            )}
-
-            {/* Error & Success Messages */}
-            {errorMessage && (
-              <p
-                role="alert"
-                className="text-xs text-rose-300 bg-rose-950/60 border border-rose-500/30 rounded-xl px-3.5 py-2 text-center"
-              >
-                {errorMessage}
-              </p>
-            )}
-
-            {successMessage && (
-              <p
-                role="status"
-                className="text-xs text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 rounded-xl px-3.5 py-2 text-center"
-              >
-                {successMessage}
-              </p>
-            )}
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full mt-2 py-3.5 rounded-full bg-white hover:bg-neutral-100 text-neutral-900 font-bold text-sm sm:text-base shadow-[0_4px_22px_rgba(255,255,255,0.22)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-            >
-              {isLoading ? (
-                <Loader2 className="w-4.5 h-4.5 animate-spin text-neutral-900" />
-              ) : (
-                <span>
-                  {isForgotPassword ? 'Reset Password' : isSignUp ? 'Register' : 'Login'}
-                </span>
+                  <LockIcon className="w-4 h-4 text-white/80 absolute right-4.5 pointer-events-none" />
+                </div>
               )}
-            </button>
-          </form>
 
-          {/* Synchronized Google Login Button */}
-          {!isForgotPassword && (
-            <div className="w-full mt-3.5 flex flex-col items-center">
-              <div className="relative w-full overflow-hidden rounded-full">
-                {/* Visual Glassmorphic Capsule Button */}
-                <button
-                  type="button"
-                  disabled={isGoogleLoading}
-                  className="w-full py-3 rounded-full bg-white/[0.08] hover:bg-white/[0.16] border border-white/30 text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] cursor-pointer shadow-sm"
-                >
-                  {isGoogleLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-white" />
-                  ) : (
-                    <>
-                      {/* Multicolored Google 'G' icon */}
-                      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                        <path
-                          fill="#4285F4"
-                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                        />
-                        <path
-                          fill="#34A853"
-                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                        />
-                        <path
-                          fill="#FBBC05"
-                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                        />
-                        <path
-                          fill="#EA4335"
-                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                        />
-                      </svg>
-                      <span>Continue with Google</span>
-                    </>
-                  )}
-                </button>
+              {/* Options row (Remember me & Forgot Password) */}
+              {!isForgotPassword && (
+                <div className="flex items-center justify-between text-xs text-white/85 px-1 pt-0.5">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border border-white/40 bg-transparent text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-emerald-500"
+                    />
+                    <span>Remember me</span>
+                  </label>
 
-                {/* Real Google OAuth Component layered transparently on top */}
-                <div className="absolute inset-0 opacity-0 z-10 cursor-pointer overflow-hidden flex items-center justify-center">
-                  <GoogleLogin
-                    onSuccess={handleGoogleSuccess}
-                    onError={() => {
-                      setErrorMessage('Đăng nhập Google thất bại.');
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsForgotPassword(true);
+                      setErrorMessage('');
+                      setSuccessMessage('');
                     }}
-                    useOneTap={false}
-                    theme="filled_black"
-                    shape="pill"
-                    size="large"
-                    width="400"
-                  />
+                    className="text-white hover:underline transition-all cursor-pointer font-medium"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+              )}
+
+              {/* Error & Success Messages */}
+              {errorMessage && (
+                <p
+                  role="alert"
+                  className="text-xs text-rose-300 bg-rose-950/60 border border-rose-500/30 rounded-xl px-3.5 py-2 text-center"
+                >
+                  {errorMessage}
+                </p>
+              )}
+
+              {successMessage && (
+                <p
+                  role="status"
+                  className="text-xs text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 rounded-xl px-3.5 py-2 text-center"
+                >
+                  {successMessage}
+                </p>
+              )}
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full mt-2 py-3.5 rounded-full bg-white hover:bg-neutral-100 text-neutral-900 font-bold text-sm sm:text-base shadow-[0_4px_22px_rgba(255,255,255,0.22)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                {isLoading ? (
+                  <Loader2 className="w-4.5 h-4.5 animate-spin text-neutral-900" />
+                ) : (
+                  <span>
+                    {isForgotPassword ? 'Reset Password' : isSignUp ? 'Register' : 'Login'}
+                  </span>
+                )}
+              </button>
+            </form>
+
+            {/* Synchronized Google Login Button */}
+            {!isForgotPassword && (
+              <div className="w-full mt-3.5 flex flex-col items-center">
+                <div className="relative w-full overflow-hidden rounded-full">
+                  {/* Visual Glassmorphic Capsule Button */}
+                  <button
+                    type="button"
+                    disabled={isGoogleLoading}
+                    className="w-full py-3 rounded-full bg-white/[0.08] hover:bg-white/[0.16] border border-white/30 text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] cursor-pointer shadow-sm"
+                  >
+                    {isGoogleLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    ) : (
+                      <>
+                        {/* Multicolored Google 'G' icon */}
+                        <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                          <path
+                            fill="#4285F4"
+                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                          />
+                          <path
+                            fill="#34A853"
+                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                          />
+                          <path
+                            fill="#FBBC05"
+                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                          />
+                          <path
+                            fill="#EA4335"
+                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                          />
+                        </svg>
+                        <span>Continue with Google</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Real Google OAuth Component layered transparently on top */}
+                  <div className="absolute inset-0 opacity-0 z-10 cursor-pointer overflow-hidden flex items-center justify-center">
+                    <GoogleLogin
+                      onSuccess={handleGoogleSuccess}
+                      onError={() => {
+                        setErrorMessage('Đăng nhập Google thất bại.');
+                      }}
+                      useOneTap={false}
+                      theme="filled_black"
+                      shape="pill"
+                      size="large"
+                      width="400"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Toggle Register / Login / Reset Links */}
-          <div className="w-full text-center mt-6 text-xs text-white/80">
-            {isForgotPassword ? (
-              <p>
-                Remembered your password?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsForgotPassword(false);
-                    setErrorMessage('');
-                    setSuccessMessage('');
-                  }}
-                  className="text-white font-bold hover:underline cursor-pointer"
-                >
-                  Back to Login
-                </button>
-              </p>
-            ) : isSignUp ? (
-              <p>
-                Already have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSignUp(false);
-                    setErrorMessage('');
-                    setSuccessMessage('');
-                  }}
-                  className="text-white font-bold hover:underline cursor-pointer"
-                >
-                  Login
-                </button>
-              </p>
-            ) : (
-              <p>
-                Don't have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSignUp(true);
-                    setErrorMessage('');
-                    setSuccessMessage('');
-                  }}
-                  className="text-white font-bold hover:underline cursor-pointer"
-                >
-                  Register
-                </button>
-              </p>
             )}
+
+            {/* Toggle Register / Login / Reset Links */}
+            <div className="w-full text-center mt-6 text-xs text-white/80">
+              {isForgotPassword ? (
+                <p>
+                  Remembered your password?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsForgotPassword(false);
+                      setErrorMessage('');
+                      setSuccessMessage('');
+                    }}
+                    className="text-white font-bold hover:underline cursor-pointer"
+                  >
+                    Back to Login
+                  </button>
+                </p>
+              ) : isSignUp ? (
+                <p>
+                  Already have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSignUp(false);
+                      setErrorMessage('');
+                      setSuccessMessage('');
+                    }}
+                    className="text-white font-bold hover:underline cursor-pointer"
+                  >
+                    Login
+                  </button>
+                </p>
+              ) : (
+                <p>
+                  Don't have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSignUp(true);
+                      setErrorMessage('');
+                      setSuccessMessage('');
+                    }}
+                    className="text-white font-bold hover:underline cursor-pointer"
+                  >
+                    Register
+                  </button>
+                </p>
+              )}
+            </div>
           </div>
-        </div>
         )}
       </main>
 

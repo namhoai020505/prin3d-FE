@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useVTNavigate as useNavigate } from '../../hooks/useVTNavigate';
 import {
   Box,
   Coins,
