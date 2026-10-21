@@ -479,21 +479,21 @@ export default function CommunitySection() {
       id="community-showcase"
       className="relative z-20 -ml-[64px] md:-ml-[72px] pl-[64px] md:pl-[72px] w-[calc(100%+64px)] md:w-[calc(100%+72px)] select-none"
     >
-      {/* Dải chuyển màu mượt mà từ video đỏ nhạt dần thành màu đen sâu, không có đường viền cắt ngang */}
+      {/* Dải chuyển màu mượt mà từ video chuyển dần thành màu đen than chì sâu, không có đường viền cắt ngang */}
       <div
         className="w-full h-44 sm:h-64 pointer-events-none"
         style={{
           background:
-            'linear-gradient(to bottom, transparent 0%, rgba(42, 4, 8, 0.15) 18%, rgba(32, 3, 7, 0.5) 42%, rgba(20, 2, 5, 0.85) 68%, #0a0102 100%)',
+            'linear-gradient(to bottom, transparent 0%, rgba(9, 9, 11, 0.25) 20%, rgba(9, 9, 11, 0.65) 50%, rgba(9, 9, 11, 0.92) 80%, #09090b 100%)',
         }}
         aria-hidden="true"
       />
 
-      {/* Phần nội dung Cộng đồng trên nền đen tuyền đặc, che chắn hoàn toàn video phía sau */}
+      {/* Phần nội dung Cộng đồng trên nền than chì đặc, che chắn hoàn toàn video phía sau */}
       <div
         className="w-full pt-4 pb-16"
         style={{
-          background: '#0a0102',
+          background: '#09090b',
         }}
       >
         <div className="w-full max-w-[1440px] mx-auto px-5 sm:px-8 md:px-10">
@@ -930,7 +930,7 @@ export default function CommunitySection() {
                 </div>
 
                 {/* Prompt Box */}
-                <div className="mt-3.5 p-3 rounded-xl bg-[#160204]/70 border border-white/15 text-[11px] text-rose-100/80 font-mono-mesh leading-relaxed">
+                <div className="mt-3.5 p-3 rounded-xl bg-[#141418]/80 border border-white/15 text-[11px] text-zinc-300 font-mono-mesh leading-relaxed">
                   <span className="text-[10px] uppercase text-white block mb-0.5 font-sans font-bold">
                     Spatial Prompt:
                   </span>
@@ -949,9 +949,9 @@ export default function CommunitySection() {
                 <button
                   type="button"
                   onClick={() => handleOpenInStudio(selectedItem)}
-                  className="flex-1 py-2.5 px-4 h-[40px] rounded-xl bg-white hover:bg-rose-50 text-[#2a0408] font-bold text-xs flex items-center justify-center gap-2 shadow-[0_6px_20px_rgba(255,255,255,0.2)] transition-all cursor-pointer"
+                  className="flex-1 py-2.5 px-4 h-[40px] rounded-xl bg-white hover:bg-zinc-100 text-[#09090b] font-bold text-xs flex items-center justify-center gap-2 shadow-[0_6px_20px_rgba(255,255,255,0.2)] transition-all cursor-pointer"
                 >
-                  <Sparkles className="w-4 h-4 text-[#2a0408]" />
+                  <Sparkles className="w-4 h-4 text-[#09090b]" />
                   <span>Mở trong Studio 3D</span>
                 </button>
 

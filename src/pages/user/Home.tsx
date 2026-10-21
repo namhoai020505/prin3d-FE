@@ -77,12 +77,33 @@ export default function Home() {
         style={{ objectPosition: '70% center' }}
       />
 
-      {/* Subtle studio crimson vignette: keeps the 3D character on the right (70% center) vivid & unobstructed */}
+      {/* Studio Dark Noir Overlays: Dims the crimson studio backdrop into an elegant cinema dark tone while highlighting the 3D character */}
+      {/* 1. Left-to-right dark wash: ensures console, pills, and typography are crisp and ultra-readable */}
       <div
         className="fixed inset-0 z-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(circle at 74% 45%, rgba(42, 4, 8, 0.02) 0%, rgba(34, 3, 7, 0.24) 55%, rgba(22, 2, 5, 0.52) 100%)',
+            'linear-gradient(90deg, #09090b 0%, rgba(9, 9, 11, 0.94) 34%, rgba(9, 9, 11, 0.72) 55%, rgba(9, 9, 11, 0.22) 78%, rgba(9, 9, 11, 0.42) 100%)',
+        }}
+        aria-hidden="true"
+      />
+
+      {/* 2. Character Spotlight Vignette: soft vignette keeping the 3D boy highlighted at 74% 45% while subduing edge red */}
+      <div
+        className="fixed inset-0 z-0 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(circle at 74% 45%, rgba(9, 9, 11, 0) 18%, rgba(9, 9, 11, 0.38) 52%, rgba(6, 6, 8, 0.88) 100%)',
+        }}
+        aria-hidden="true"
+      />
+
+      {/* 3. Top and bottom cinema edge feathering */}
+      <div
+        className="fixed inset-0 z-0 pointer-events-none"
+        style={{
+          background:
+            'linear-gradient(180deg, rgba(9, 9, 11, 0.55) 0%, transparent 16%, transparent 80%, #09090b 100%)',
         }}
         aria-hidden="true"
       />

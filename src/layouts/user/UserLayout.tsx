@@ -7,7 +7,7 @@ export default function UserLayout() {
   const isStudioPage = location.pathname === '/create';
 
   return (
-    <div className="min-h-screen w-full bg-[#1a0205] text-white flex overflow-x-hidden selection:bg-white selection:text-[#2a0408]">
+    <div className="min-h-screen w-full bg-[#09090b] text-white flex overflow-x-hidden selection:bg-white selection:text-black">
       {/* Left Sidebar Navigation */}
       <UserSidebar />
 
