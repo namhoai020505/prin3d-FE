@@ -172,7 +172,10 @@ export const isManagerRole = (role: string | null | undefined) => normalizeRole(
 
 export const isStaffRole = (role: string | null | undefined) => normalizeRole(role) === 'staff';
 
-export const isCustomerRole = (role: string | null | undefined) => normalizeRole(role) === 'customer';
+export const isCustomerRole = (role: string | null | undefined) => {
+  const normalized = normalizeRole(role);
+  return normalized === 'customer' || normalized === 'cus';
+};
 
 export const getPostLoginRedirect = (role: string | null | undefined) => {
   if (isAdminRole(role)) {

@@ -24,6 +24,24 @@ export type GenerationTask = {
   stlUrl?: string | null;
 };
 
+export type PrintQuote = {
+  generationTaskId: string;
+  pricingPackageId: string;
+  material: string;
+  requestedHeightMm: number;
+  widthMm: number;
+  depthMm: number;
+  heightMm: number;
+  modelVolumeCm3?: number | null;
+  quantity: number;
+  unitPriceVnd: number;
+  subtotalVnd: number;
+  shippingFeeVnd: number;
+  totalVnd: number;
+  approvedForPrinting: boolean;
+  pricingBasis: string;
+};
+
 type CreateGenerationInput = {
   image: File;
   modelName?: string;
@@ -63,9 +81,37 @@ export const createImageGeneration = async ({
 export const getGeneration = async (id: string) =>
   toTask(await api.get(`/api/generations/${id}`, keepStudioOpenOnAuthFailure));
 
-export const listGenerations = async () => {
-  const response = await api.get('/api/generations', keepStudioOpenOnAuthFailure);
+export const listGenerations = async (page = 1) => {
+  const response = await api.get(`/api/generations?page=${page}`, keepStudioOpenOnAuthFailure);
   return response as unknown as GenerationTask[];
+};
+
+export const getPrintQuote = async (
+  id: string,
+  packageId: string,
+  quantity = 1,
+): Promise<PrintQuote> => {
+  const response = await api.get(`/api/generations/${id}/quote`, {
+    params: { packageId, quantity },
+  });
+  return response as unknown as PrintQuote;
+};
+
+export const reviewGeneration = async (
+  id: string,
+  approved: boolean,
+  note: string,
+): Promise<GenerationTask> => {
+  const response = await api.post(`/api/generations/${id}/review`, { approved, note });
+  return toTask(response);
+};
+
+export const recoverGeneration = async (
+  id: string,
+  providerTaskId?: string,
+): Promise<GenerationTask> => {
+  const response = await api.post(`/api/generations/${id}/recover`, { providerTaskId });
+  return toTask(response);
 };
 
 export const downloadGenerationFile = async (url: string, fileName: string) => {

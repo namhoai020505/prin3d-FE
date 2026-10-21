@@ -1,16 +1,66 @@
 import api from '../lib/api';
-import { clearAuthSession, getRefreshToken, isAdminRole } from '../lib/auth';
+import { clearAuthSession, getRefreshToken, isAdminRole, setAuthSession } from '../lib/auth';
 
-type AdminProfileResponse = {
-  role?: string;
+export type CurrentUserDto = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: 'cus' | 'staff' | 'admin' | 'disabled';
+  freeTrialRemaining: number;
+  purchasedRemaining: number;
+  totalUsed: number;
 };
 
-type ApiResponse<T> = {
-  data?: T | null;
+export type AuthResponse = {
+  accessToken: string;
+  refreshToken: string;
+  user: {
+    id: string;
+    email: string;
+    fullName: string;
+    role: string;
+  };
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null;
+export type LoginInput = {
+  email: string;
+  password: string;
+};
+
+export type RegisterInput = {
+  email: string;
+  password: string;
+  fullName: string;
+};
+
+export const login = async (input: LoginInput): Promise<AuthResponse> => {
+  const response = (await api.post('/api/auth/login', input)) as unknown as AuthResponse;
+  if (response?.accessToken) {
+    setAuthSession({
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+      fullName: response.user?.fullName || input.email.split('@')[0],
+    });
+  }
+  return response;
+};
+
+export const register = async (input: RegisterInput): Promise<AuthResponse> => {
+  const response = (await api.post('/api/auth/register', input)) as unknown as AuthResponse;
+  if (response?.accessToken) {
+    setAuthSession({
+      accessToken: response.accessToken,
+      refreshToken: response.refreshToken,
+      fullName: response.user?.fullName || input.fullName,
+    });
+  }
+  return response;
+};
+
+export const getMe = async (): Promise<CurrentUserDto> => {
+  const response = await api.get('/api/auth/me');
+  return response as unknown as CurrentUserDto;
+};
 
 export const logout = async () => {
   const refreshToken = getRefreshToken();
@@ -19,20 +69,16 @@ export const logout = async () => {
     if (refreshToken) {
       await api.post('/api/auth/logout', { refreshToken });
     }
+  } catch {
+    // Ignore network error on logout
   } finally {
     clearAuthSession();
   }
 };
 
 export const verifyAdminSession = async () => {
-  const response = (await api.get('/api/auth-test/admin')) as unknown;
-
-  if (!isRecord(response)) {
-    throw new Error('Invalid admin verification response.');
-  }
-
-  const apiResponse = response as ApiResponse<AdminProfileResponse>;
-  if (!isAdminRole(apiResponse.data?.role)) {
+  const me = await getMe();
+  if (!me || (!isAdminRole(me.role) && me.role !== 'admin')) {
     throw new Error('Authenticated user is not an admin.');
   }
 };

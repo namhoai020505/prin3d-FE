@@ -1,1281 +1,705 @@
-import { useEffect, useMemo, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  FaBuilding,
-  FaCalendarAlt,
-  FaChartLine,
-  FaChartPie,
-  FaCoins,
-  FaExclamationTriangle,
-  FaFilter,
-  FaFilm,
-  FaMoneyBillWave,
-  FaPercent,
-  FaReceipt,
-  FaRedoAlt,
-  FaSyncAlt,
-  FaTicketAlt,
-  FaTrophy,
-  FaUtensils,
-} from 'react-icons/fa';
-import { useOutletContext } from 'react-router-dom';
-import type { AdminOutletContext } from '../../layouts/admin/AdminLayout';
+  CheckCircle,
+  Layers,
+  Printer,
+  RefreshCw,
+  Shield,
+  Users,
+  Box,
+} from 'lucide-react';
 import {
-  dashboardService,
-  type DashboardFilter,
-  type DashboardOverview,
-  type MovieRankingItem,
-  type OccupancyAndFbBreakdown,
-  type SalesChannelBreakdown,
-} from '../../services/dashboardService';
-import { showtimeService, type CinemaResponse } from '../../services/showtimeService';
+  adminService,
+  type AdminUserItem,
+} from '../../services/adminService';
+import {
+  listPricingPackages,
+  type PricingPackage,
+} from '../../services/pricingPackageService';
+import {
+  listOrders,
+  updateOrderStatus,
+  type OrderItem,
+  type OrderStatus,
+} from '../../services/orderService';
+import {
+  listGenerations,
+  reviewGeneration,
+  type GenerationTask,
+} from '../../services/generationService';
 
-type ReportSectionId = 'revenue' | 'performance' | 'channels';
+type AdminTab = 'users' | 'orders' | 'packages' | 'generations';
 
-type DatePreset = {
-  id: string;
-  label: string;
-  description: string;
-  getRange: () => Pick<DashboardFilter, 'fromDate' | 'toDate'>;
-};
+export default function AdminDashboard() {
+  const [activeTab, setActiveTab] = useState<AdminTab>('users');
 
-type RevenueBar = {
-  label: string;
-  value: number;
-  colorClass: string;
-  note: string;
-};
+  // Users State
+  const [users, setUsers] = useState<AdminUserItem[]>([]);
+  const [selectedUser, setSelectedUser] = useState<AdminUserItem | null>(null);
+  const [creditAmount, setCreditAmount] = useState(5);
+  const [newRole, setNewRole] = useState('cus');
+  const [isUpdatingUser, setIsUpdatingUser] = useState(false);
 
-type ThemeAwareProps = {
-  isLightMode: boolean;
-};
+  // Orders State
+  const [orders, setOrders] = useState<OrderItem[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<OrderItem | null>(null);
+  const [nextOrderStatus, setNextOrderStatus] = useState<OrderStatus>('PrintingStarted');
+  const [orderTrackingNumber, setOrderTrackingNumber] = useState('');
+  const [orderStatusNote, setOrderStatusNote] = useState('Đã cập nhật tiến độ in ấn.');
+  const [isUpdatingOrder, setIsUpdatingOrder] = useState(false);
 
-type DateInputElement = HTMLInputElement & {
-  showPicker?: () => void;
-};
+  // Packages State
+  const [packages, setPackages] = useState<PricingPackage[]>([]);
+  const [editingPackage, setEditingPackage] = useState<PricingPackage | null>(null);
+  const [packagePriceVnd, setPackagePriceVnd] = useState(390000);
+  const [packageIsActive, setPackageIsActive] = useState(true);
+  const [isUpdatingPackage, setIsUpdatingPackage] = useState(false);
 
-const emptyOverview: DashboardOverview = {
-  grossRevenue: 0,
-  totalRefunds: 0,
-  netRevenue: 0,
-  averageOrderValue: 0,
-  totalTicketsSold: 0,
-  totalSuccessfulBookings: 0,
-};
+  // Generations State
+  const [generations, setGenerations] = useState<GenerationTask[]>([]);
+  const [reviewNote] = useState('Đủ tiêu chuẩn in 3D');
 
-const emptyOccupancyAndFb: OccupancyAndFbBreakdown = {
-  occupancyRate: 0,
-  totalSoldSeats: 0,
-  totalAvailableSeatsCapacity: 0,
-  ticketRevenue: 0,
-  fbRevenue: 0,
-  fbRevenuePercentage: 0,
-  fbItems: [],
-};
+  // Toast / Status Message
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-const padDatePart = (value: number) => String(value).padStart(2, '0');
+  const showToast = (msg: string) => {
+    setStatusMessage(msg);
+    setTimeout(() => setStatusMessage(null), 3000);
+  };
 
-const toDateInputValue = (date: Date) =>
-  `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
-
-const cloneDate = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-const addDays = (date: Date, amount: number) => {
-  const nextDate = cloneDate(date);
-  nextDate.setDate(nextDate.getDate() + amount);
-  return nextDate;
-};
-
-const getStartOfWeek = (date: Date) => {
-  const nextDate = cloneDate(date);
-  const mondayOffset = (nextDate.getDay() + 6) % 7;
-  nextDate.setDate(nextDate.getDate() - mondayOffset);
-  return nextDate;
-};
-
-const getDatePresets = (): DatePreset[] => [
-  {
-    id: 'all',
-    label: 'Tất cả',
-    description: 'Không giới hạn thời gian',
-    getRange: () => ({ fromDate: undefined, toDate: undefined }),
-  },
-  {
-    id: 'today',
-    label: 'Hôm nay',
-    description: 'Doanh thu trong ngày',
-    getRange: () => {
-      const today = new Date();
-      const value = toDateInputValue(today);
-      return { fromDate: value, toDate: value };
-    },
-  },
-  {
-    id: 'this-week',
-    label: 'Tuần này',
-    description: 'Từ thứ 2 đến hôm nay',
-    getRange: () => {
-      const today = new Date();
-      return {
-        fromDate: toDateInputValue(getStartOfWeek(today)),
-        toDate: toDateInputValue(today),
-      };
-    },
-  },
-  {
-    id: 'last-week',
-    label: 'Tuần trước',
-    description: 'Trọn tuần trước',
-    getRange: () => {
-      const thisWeekStart = getStartOfWeek(new Date());
-      const lastWeekStart = addDays(thisWeekStart, -7);
-      const lastWeekEnd = addDays(thisWeekStart, -1);
-      return {
-        fromDate: toDateInputValue(lastWeekStart),
-        toDate: toDateInputValue(lastWeekEnd),
-      };
-    },
-  },
-  {
-    id: 'this-month',
-    label: 'Tháng này',
-    description: 'Từ đầu tháng đến hôm nay',
-    getRange: () => {
-      const today = new Date();
-      return {
-        fromDate: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
-        toDate: toDateInputValue(today),
-      };
-    },
-  },
-  {
-    id: 'last-month',
-    label: 'Tháng trước',
-    description: 'Trọn tháng trước',
-    getRange: () => {
-      const today = new Date();
-      return {
-        fromDate: toDateInputValue(new Date(today.getFullYear(), today.getMonth() - 1, 1)),
-        toDate: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 0)),
-      };
-    },
-  },
-  {
-    id: 'this-year',
-    label: 'Năm nay',
-    description: 'Từ đầu năm đến hôm nay',
-    getRange: () => {
-      const today = new Date();
-      return {
-        fromDate: toDateInputValue(new Date(today.getFullYear(), 0, 1)),
-        toDate: toDateInputValue(today),
-      };
-    },
-  },
-  {
-    id: 'last-year',
-    label: 'Năm trước',
-    description: 'Trọn năm trước',
-    getRange: () => {
-      const today = new Date();
-      return {
-        fromDate: toDateInputValue(new Date(today.getFullYear() - 1, 0, 1)),
-        toDate: toDateInputValue(new Date(today.getFullYear() - 1, 11, 31)),
-      };
-    },
-  },
-];
-
-const normalizeFilter = (filter: DashboardFilter): DashboardFilter => ({
-  fromDate: filter.fromDate || undefined,
-  toDate: filter.toDate || undefined,
-  cinemaId: filter.cinemaId || undefined,
-});
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('vi-VN', {
-    style: 'currency',
-    currency: 'VND',
-    maximumFractionDigits: 0,
-  }).format(value || 0);
-
-const formatCompactCurrency = (value: number) =>
-  `${new Intl.NumberFormat('vi-VN', {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(value || 0)} đ`;
-
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat('vi-VN').format(value || 0);
-
-const formatPercent = (value: number) =>
-  `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 1 }).format(value || 0)}%`;
-
-const formatDateLabel = (value?: string) => {
-  if (!value) {
-    return '';
-  }
-
-  const [year, month, day] = value.split('-');
-  if (!year || !month || !day) {
-    return value;
-  }
-
-  return `${day}/${month}/${year}`;
-};
-
-const getErrorMessage = (error: unknown, fallback: string) => {
-  if (typeof error === 'object' && error && 'response' in error) {
-    const response = (error as { response?: { data?: { message?: string } } }).response;
-    if (response?.data?.message) {
-      return response.data.message;
+  // Fetchers
+  const fetchUsers = async () => {
+    try {
+      const data = await adminService.getUsers();
+      setUsers(data);
+    } catch (err: unknown) {
+      console.error(err);
     }
-  }
+  };
 
-  return error instanceof Error ? error.message : fallback;
-};
+  const fetchOrders = async () => {
+    try {
+      const data = await listOrders();
+      setOrders(data);
+    } catch (err: unknown) {
+      console.error(err);
+    }
+  };
 
-const getRangeLabel = (filter: DashboardFilter) => {
-  if (filter.fromDate && filter.toDate) {
-    return `Từ ${formatDateLabel(filter.fromDate)} đến ${formatDateLabel(filter.toDate)}`;
-  }
+  const fetchPackages = async () => {
+    try {
+      const data = await listPricingPackages();
+      setPackages(data);
+    } catch (err: unknown) {
+      console.error(err);
+    }
+  };
 
-  if (filter.fromDate) {
-    return `Từ ${formatDateLabel(filter.fromDate)}`;
-  }
+  const fetchGenerations = async () => {
+    try {
+      const data = await listGenerations();
+      setGenerations(data);
+    } catch (err: unknown) {
+      console.error(err);
+    }
+  };
 
-  if (filter.toDate) {
-    return `Đến ${formatDateLabel(filter.toDate)}`;
-  }
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      if (activeTab === 'users') void fetchUsers();
+      if (activeTab === 'orders') void fetchOrders();
+      if (activeTab === 'packages') void fetchPackages();
+      if (activeTab === 'generations') void fetchGenerations();
+    });
+  }, [activeTab]);
 
-  return 'Toàn bộ thời gian';
-};
+  // Actions
+  const handleAddCredits = async () => {
+    if (!selectedUser) return;
+    try {
+      setIsUpdatingUser(true);
+      await adminService.addUserCredits(selectedUser.id, creditAmount);
+      showToast(`Đã cộng ${creditAmount} lượt tạo 3D cho ${selectedUser.email}`);
+      setSelectedUser(null);
+      await fetchUsers();
+    } catch {
+      alert('Không thể cộng lượt tạo lúc này.');
+    } finally {
+      setIsUpdatingUser(false);
+    }
+  };
 
-const getFilterSummary = (filter: DashboardFilter, cinemas: CinemaResponse[]) => {
-  const cinema = cinemas.find((item) => item.cinemaId === filter.cinemaId);
-  return `${cinema?.cinemaName || 'Tất cả chi nhánh'} • ${getRangeLabel(filter)}`;
-};
+  const handleUpdateRole = async () => {
+    if (!selectedUser) return;
+    try {
+      setIsUpdatingUser(true);
+      await adminService.updateUserRole(selectedUser.id, newRole);
+      showToast(`Đã đổi vai trò thành công cho ${selectedUser.email}`);
+      setSelectedUser(null);
+      await fetchUsers();
+    } catch {
+      alert('Không thể cập nhật vai trò lúc này.');
+    } finally {
+      setIsUpdatingUser(false);
+    }
+  };
 
-const getActiveFilterCount = (filter: DashboardFilter) =>
-  Number(Boolean(filter.fromDate)) +
-  Number(Boolean(filter.toDate)) +
-  Number(Boolean(filter.cinemaId));
+  const handleUpdateOrderStatus = async () => {
+    if (!selectedOrder) return;
+    try {
+      setIsUpdatingOrder(true);
+      await updateOrderStatus(selectedOrder.id, {
+        status: nextOrderStatus,
+        note: orderStatusNote,
+        trackingNumber: orderTrackingNumber || undefined,
+      });
+      showToast(`Đã cập nhật trạng thái đơn ${selectedOrder.orderCode}`);
+      setSelectedOrder(null);
+      await fetchOrders();
+    } catch {
+      alert('Không thể cập nhật trạng thái đơn hàng.');
+    } finally {
+      setIsUpdatingOrder(false);
+    }
+  };
 
-const clampPercent = (value: number) => Math.min(100, Math.max(0, value || 0));
+  const handleUpdatePackagePrice = async () => {
+    if (!editingPackage) return;
+    try {
+      setIsUpdatingPackage(true);
+      await adminService.updatePricingPackage(editingPackage.id, {
+        priceVnd: packagePriceVnd,
+        isActive: packageIsActive,
+      });
+      showToast(`Đã cập nhật giá gói ${editingPackage.name}`);
+      setEditingPackage(null);
+      await fetchPackages();
+    } catch {
+      alert('Không thể cập nhật gói in lúc này.');
+    } finally {
+      setIsUpdatingPackage(false);
+    }
+  };
 
-const openNativeDatePicker = (event: MouseEvent<HTMLInputElement>) => {
-  const input = event.currentTarget as DateInputElement;
-  input.focus();
+  const handleReviewGen = async (id: string, approved: boolean) => {
+    try {
+      await reviewGeneration(id, approved, reviewNote);
+      showToast(approved ? 'Đã duyệt mô hình 3D cho phép đặt in' : 'Đã từ chối mô hình');
+      await fetchGenerations();
+    } catch {
+      alert('Không thể hoàn tất kiểm duyệt.');
+    }
+  };
 
-  try {
-    input.showPicker?.();
-  } catch {
-    // Browser fallback: focusing the native date input still keeps keyboard access intact.
-  }
-};
+  const formatVnd = (val: number) => val.toLocaleString('vi-VN') + ' đ';
 
-const PanelHeader = ({
-  icon,
-  eyebrow,
-  title,
-  description,
-  action,
-  isLightMode,
-}: ThemeAwareProps & {
-  icon: ReactNode;
-  eyebrow?: string;
-  title: string;
-  description: string;
-  action?: ReactNode;
-}) => (
-  <div
-    className={`flex flex-col gap-4 border-b p-5 sm:flex-row sm:items-start sm:justify-between ${
-      isLightMode ? 'border-slate-200' : 'border-white/10'
-    }`}
-  >
-    <div className="min-w-0">
-      {eyebrow ? (
-        <p className={`mb-2 text-xs font-black uppercase ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-          {eyebrow}
-        </p>
-      ) : null}
-      <div className="flex items-start gap-3">
-        <span
-          className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${
-            isLightMode ? 'bg-slate-100 text-slate-700' : 'bg-white/10 text-slate-200'
-          }`}
-        >
-          {icon}
-        </span>
-        <div className="min-w-0">
-          <h2 className={`text-base font-black leading-6 ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
-            {title}
-          </h2>
-          <p className={`mt-1 text-sm leading-6 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-            {description}
+  return (
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-white/10">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black text-white flex items-center gap-2.5">
+            <Shield className="w-7 h-7 text-rose-500" />
+            <span>Quản Trị Hệ Thống Idea2Model</span>
+          </h1>
+          <p className="text-xs sm:text-sm text-neutral-400 mt-1">
+            Quản lý tài khoản người dùng, cấp phát lượt tạo AI, điều phối đơn in 3D và gói biểu phí.
           </p>
         </div>
-      </div>
-    </div>
-    {action ? <div className="shrink-0">{action}</div> : null}
-  </div>
-);
 
-const StatCard = ({
-  label,
-  value,
-  meta,
-  icon,
-  accentClass,
-  loading,
-  isLightMode,
-}: ThemeAwareProps & {
-  label: string;
-  value: string;
-  meta: string;
-  icon: ReactNode;
-  accentClass: string;
-  loading: boolean;
-}) => (
-  <article
-    className={`rounded-lg border p-5 shadow-xl transition ${
-      isLightMode
-        ? 'border-slate-200 bg-white shadow-slate-200/70'
-        : 'border-white/10 bg-[#101826] shadow-black/20'
-    }`}
-  >
-    <div className="flex items-start justify-between gap-4">
-      <div className="min-w-0">
-        <p className={`text-xs font-black uppercase ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-          {label}
-        </p>
-        {loading ? (
-          <div className={`mt-5 h-8 w-32 animate-pulse rounded-md ${isLightMode ? 'bg-slate-200' : 'bg-white/10'}`} />
-        ) : (
-          <p className={`mt-4 text-2xl font-black leading-tight ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
-            {value}
-          </p>
+        {statusMessage && (
+          <div className="px-4 py-2 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs font-semibold flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-emerald-400" />
+            <span>{statusMessage}</span>
+          </div>
         )}
       </div>
-      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-white shadow-lg ${accentClass}`}>
-        {icon}
-      </span>
-    </div>
-    <p className={`mt-3 min-h-5 text-sm font-semibold ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-      {meta}
-    </p>
-  </article>
-);
 
-const MetricStrip = ({
-  label,
-  value,
-  icon,
-  isLightMode,
-}: ThemeAwareProps & {
-  label: string;
-  value: string;
-  icon: ReactNode;
-}) => (
-  <div
-    className={`flex min-h-[72px] items-center gap-3 rounded-lg border px-3 py-3 shadow-sm ${
-      isLightMode
-        ? 'border-slate-200 bg-white shadow-slate-200/70'
-        : 'border-white/10 bg-white/[0.04] shadow-black/20'
-    }`}
-  >
-    <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${isLightMode ? 'bg-white text-slate-700' : 'bg-white/10 text-slate-200'}`}>
-      {icon}
-    </span>
-    <div className="min-w-0">
-      <p className={`text-xs font-black uppercase ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-        {label}
-      </p>
-      <p className={`mt-1 truncate text-sm font-black ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
-        {value}
-      </p>
-    </div>
-  </div>
-);
-
-const RevenueColumnChart = ({
-  bars,
-  isLightMode,
-}: ThemeAwareProps & {
-  bars: RevenueBar[];
-}) => {
-  const maxValue = Math.max(...bars.map((bar) => bar.value), 1);
-
-  return (
-    <div className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-4">
-      {bars.map((bar) => {
-        const height = bar.value > 0 ? Math.max(8, Math.round((bar.value / maxValue) * 100)) : 0;
-
-        return (
-          <div key={bar.label} className="flex min-h-[285px] min-w-0 flex-col justify-end gap-3">
-            <div
-              className={`flex min-h-[165px] flex-1 items-end rounded-lg border border-dashed p-2 ${
-                isLightMode ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.03]'
-              }`}
-              aria-label={`${bar.label}: ${formatCurrency(bar.value)}`}
-              role="img"
-            >
-              <div
-                className={`w-full rounded-t-md bg-gradient-to-t ${bar.colorClass} shadow-lg transition-all duration-300`}
-                style={{ height: `${height}%` }}
-                title={formatCurrency(bar.value)}
-              />
-            </div>
-            <div className="min-h-[86px]">
-              <p className={`text-sm font-black leading-5 ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
-                {bar.label}
-              </p>
-              <p className={`mt-1 text-sm font-black ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
-                {formatCurrency(bar.value)}
-              </p>
-              <p className={`mt-1 text-xs font-semibold leading-5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                {bar.note}
-              </p>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-const RevenuePieChart = ({
-  ticketRevenue,
-  fbRevenue,
-  isLightMode,
-}: ThemeAwareProps & {
-  ticketRevenue: number;
-  fbRevenue: number;
-}) => {
-  const total = ticketRevenue + fbRevenue;
-  const ticketPercent = total > 0 ? (ticketRevenue / total) * 100 : 0;
-  const fbPercent = total > 0 ? 100 - ticketPercent : 0;
-  const background =
-    total > 0
-      ? `conic-gradient(#0891b2 0 ${ticketPercent}%, #f59e0b ${ticketPercent}% 100%)`
-      : isLightMode
-        ? '#e2e8f0'
-        : '#1e293b';
-
-  return (
-    <div className="grid min-w-0 gap-5 overflow-hidden p-5 md:grid-cols-[minmax(0,190px)_minmax(0,1fr)] xl:grid-cols-1">
-      <div
-        className="mx-auto grid h-40 w-40 max-w-full place-items-center rounded-full shadow-xl sm:h-44 sm:w-44"
-        style={{ background }}
-        role="img"
-        aria-label={`Doanh thu vé ${formatPercent(ticketPercent)}, doanh thu F&B ${formatPercent(fbPercent)}`}
-      >
-        <div className={`grid h-24 w-24 place-items-center rounded-full text-center ${isLightMode ? 'bg-white' : 'bg-[#101826]'}`}>
-          <div>
-            <p className={`text-xs font-black uppercase ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-              Tổng
-            </p>
-            <p className={`mt-1 text-base font-black ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
-              {formatCompactCurrency(total)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid min-w-0 content-center gap-3">
-        {[
-          {
-            label: 'Doanh thu vé',
-            value: ticketRevenue,
-            percent: ticketPercent,
-            dotClass: 'bg-cyan-600',
-          },
-          {
-            label: 'Doanh thu F&B',
-            value: fbRevenue,
-            percent: fbPercent,
-            dotClass: 'bg-amber-500',
-          },
-        ].map((item) => (
-          <div
-            key={item.label}
-            className={`grid min-w-0 gap-2 rounded-lg border p-3 ${
-              isLightMode ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.03]'
-            }`}
-          >
-            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-              <span className={`flex min-w-0 items-center gap-2 text-sm font-bold ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
-                <span className={`h-3 w-3 shrink-0 rounded-full ${item.dotClass}`} />
-                <span className="truncate">{item.label}</span>
-              </span>
-              <span className={`whitespace-nowrap text-right text-sm font-black ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
-                {formatPercent(item.percent)}
-              </span>
-            </div>
-            <p className={`break-words text-xs font-semibold ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-              {formatCurrency(item.value)}
-            </p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const ProgressRow = ({
-  title,
-  subtitle,
-  value,
-  progress,
-  accentClass,
-  leading,
-  isLightMode,
-}: ThemeAwareProps & {
-  title: string;
-  subtitle: string;
-  value: string;
-  progress: number;
-  accentClass: string;
-  leading?: ReactNode;
-}) => {
-  const width = progress > 0 ? Math.max(5, clampPercent(progress)) : 0;
-
-  return (
-    <div className={`grid gap-3 px-5 py-4 transition ${isLightMode ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]'}`}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          {leading ? <div className="shrink-0">{leading}</div> : null}
-          <div className="min-w-0">
-            <p className={`truncate text-sm font-black ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
-              {title}
-            </p>
-            <p className={`mt-1 text-xs font-semibold ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-              {subtitle}
-            </p>
-          </div>
-        </div>
-        <p className={`shrink-0 text-right text-sm font-black ${isLightMode ? 'text-slate-700' : 'text-slate-200'}`}>
-          {value}
-        </p>
-      </div>
-      <div className={`h-2 overflow-hidden rounded-full ${isLightMode ? 'bg-slate-200' : 'bg-white/10'}`}>
-        <div
-          className={`h-full rounded-full bg-gradient-to-r ${accentClass} transition-all duration-300`}
-          style={{ width: `${width}%` }}
-        />
-      </div>
-    </div>
-  );
-};
-
-const EmptyState = ({
-  title,
-  description,
-  icon,
-  isLightMode,
-}: ThemeAwareProps & {
-  title: string;
-  description: string;
-  icon: ReactNode;
-}) => (
-  <div className="flex flex-col items-center justify-center px-5 py-10 text-center">
-    <span className={`grid h-12 w-12 place-items-center rounded-lg ${isLightMode ? 'bg-slate-100 text-slate-500' : 'bg-white/10 text-slate-300'}`}>
-      {icon}
-    </span>
-    <p className={`mt-4 text-sm font-black ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
-      {title}
-    </p>
-    <p className={`mt-2 max-w-sm text-sm leading-6 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-      {description}
-    </p>
-  </div>
-);
-
-export default function Dashboard() {
-  const { isLightMode } = useOutletContext<AdminOutletContext>();
-  const [draftFilter, setDraftFilter] = useState<DashboardFilter>({});
-  const [appliedFilter, setAppliedFilter] = useState<DashboardFilter>({});
-  const [activeSection, setActiveSection] = useState<ReportSectionId>('revenue');
-  const [cinemas, setCinemas] = useState<CinemaResponse[]>([]);
-  const [overview, setOverview] = useState<DashboardOverview>(emptyOverview);
-  const [movieRanking, setMovieRanking] = useState<MovieRankingItem[]>([]);
-  const [occupancyAndFb, setOccupancyAndFb] =
-    useState<OccupancyAndFbBreakdown>(emptyOccupancyAndFb);
-  const [salesChannels, setSalesChannels] = useState<SalesChannelBreakdown[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
-
-  const datePresets = useMemo(() => getDatePresets(), []);
-  const activeDraftPreset = datePresets.find((preset) => {
-    const range = preset.getRange();
-    return (
-      (range.fromDate || '') === (draftFilter.fromDate || '') &&
-      (range.toDate || '') === (draftFilter.toDate || '')
-    );
-  });
-  const activeFilterCount = getActiveFilterCount(appliedFilter);
-  const refundRate =
-    overview.grossRevenue > 0 ? (overview.totalRefunds / overview.grossRevenue) * 100 : 0;
-  const panelClass = [
-    'rounded-lg border shadow-xl transition-colors',
-    isLightMode
-      ? 'border-slate-200 bg-white shadow-slate-200/70'
-      : 'border-white/10 bg-[#101826] shadow-black/20',
-  ].join(' ');
-  const inputClass = [
-    'h-11 w-full cursor-pointer rounded-lg border px-3 text-sm font-bold outline-none transition focus:border-cyan-500 focus-visible:ring-2 focus-visible:ring-cyan-400/70',
-    isLightMode
-      ? 'border-slate-200 bg-white text-slate-950'
-      : 'border-white/10 bg-[#0B1220] text-white',
-  ].join(' ');
-  const labelClass = `text-xs font-black uppercase ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`;
-  const mutedClass = isLightMode ? 'text-slate-500' : 'text-slate-400';
-  const headingClass = isLightMode ? 'text-slate-950' : 'text-white';
-  const rowBorderClass = isLightMode ? 'divide-slate-200' : 'divide-white/10';
-
-  const reportSections: Array<{
-    id: ReportSectionId;
-    label: string;
-    description: string;
-    icon: ReactNode;
-  }> = [
-    {
-      id: 'revenue',
-      label: 'Dòng tiền & cơ cấu',
-      description: 'Doanh thu theo nhóm và tỷ trọng',
-      icon: <FaChartPie />,
-    },
-    {
-      id: 'performance',
-      label: 'Phim & F&B',
-      description: 'Xếp hạng phim, hiệu suất F&B',
-      icon: <FaTrophy />,
-    },
-    {
-      id: 'channels',
-      label: 'Kênh bán F&B',
-      description: 'Online, offline và tỷ trọng',
-      icon: <FaBuilding />,
-    },
-  ];
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchCinemas = async () => {
-      try {
-        const data = await showtimeService.getCinemas();
-        if (isMounted) {
-          setCinemas(data);
-        }
-      } catch (error) {
-        console.warn('Không tải được danh sách chi nhánh', error);
-      }
-    };
-
-    void fetchCinemas();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchDashboard = async () => {
-      try {
-        setLoading(true);
-        setErrorMessage('');
-
-        const [overviewData, rankingData, occupancyData, channelData] =
-          await Promise.all([
-            dashboardService.getOverview(appliedFilter),
-            dashboardService.getMovieRanking(appliedFilter),
-            dashboardService.getOccupancyAndFb(appliedFilter),
-            dashboardService.getSalesChannels(appliedFilter),
-          ]);
-
-        if (!isMounted) {
-          return;
-        }
-
-        setOverview(overviewData ?? emptyOverview);
-        setMovieRanking(rankingData ?? []);
-        setOccupancyAndFb({
-          ...emptyOccupancyAndFb,
-          ...(occupancyData ?? {}),
-          fbItems: occupancyData?.fbItems ?? [],
-        });
-        setSalesChannels(channelData ?? []);
-      } catch (error) {
-        if (isMounted) {
-          setErrorMessage(
-            getErrorMessage(error, 'Không tải được dữ liệu thống kê doanh thu.'),
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void fetchDashboard();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [appliedFilter]);
-
-  const revenueBars = useMemo<RevenueBar[]>(
-    () => [
-      {
-        label: 'Tổng doanh thu',
-        value: overview.grossRevenue,
-        colorClass: 'from-cyan-600 to-blue-500',
-        note: `${formatNumber(overview.totalSuccessfulBookings)} lượt đặt thành công`,
-      },
-      {
-        label: 'Doanh thu thuần',
-        value: overview.netRevenue,
-        colorClass: 'from-emerald-600 to-teal-400',
-        note: `Sau hoàn tiền ${formatCurrency(overview.totalRefunds)}`,
-      },
-      {
-        label: 'Doanh thu vé',
-        value: occupancyAndFb.ticketRevenue,
-        colorClass: 'from-sky-600 to-cyan-400',
-        note: `${formatNumber(overview.totalTicketsSold)} vé đã bán`,
-      },
-      {
-        label: 'Doanh thu F&B',
-        value: occupancyAndFb.fbRevenue,
-        colorClass: 'from-amber-500 to-orange-400',
-        note: `${formatPercent(occupancyAndFb.fbRevenuePercentage)} trong cơ cấu`,
-      },
-    ],
-    [
-      occupancyAndFb.fbRevenue,
-      occupancyAndFb.fbRevenuePercentage,
-      occupancyAndFb.ticketRevenue,
-      overview.grossRevenue,
-      overview.netRevenue,
-      overview.totalRefunds,
-      overview.totalSuccessfulBookings,
-      overview.totalTicketsSold,
-    ],
-  );
-
-  const maxTicketsSold = Math.max(
-    ...movieRanking.map((item) => item.ticketsSold),
-    1,
-  );
-  const maxFbQuantity = Math.max(
-    ...occupancyAndFb.fbItems.map((item) => item.quantitySold),
-    1,
-  );
-
-  const applyFilter = (filter: DashboardFilter) => {
-    const nextFilter = normalizeFilter(filter);
-    setDraftFilter(nextFilter);
-    setAppliedFilter(nextFilter);
-  };
-
-  const handleSubmitFilter = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    applyFilter(draftFilter);
-  };
-
-  const handleDatePreset = (preset: DatePreset) => {
-    applyFilter({
-      ...draftFilter,
-      ...preset.getRange(),
-    });
-  };
-
-  const handleResetFilter = () => {
-    setDraftFilter({});
-    setAppliedFilter({});
-  };
-
-  return (
-    <div
-      className={[
-        'min-h-full p-4 transition-colors sm:p-6',
-        isLightMode ? 'bg-[#F6F8FB] text-slate-950' : 'bg-[#080B12] text-white',
-      ].join(' ')}
-      style={{
-        backgroundImage: isLightMode
-          ? 'linear-gradient(135deg, rgba(241,245,249,0.92), rgba(248,250,252,0.98)), repeating-linear-gradient(90deg, rgba(15,23,42,0.035) 0 1px, transparent 1px 72px)'
-          : 'linear-gradient(135deg, rgba(8,11,18,0.98), rgba(14,21,35,0.96)), repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 72px)',
-      }}
-    >
-      <div className="mx-auto flex max-w-[1440px] flex-col gap-5">
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(560px,720px)] xl:items-end">
-          <div className="min-w-0">
-            <p className="text-sm font-black uppercase text-cyan-500">
-              Phân tích doanh thu
-            </p>
-            <h1 className={`mt-3 max-w-3xl text-3xl font-black leading-tight lg:text-4xl ${headingClass}`}>
-              Dashboard vận hành doanh thu
-            </h1>
-            <p className={`mt-4 max-w-3xl text-sm leading-6 ${mutedClass}`}>
-              {getFilterSummary(appliedFilter, cinemas)}
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <MetricStrip
-              label="Bộ lọc"
-              value={activeFilterCount > 0 ? `${activeFilterCount} điều kiện` : 'Toàn hệ thống'}
-              icon={<FaFilter />}
-              isLightMode={isLightMode}
-            />
-            <MetricStrip
-              label="Tỷ lệ ghế đã bán"
-              value={formatPercent(occupancyAndFb.occupancyRate)}
-              icon={<FaPercent />}
-              isLightMode={isLightMode}
-            />
-            <MetricStrip
-              label="Trạng thái"
-              value={loading ? 'Đang cập nhật' : 'Dữ liệu mới nhất'}
-              icon={loading ? <FaSyncAlt className="animate-spin" /> : <FaChartLine />}
-              isLightMode={isLightMode}
-            />
-          </div>
-        </section>
-
-        {errorMessage ? (
-          <div className="flex items-start gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-200">
-            <FaExclamationTriangle className="mt-0.5 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-        ) : null}
-
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Tổng doanh thu"
-            value={formatCurrency(overview.grossRevenue)}
-            meta={`${formatNumber(overview.totalSuccessfulBookings)} lượt đặt vé thành công`}
-            icon={<FaMoneyBillWave />}
-            accentClass="from-cyan-600 to-blue-500"
-            loading={loading}
-            isLightMode={isLightMode}
-          />
-          <StatCard
-            label="Doanh thu thuần"
-            value={formatCurrency(overview.netRevenue)}
-            meta={`Hoàn tiền ${formatPercent(refundRate)} tổng doanh thu`}
-            icon={<FaCoins />}
-            accentClass="from-emerald-600 to-teal-400"
-            loading={loading}
-            isLightMode={isLightMode}
-          />
-          <StatCard
-            label="Vé đã bán"
-            value={formatNumber(overview.totalTicketsSold)}
-            meta={`${formatPercent(occupancyAndFb.occupancyRate)} ghế đã bán / tổng sức chứa ghế`}
-            icon={<FaTicketAlt />}
-            accentClass="from-sky-600 to-cyan-400"
-            loading={loading}
-            isLightMode={isLightMode}
-          />
-          <StatCard
-            label="Giá trị đơn trung bình"
-            value={formatCurrency(overview.averageOrderValue)}
-            meta="Tính theo lượt đặt vé thành công"
-            icon={<FaReceipt />}
-            accentClass="from-amber-500 to-orange-400"
-            loading={loading}
-            isLightMode={isLightMode}
-          />
-        </section>
-
-        <section
-          className={`sticky top-0 z-20 rounded-lg border p-3 shadow-xl backdrop-blur-xl ${
-            isLightMode
-              ? 'border-slate-200 bg-white/90 shadow-slate-200/70'
-              : 'border-white/10 bg-[#0B1220]/90 shadow-black/30'
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-white/10 pb-3 overflow-x-auto no-scrollbar">
+        <button
+          type="button"
+          onClick={() => setActiveTab('users')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'users'
+              ? 'bg-rose-600 text-white shadow-lg'
+              : 'bg-white/[0.05] text-neutral-400 hover:text-white'
           }`}
         >
-          <div className="mb-3 flex flex-col gap-1 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className={labelClass}>Bộ lọc báo cáo</p>
-              <p className={`mt-1 text-sm font-semibold ${mutedClass}`}>
-                Chọn nhanh theo mốc thời gian hoặc bấm vào ô ngày để mở lịch.
-              </p>
-            </div>
-            <p className={`text-sm font-black ${headingClass}`}>
-              {getRangeLabel(appliedFilter)}
-            </p>
-          </div>
+          <Users className="w-4 h-4" />
+          <span>Người dùng & Lượt tạo ({users.length})</span>
+        </button>
 
-          <form
-            onSubmit={handleSubmitFilter}
-            className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(150px,180px)_minmax(150px,180px)_minmax(190px,220px)_minmax(210px,1fr)_auto_auto]"
-          >
-              <label className="grid gap-2">
-                <span className={labelClass}>Từ ngày</span>
-                <input
-                  type="date"
-                  value={draftFilter.fromDate || ''}
-                  max={draftFilter.toDate || undefined}
-                  onClick={openNativeDatePicker}
-                  onChange={(event) =>
-                    setDraftFilter((current) => ({
-                      ...current,
-                      fromDate: event.target.value,
-                    }))
-                  }
-                  className={inputClass}
-                  aria-label="Từ ngày"
-                />
-              </label>
+        <button
+          type="button"
+          onClick={() => setActiveTab('orders')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'orders'
+              ? 'bg-rose-600 text-white shadow-lg'
+              : 'bg-white/[0.05] text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Printer className="w-4 h-4" />
+          <span>Đơn Hàng In 3D ({orders.length})</span>
+        </button>
 
-              <label className="grid gap-2">
-                <span className={labelClass}>Đến ngày</span>
-                <input
-                  type="date"
-                  value={draftFilter.toDate || ''}
-                  min={draftFilter.fromDate || undefined}
-                  onClick={openNativeDatePicker}
-                  onChange={(event) =>
-                    setDraftFilter((current) => ({
-                      ...current,
-                      toDate: event.target.value,
-                    }))
-                  }
-                  className={inputClass}
-                  aria-label="Đến ngày"
-                />
-              </label>
+        <button
+          type="button"
+          onClick={() => setActiveTab('packages')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'packages'
+              ? 'bg-rose-600 text-white shadow-lg'
+              : 'bg-white/[0.05] text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Gói Biểu Phí In ({packages.length})</span>
+        </button>
 
-              <label className="grid gap-2">
-                <span className={labelClass}>Khoảng thời gian</span>
-                <select
-                  value={activeDraftPreset?.id ?? 'custom'}
-                  onChange={(event) => {
-                    const selectedPreset = datePresets.find(
-                      (preset) => preset.id === event.target.value,
-                    );
-
-                    if (selectedPreset) {
-                      handleDatePreset(selectedPreset);
-                    }
-                  }}
-                  className={inputClass}
-                  aria-label="Khoảng thời gian nhanh"
-                >
-                  <option value="custom">Tùy chỉnh</option>
-                  {datePresets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="grid gap-2">
-                <span className={labelClass}>Chi nhánh</span>
-                <select
-                  value={draftFilter.cinemaId || ''}
-                  onChange={(event) =>
-                    setDraftFilter((current) => ({
-                      ...current,
-                      cinemaId: event.target.value,
-                    }))
-                  }
-                  className={inputClass}
-                  aria-label="Chi nhánh"
-                >
-                  <option value="">Tất cả chi nhánh</option>
-                  {cinemas.map((cinema) => (
-                    <option key={cinema.cinemaId} value={cinema.cinemaId}>
-                      {cinema.cinemaName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <button
-                type="submit"
-                className="mt-auto inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 text-sm font-black text-white transition hover:bg-cyan-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
-              >
-                <FaFilter />
-                Áp dụng
-              </button>
-
-              <button
-                type="button"
-                onClick={handleResetFilter}
-                className={`mt-auto inline-flex h-11 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70 ${
-                  isLightMode
-                    ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    : 'border-white/10 bg-white/5 text-white hover:bg-white/10'
-                }`}
-              >
-                <FaRedoAlt />
-                Đặt lại
-              </button>
-          </form>
-
-          <nav
-            className={`mt-3 grid gap-2 border-t pt-3 lg:grid-cols-3 ${
-              isLightMode ? 'border-slate-200' : 'border-white/10'
-            }`}
-            aria-label="Điều hướng nhóm báo cáo"
-            role="tablist"
-          >
-            {reportSections.map((section) => {
-              const active = activeSection === section.id;
-
-              return (
-                <button
-                  key={section.id}
-                  type="button"
-                  onClick={() => setActiveSection(section.id)}
-                  className={`flex min-h-12 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70 ${
-                    active
-                      ? 'border-cyan-500 bg-cyan-600 text-white shadow-lg shadow-cyan-600/20'
-                      : isLightMode
-                        ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                        : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
-                  }`}
-                  aria-selected={active}
-                  role="tab"
-                >
-                  <span
-                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
-                      active
-                        ? 'bg-white/20 text-white'
-                        : isLightMode
-                          ? 'bg-slate-100 text-slate-600'
-                          : 'bg-white/10 text-slate-300'
-                    }`}
-                  >
-                    {section.icon}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-black">{section.label}</span>
-                    <span className={`mt-0.5 block truncate text-xs font-semibold ${active ? 'text-cyan-50' : mutedClass}`}>
-                      {section.description}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-        </section>
-
-        {activeSection === 'revenue' ? (
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]" role="tabpanel">
-            <section className={panelClass}>
-              <PanelHeader
-                eyebrow="Revenue"
-                title="Dòng tiền theo nhóm"
-                description="Biểu đồ cột dọc so sánh tổng doanh thu, doanh thu thuần, vé và F&B."
-                icon={<FaChartLine />}
-                isLightMode={isLightMode}
-                action={
-                  <span className={`inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black ${
-                    isLightMode
-                      ? 'border-slate-200 bg-slate-50 text-slate-600'
-                      : 'border-white/10 bg-white/5 text-slate-300'
-                  }`}>
-                    {loading ? <FaSyncAlt className="animate-spin" /> : <FaCalendarAlt />}
-                    {getRangeLabel(appliedFilter)}
-                  </span>
-                }
-              />
-              <RevenueColumnChart bars={revenueBars} isLightMode={isLightMode} />
-            </section>
-
-            <section className={panelClass}>
-              <PanelHeader
-                eyebrow="Mix"
-                title="Cơ cấu doanh thu"
-                description="Tỷ lệ giữa vé đã bán và F&B đã bán trong bộ lọc hiện tại."
-                icon={<FaChartPie />}
-                isLightMode={isLightMode}
-              />
-              <RevenuePieChart
-                ticketRevenue={occupancyAndFb.ticketRevenue}
-                fbRevenue={occupancyAndFb.fbRevenue}
-                isLightMode={isLightMode}
-              />
-            </section>
-          </div>
-        ) : null}
-
-        {activeSection === 'performance' ? (
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" role="tabpanel">
-            <section className={panelClass}>
-              <PanelHeader
-                eyebrow="Top movies"
-                title="Xếp hạng phim"
-                description="Phim bán vé tốt nhất, sắp xếp giảm dần theo số vé đã bán."
-                icon={<FaTrophy />}
-                isLightMode={isLightMode}
-              />
-
-              {movieRanking.length === 0 ? (
-                <EmptyState
-                  title="Chưa có dữ liệu phim"
-                  description="Bộ lọc hiện tại chưa phát sinh lượt bán vé."
-                  icon={<FaFilm />}
-                  isLightMode={isLightMode}
-                />
-              ) : (
-                <div className={`divide-y ${rowBorderClass}`}>
-                  {movieRanking.map((movie, index) => (
-                    <ProgressRow
-                      key={movie.movieId || movie.movieTitle}
-                      title={movie.movieTitle}
-                      subtitle={formatCurrency(movie.ticketRevenue)}
-                      value={`${formatNumber(movie.ticketsSold)} vé`}
-                      progress={(movie.ticketsSold / maxTicketsSold) * 100}
-                      accentClass="from-cyan-600 to-blue-500"
-                      isLightMode={isLightMode}
-                      leading={
-                        <span className={`grid h-9 w-9 place-items-center rounded-lg text-sm font-black ${
-                          index === 0
-                            ? 'bg-amber-500 text-white'
-                            : isLightMode
-                              ? 'bg-slate-100 text-slate-700'
-                              : 'bg-white/10 text-slate-200'
-                        }`}>
-                          {index + 1}
-                        </span>
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className={panelClass}>
-              <PanelHeader
-                eyebrow="F&B"
-                title="Hiệu suất F&B"
-                description="Doanh thu, số lượng bán và mức đóng góp của từng món F&B."
-                icon={<FaUtensils />}
-                isLightMode={isLightMode}
-              />
-
-              <div className={`grid divide-y border-b sm:grid-cols-3 sm:divide-x sm:divide-y-0 ${rowBorderClass} ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}>
-                {[
-                  {
-                    label: 'Doanh thu F&B',
-                    value: formatCurrency(occupancyAndFb.fbRevenue),
-                    note: 'Tổng tiền F&B đã bán',
-                  },
-                  {
-                    label: 'Ghế đã bán',
-                    value: formatNumber(occupancyAndFb.totalSoldSeats),
-                    note: 'Số ghế đã thanh toán',
-                  },
-                  {
-                    label: 'Sức chứa ghế',
-                    value: formatNumber(occupancyAndFb.totalAvailableSeatsCapacity),
-                    note: 'Tổng ghế theo suất chiếu',
-                  },
-                ].map((item) => (
-                  <div key={item.label} className="p-5">
-                    <p className={labelClass}>{item.label}</p>
-                    <p className={`mt-2 text-lg font-black ${headingClass}`}>{item.value}</p>
-                    <p className={`mt-1 text-xs font-semibold ${mutedClass}`}>{item.note}</p>
-                  </div>
-                ))}
-              </div>
-
-              {occupancyAndFb.fbItems.length === 0 ? (
-                <EmptyState
-                  title="Chưa có F&B được bán"
-                  description="Bộ lọc hiện tại chưa ghi nhận doanh thu đồ ăn hoặc thức uống."
-                  icon={<FaUtensils />}
-                  isLightMode={isLightMode}
-                />
-              ) : (
-                <div className={`divide-y ${rowBorderClass}`}>
-                  {occupancyAndFb.fbItems.map((item) => (
-                    <ProgressRow
-                      key={item.fbItemId || item.itemName}
-                      title={item.itemName}
-                      subtitle={formatCurrency(item.revenue)}
-                      value={`${formatNumber(item.quantitySold)} món`}
-                      progress={(item.quantitySold / maxFbQuantity) * 100}
-                      accentClass="from-amber-500 to-orange-400"
-                      isLightMode={isLightMode}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-        ) : null}
-
-        {activeSection === 'channels' ? (
-          <section className={panelClass} role="tabpanel">
-            <PanelHeader
-              eyebrow="Channels"
-              title="F&B theo kênh bán"
-              description="Theo dõi tỷ trọng F&B từ từng kênh đặt vé online và offline."
-              icon={<FaBuilding />}
-              isLightMode={isLightMode}
-            />
-
-            {salesChannels.length === 0 ? (
-              <EmptyState
-                title="Chưa có dữ liệu kênh bán"
-                description="Bộ lọc hiện tại chưa phát sinh doanh thu F&B theo kênh."
-                icon={<FaReceipt />}
-                isLightMode={isLightMode}
-              />
-            ) : (
-              <div className={`divide-y ${rowBorderClass}`}>
-                {salesChannels.map((channel) => (
-                  <div
-                    key={channel.channel}
-                    className={`grid gap-4 px-5 py-4 transition lg:grid-cols-[minmax(0,1fr)_180px_180px] lg:items-center ${
-                      isLightMode ? 'hover:bg-slate-50' : 'hover:bg-white/[0.03]'
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <p className={`truncate text-sm font-black ${headingClass}`}>
-                        {channel.channelLabel || channel.channel}
-                      </p>
-                      <p className={`mt-1 text-xs font-semibold ${mutedClass}`}>
-                        {formatNumber(channel.bookingCount)} lượt đặt có F&B
-                      </p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className={labelClass}>Doanh thu</p>
-                      <p className={`mt-1 text-sm font-black ${headingClass}`}>
-                        {formatCurrency(channel.totalRevenue)}
-                      </p>
-                    </div>
-                    <div className="grid gap-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className={labelClass}>Tỷ trọng</p>
-                        <p className="text-sm font-black text-emerald-500">
-                          {formatPercent(channel.percentage)}
-                        </p>
-                      </div>
-                      <div className={`h-2 overflow-hidden rounded-full ${isLightMode ? 'bg-slate-200' : 'bg-white/10'}`}>
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-teal-400"
-                          style={{ width: `${channel.percentage > 0 ? Math.max(5, clampPercent(channel.percentage)) : 0}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        ) : null}
+        <button
+          type="button"
+          onClick={() => setActiveTab('generations')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            activeTab === 'generations'
+              ? 'bg-rose-600 text-white shadow-lg'
+              : 'bg-white/[0.05] text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Box className="w-4 h-4" />
+          <span>Tác Vụ 3D AI ({generations.length})</span>
+        </button>
       </div>
+
+      {/* Tab: Users */}
+      {activeTab === 'users' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Danh Sách Người Dùng</h3>
+            <button
+              type="button"
+              onClick={fetchUsers}
+              className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/10 text-neutral-300 cursor-pointer"
+              title="Làm mới"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.02]">
+            <table className="w-full text-left text-xs text-neutral-300">
+              <thead className="bg-white/[0.05] uppercase tracking-wider text-[11px] text-neutral-400 border-b border-white/10">
+                <tr>
+                  <th className="py-3 px-4">Họ và tên</th>
+                  <th className="py-3 px-4">Email</th>
+                  <th className="py-3 px-4">Vai trò</th>
+                  <th className="py-3 px-4">Lượt Free</th>
+                  <th className="py-3 px-4">Lượt Mua</th>
+                  <th className="py-3 px-4 text-right">Hành động</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {users.map((u) => (
+                  <tr key={u.id} className="hover:bg-white/[0.03] transition-colors">
+                    <td className="py-3 px-4 font-semibold text-white">{u.fullName || 'Chưa cập nhật'}</td>
+                    <td className="py-3 px-4">{u.email}</td>
+                    <td className="py-3 px-4">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        u.role === 'admin'
+                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                          : u.role === 'staff'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          : 'bg-white/10 text-neutral-300'
+                      }`}>
+                        {u.role}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 font-bold text-emerald-400">{u.freeTrialRemaining}</td>
+                    <td className="py-3 px-4 font-bold text-rose-400">{u.purchasedRemaining}</td>
+                    <td className="py-3 px-4 text-right space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedUser(u);
+                          setCreditAmount(5);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 font-semibold cursor-pointer"
+                      >
+                        + Lượt tạo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedUser(u);
+                          setNewRole(u.role);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-semibold cursor-pointer"
+                      >
+                        Đổi vai trò
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Modal for User Credits / Role */}
+          {selectedUser && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="w-full max-w-md bg-[#1a0508] border border-white/20 rounded-2xl p-6 space-y-5 shadow-2xl text-white">
+                <h3 className="font-bold text-base">Cập nhật tài khoản: {selectedUser.email}</h3>
+
+                <div className="space-y-3 p-3 rounded-xl bg-white/[0.03] border border-white/10 text-xs">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-rose-200">Cộng thêm lượt tạo 3D:</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={creditAmount}
+                      onChange={(e) => setCreditAmount(Number(e.target.value))}
+                      className="w-20 px-2.5 py-1 rounded-lg bg-black/40 border border-white/20 text-white text-right"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isUpdatingUser}
+                    onClick={handleAddCredits}
+                    className="w-full py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold uppercase transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    Xác nhận nạp lượt
+                  </button>
+                </div>
+
+                <div className="space-y-3 p-3 rounded-xl bg-white/[0.03] border border-white/10 text-xs">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-rose-200">Đổi vai trò người dùng:</label>
+                    <select
+                      value={newRole}
+                      onChange={(e) => setNewRole(e.target.value)}
+                      className="px-2.5 py-1 rounded-lg bg-black/40 border border-white/20 text-white"
+                    >
+                      <option value="cus">Khách hàng (cus)</option>
+                      <option value="staff">Nhân viên (staff)</option>
+                      <option value="admin">Quản trị viên (admin)</option>
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isUpdatingUser}
+                    onClick={handleUpdateRole}
+                    className="w-full py-2 rounded-xl bg-white/20 hover:bg-white/30 text-xs font-bold uppercase transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    Xác nhận đổi vai trò
+                  </button>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedUser(null)}
+                    className="px-4 py-1.5 rounded-xl border border-white/20 text-xs font-semibold hover:bg-white/10 cursor-pointer"
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Orders */}
+      {activeTab === 'orders' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Danh Sách Đơn Hàng In 3D</h3>
+            <button
+              type="button"
+              onClick={fetchOrders}
+              className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/10 text-neutral-300 cursor-pointer"
+              title="Làm mới"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.02]">
+            <table className="w-full text-left text-xs text-neutral-300">
+              <thead className="bg-white/[0.05] uppercase tracking-wider text-[11px] text-neutral-400 border-b border-white/10">
+                <tr>
+                  <th className="py-3 px-4">Mã đơn</th>
+                  <th className="py-3 px-4">Người nhận</th>
+                  <th className="py-3 px-4">Chất liệu / SL</th>
+                  <th className="py-3 px-4">Tổng tiền</th>
+                  <th className="py-3 px-4">Trạng thái</th>
+                  <th className="py-3 px-4 text-right">Cập nhật</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {orders.map((o) => (
+                  <tr key={o.id} className="hover:bg-white/[0.03] transition-colors">
+                    <td className="py-3 px-4 font-bold text-white">{o.orderCode}</td>
+                    <td className="py-3 px-4">
+                      <p className="font-semibold text-white">{o.receiverName}</p>
+                      <p className="text-[10px] text-neutral-400">{o.receiverPhone} - {o.city}</p>
+                    </td>
+                    <td className="py-3 px-4">
+                      <p>{o.material}</p>
+                      <p className="text-[10px] text-neutral-400">SL: {o.quantity} cái</p>
+                    </td>
+                    <td className="py-3 px-4 font-bold text-rose-400">{formatVnd(o.totalVnd)}</td>
+                    <td className="py-3 px-4">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/10 border border-white/20">
+                        {o.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedOrder(o);
+                          setNextOrderStatus(o.status);
+                          setOrderTrackingNumber(o.trackingNumber || '');
+                          setOrderStatusNote(o.statusNote || 'Tiến độ gia công in 3D');
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold cursor-pointer"
+                      >
+                        Xử lý đơn
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Modal for Order Status */}
+          {selectedOrder && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="w-full max-w-md bg-[#1a0508] border border-white/20 rounded-2xl p-6 space-y-4 shadow-2xl text-white">
+                <h3 className="font-bold text-base">Cập nhật đơn hàng: {selectedOrder.orderCode}</h3>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-semibold text-rose-200 block mb-1">Trạng thái mới:</label>
+                    <select
+                      value={nextOrderStatus}
+                      onChange={(e) => setNextOrderStatus(e.target.value as OrderStatus)}
+                      className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/20 text-white"
+                    >
+                      <option value="Created">Created (Chờ duyệt in)</option>
+                      <option value="PrintingStarted">PrintingStarted (Đang in 3D)</option>
+                      <option value="Packaged">Packaged (Đã đóng gói)</option>
+                      <option value="Shipped">Shipped (Đang giao hàng)</option>
+                      <option value="Delivered">Delivered (Đã giao thành công)</option>
+                      <option value="Cancelled">Cancelled (Hủy đơn)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-rose-200 block mb-1">Mã vận đơn (nếu có):</label>
+                    <input
+                      type="text"
+                      placeholder="VD: VNPOST123456"
+                      value={orderTrackingNumber}
+                      onChange={(e) => setOrderTrackingNumber(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/20 text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-rose-200 block mb-1">Ghi chú trạng thái:</label>
+                    <input
+                      type="text"
+                      value={orderStatusNote}
+                      onChange={(e) => setOrderStatusNote(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/20 text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOrder(null)}
+                    className="px-4 py-2 rounded-xl border border-white/20 text-xs font-semibold hover:bg-white/10 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isUpdatingOrder}
+                    onClick={handleUpdateOrderStatus}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold uppercase transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    Lưu thay đổi
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Packages */}
+      {activeTab === 'packages' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Cấu Hình Gói In 3D</h3>
+            <button
+              type="button"
+              onClick={fetchPackages}
+              className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/10 text-neutral-300 cursor-pointer"
+              title="Làm mới"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {packages.map((pkg) => (
+              <div
+                key={pkg.id}
+                className="p-5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-xl flex justify-between items-center"
+              >
+                <div className="space-y-1">
+                  <h4 className="font-bold text-base text-white">{pkg.name}</h4>
+                  <p className="text-xs text-neutral-400">Vật liệu: <span className="text-rose-200 font-semibold">{pkg.material}</span></p>
+                  <p className="text-xs text-neutral-400">Chiều cao: {pkg.heightRangeCm || `${pkg.minHeightMm}-${pkg.maxHeightMm} mm`}</p>
+                  <p className="text-sm font-extrabold text-white mt-2">{formatVnd(pkg.priceVnd)}</p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPackage(pkg);
+                    setPackagePriceVnd(pkg.priceVnd);
+                    setPackageIsActive(true);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white cursor-pointer"
+                >
+                  Sửa giá
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Modal for Package Price */}
+          {editingPackage && (
+            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="w-full max-w-sm bg-[#1a0508] border border-white/20 rounded-2xl p-6 space-y-4 shadow-2xl text-white">
+                <h3 className="font-bold text-base">Chỉnh sửa giá: {editingPackage.name}</h3>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-semibold text-rose-200 block mb-1">Đơn giá (VND):</label>
+                    <input
+                      type="number"
+                      step="10000"
+                      value={packagePriceVnd}
+                      onChange={(e) => setPackagePriceVnd(Number(e.target.value))}
+                      className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/20 text-white"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="pkgActive"
+                      checked={packageIsActive}
+                      onChange={(e) => setPackageIsActive(e.target.checked)}
+                      className="w-4 h-4 rounded text-rose-600"
+                    />
+                    <label htmlFor="pkgActive" className="font-semibold text-neutral-200">Đang hoạt động</label>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingPackage(null)}
+                    className="px-4 py-1.5 rounded-xl border border-white/20 text-xs font-semibold hover:bg-white/10 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isUpdatingPackage}
+                    onClick={handleUpdatePackagePrice}
+                    className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold uppercase transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    Lưu giá
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Generations */}
+      {activeTab === 'generations' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Tác Vụ 3D AI Vừa Tạo</h3>
+            <button
+              type="button"
+              onClick={fetchGenerations}
+              className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/10 text-neutral-300 cursor-pointer"
+              title="Làm mới"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {generations.map((g) => (
+              <div
+                key={g.id}
+                className="p-4 rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col justify-between space-y-3"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-white truncate">{g.modelName || 'Mô hình 3D'}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      g.status === 'succeeded' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                    }`}>
+                      {g.status}
+                    </span>
+                  </div>
+                  {g.imageUrl && (
+                    <img
+                      src={g.imageUrl}
+                      alt={g.modelName || 'Preview'}
+                      className="w-full h-32 object-cover rounded-xl bg-black/40"
+                    />
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                  <span className="text-[10px] text-neutral-400">Tiến độ: {g.progress}%</span>
+                  <div className="space-x-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleReviewGen(g.id, true)}
+                      className="px-2 py-1 rounded-md bg-emerald-600/30 text-emerald-300 text-[10px] font-bold hover:bg-emerald-600/50 cursor-pointer"
+                    >
+                      Duyệt in
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReviewGen(g.id, false)}
+                      className="px-2 py-1 rounded-md bg-rose-600/30 text-rose-300 text-[10px] font-bold hover:bg-rose-600/50 cursor-pointer"
+                    >
+                      Từ chối
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

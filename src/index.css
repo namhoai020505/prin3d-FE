@@ -1,16 +1,96 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap');
 @import "tailwindcss";
 @config "../tailwind.config.js";
+
+/* Native Hardware-Accelerated Smooth Crossfade (Home <-> Login) */
+::view-transition-old(root) {
+  animation: 360ms cubic-bezier(0.22, 1, 0.36, 1) both vtFadeOut;
+}
+
+::view-transition-new(root) {
+  animation: 360ms cubic-bezier(0.22, 1, 0.36, 1) both vtFadeIn;
+}
+
+@keyframes vtFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vtFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@layer components {
+  .liquid-glass {
+    background: rgba(255, 255, 255, 0.01);
+    background-blend-mode: luminosity;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: none;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .liquid-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.45) 0%,
+      rgba(255, 255, 255, 0.15) 20%,
+      rgba(255, 255, 255, 0) 40%,
+      rgba(255, 255, 255, 0) 60%,
+      rgba(255, 255, 255, 0.15) 80%,
+      rgba(255, 255, 255, 0.45) 100%
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
 
 html, body {
   max-width: 100%;
   overflow-x: hidden;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-body);
 }
 
 :root {
+  /* THE BOYS Typography Tokens (Full Vietnamese Geometric Support) */
+  --font-heading: 'Plus Jakarta Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Plus Jakarta Sans', 'Helvetica Neue', Arial, sans-serif;
+
+  /* THE BOYS Cinematic Spatial Tokens */
+  --bg-void: #060605;
+  --bg-surface: rgba(18, 15, 10, 0.72);
+  --gold-bright: #ffd166;
+  --gold-core: #f5a623;
+  --gold-deep: #8c5800;
+  --ink: #f7f4ef;
+  --ink-dim: #9a948c;
+  --line-gold: rgba(245, 166, 35, 0.22);
+  --line-subtle: rgba(255, 255, 255, 0.08);
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --font-sans: var(--font-body);
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
   --g2c-light-bg: #FFFFFF;
-  --g2c-dark-bg: #000000;
+  --g2c-dark-bg: #060605;
   --g2c-light-navbar: #F1F5F9;
   --g2c-light-card: #FFFFFF;
   --g2c-light-border: #E2E8F0;
@@ -1013,6 +1093,538 @@ body.g2c-light-mode .g2c-footer .hover\:text-white:hover {
     margin-bottom: 8px !important;
   }
 }
+
+/* ==========================================================================
+   THE BOYS 7.1 — CINEMATIC 3D FRONTEND SYSTEM
+   Archetype D (3D Cylinder Ring + Pooled-Light Shaders)
+   + Archetype B (3D Perspective Tilting Portal)
+   + Archetype C (FLIP Lightbox Cards)
+   ========================================================================== */
+
+.theboys-home-stage {
+  background-color: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  position: relative;
+  isolation: isolate;
+}
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.animate-cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
+.font-mono-mesh {
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 2.1 Perspective 3D Floor Grid (Bridging 3D Workspace Aesthetic) */
+.spatial-floor-mask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+  -webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 58%, #000 10%, transparent 72%);
+  mask-image: radial-gradient(ellipse 70% 55% at 50% 58%, #000 10%, transparent 72%);
+}
+
+.spatial-floor-plane {
+  position: absolute;
+  left: -25%;
+  right: -25%;
+  top: 15%;
+  bottom: -40%;
+  transform-origin: 50% 50%;
+  transform: perspective(760px) rotateX(68deg) translateZ(0);
+  background-image:
+    linear-gradient(to right, rgba(245, 166, 35, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(245, 166, 35, 0.045) 1px, transparent 1px);
+  background-size: 64px 64px;
+  background-position: center center;
+}
+
+/* Subtle horizon origin accents (positioned cleanly so they never cross the dropzone text) */
+.spatial-floor-axis-x {
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  top: 72%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(245, 166, 35, 0.18) 25%,
+    rgba(245, 166, 35, 0.04) 50%,
+    rgba(245, 166, 35, 0.18) 75%,
+    transparent 100%
+  );
+}
+
+.spatial-floor-axis-z {
+  display: none;
+}
+
+/* 2.3 Mid-Ground 3D Perspective Cylinder Ring */
+.ring-stage {
+  position: absolute;
+  left: 50%;
+  top: 56%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  max-width: 1360px;
+  height: 300px;
+  perspective: 891px;
+  z-index: 5;
+  pointer-events: none;
+  overflow: visible;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.cylinder-orbit-track,
+.ring-stage .ring {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+}
+
+.ring-card {
+  position: absolute;
+  width: 126px;
+  height: 170px;
+  border-radius: 14px;
+  background: rgba(14, 12, 8, 0.72);
+  border: 1px solid rgba(245, 166, 35, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 14px 32px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+  overflow: hidden;
+  will-change: transform, opacity;
+}
+
+/* 3. PIXEL CONTRACT A: THE "✨ Tạo nhanh" GLASS BADGE (.badge) */
+.badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 166, 35, 0.24);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: linear-gradient(
+    to top,
+    rgba(255, 209, 102, 0.18) 0px,
+    rgba(245, 166, 35, 0.08) 4px,
+    rgba(255, 255, 255, 0.015) 10px,
+    rgba(255, 255, 255, 0.015) 100%
+  );
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform 280ms var(--ease-expo),
+    border-color 280ms var(--ease-soft),
+    box-shadow 280ms var(--ease-soft);
+}
+
+.badge:hover {
+  transform: translateY(-1px) scale(1.02);
+  border-color: rgba(255, 209, 102, 0.45);
+  box-shadow:
+    0 6px 20px rgba(245, 166, 35, 0.18),
+    inset 0 1px 0 rgba(255, 209, 102, 0.22);
+}
+
+.badge:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.badge i {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(155deg, #ffd166 0%, #d97706 48%, #1c1408 100%);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 250, 210, 0.75),
+    inset 0 -1px 2px rgba(28, 20, 8, 0.85),
+    0 2px 6px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-style: normal;
+  color: #120e07;
+  pointer-events: none;
+}
+
+.badge b {
+  padding: 0 14px 0 42px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* 4. PIXEL CONTRACT B: 18-STOP GOLD POOLED-LIGHT SHADER BUTTONS (.btn) */
+.btn-gold-shader {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 166, 35, 0.34);
+  color: var(--ink) !important;
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  cursor: pointer;
+  user-select: none;
+  /* 18-Stop Imperial Gold Pooled-Light Bank:
+     Top 60% is deep warm obsidian (#120e07), bottom ~16px pools intense liquid gold */
+  background: linear-gradient(
+    to top,
+    #ffffff 0px,
+    #fff9d6 0.5px,
+    #fff3b0 1px,
+    #ffe28a 2px,
+    #ffd166 3px,
+    #fabb43 4.5px,
+    #f5a623 6px,
+    #de9116 8px,
+    #c87d0a 10px,
+    #9b5f05 12.5px,
+    #6e4200 15px,
+    #4c2e02 18.5px,
+    #2b1b05 22px,
+    #1f1406 25.5px,
+    #171006 29px,
+    #120e07 32px,
+    #120e07 60%,
+    #120e07 100%
+  ) !important;
+  /* Tight outer shadow only — zero sloppy neon blur */
+  box-shadow:
+    0 0 8px rgba(245, 166, 35, 0.14),
+    0 2px 5px -3px rgba(255, 209, 102, 0.5);
+  transition:
+    transform 240ms var(--ease-expo),
+    border-color 240ms var(--ease-soft),
+    box-shadow 240ms var(--ease-soft),
+    filter 240ms var(--ease-soft);
+}
+
+/* 1.9px blurred warm-gold specular streak across the top edge */
+.btn-gold-shader::before {
+  content: "";
+  position: absolute;
+  left: 22%;
+  right: 38%;
+  top: 0.8px;
+  height: 1.6px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 243, 176, 0) 0%,
+    rgba(255, 243, 176, 0.92) 45%,
+    rgba(255, 209, 102, 0.75) 75%,
+    rgba(255, 209, 102, 0) 100%
+  );
+  filter: blur(1.9px);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 13px inward side-edge rim lighting attenuated upward */
+.btn-gold-shader::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 13px rgba(255, 230, 150, 0.7);
+  -webkit-mask: linear-gradient(
+    to top,
+    #000 0,
+    #000 6px,
+    rgba(0, 0, 0, 0.4) 12px,
+    rgba(0, 0, 0, 0.02) 30px,
+    transparent 100%
+  );
+  mask: linear-gradient(
+    to top,
+    #000 0,
+    #000 6px,
+    rgba(0, 0, 0, 0.4) 12px,
+    rgba(0, 0, 0, 0.02) 30px,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.btn-gold-shader > * {
+  position: relative;
+  z-index: 2;
+}
+
+.btn-gold-shader:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 209, 102, 0.56);
+  filter: brightness(1.07);
+  box-shadow:
+    0 0 10px rgba(245, 166, 35, 0.22),
+    0 3px 7px -2px rgba(255, 209, 102, 0.62);
+}
+
+.btn-gold-shader:active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* 5.1 Ambient Blurred Status Label */
+.ambient-status-pill {
+  filter: blur(3.5px);
+  opacity: 0.72;
+  transition:
+    filter 650ms var(--ease-expo),
+    opacity 650ms var(--ease-expo),
+    border-color 350ms var(--ease-soft);
+}
+
+.ambient-status-pill:hover,
+.ambient-status-pill.is-sharp {
+  filter: blur(0px);
+  opacity: 1;
+}
+
+/* 5.2 Interactive 3D Tilting Dropzone Console */
+.dropzone-console-shell {
+  max-width: 720px;
+  width: 100%;
+  z-index: 30;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.dropzone-glass-body {
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid rgba(245, 166, 35, 0.24);
+  background: rgba(12, 10, 8, 0.94);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow:
+    0 28px 64px -16px rgba(0, 0, 0, 0.92),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 -14px 36px -18px rgba(245, 166, 35, 0.1) inset;
+  overflow: visible;
+  transition:
+    border-color 280ms var(--ease-soft),
+    box-shadow 280ms var(--ease-soft);
+}
+
+.dropzone-glass-body:hover,
+.dropzone-glass-body.is-dragging {
+  border-color: rgba(255, 209, 102, 0.45);
+  box-shadow:
+    0 32px 72px -14px rgba(0, 0, 0, 0.95),
+    0 0 28px rgba(245, 166, 35, 0.1),
+    0 0 0 1px rgba(255, 209, 102, 0.1) inset;
+}
+
+.dropzone-cursor-spotlight {
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  pointer-events: none;
+  overflow: hidden;
+  background: radial-gradient(
+    320px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(245, 166, 35, 0.11),
+    transparent 70%
+  );
+  z-index: 0;
+}
+
+/* 6.2 5-Column 3D Depth-Shaded Card Grid */
+.showcase-card-3d {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4.2;
+  border-radius: 16px;
+  background: #1f0306;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 16px 36px -10px rgba(14, 1, 3, 0.78);
+  overflow: hidden;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition:
+    transform 260ms var(--ease-soft),
+    box-shadow 320ms var(--ease-soft);
+}
+
+.showcase-card-3d:hover {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+    0 24px 48px -12px rgba(14, 1, 3, 0.9),
+    0 0 24px rgba(255, 225, 230, 0.18);
+}
+
+.showcase-card-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    260px circle at var(--card-mx, 50%) var(--card-my, 30%),
+    rgba(255, 240, 243, 0.24),
+    rgba(255, 190, 200, 0.06) 45%,
+    transparent 72%
+  );
+  opacity: 0;
+  transition: opacity 260ms var(--ease-soft);
+  z-index: 3;
+}
+
+.showcase-card-3d:hover .showcase-card-sheen {
+  opacity: 1;
+}
+
+/* 7. Fine-Pointer Custom Cursor (Clean Contextual Mode — only appears on interactive zones) */
+@media (pointer: fine) {
+  .theboys-cursor-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9998;
+    overflow: hidden;
+  }
+
+  .theboys-cursor-dot {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 8px;
+    height: 8px;
+    margin-left: -4px;
+    margin-top: -4px;
+    border-radius: 9999px;
+    background: var(--gold-bright);
+    box-shadow: 0 0 10px rgba(255, 209, 102, 0.75);
+    pointer-events: none;
+    will-change: transform;
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity 180ms ease;
+  }
+
+  .theboys-cursor-ring {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 34px;
+    height: 34px;
+    margin-left: -17px;
+    margin-top: -17px;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 209, 102, 0.48);
+    background: rgba(18, 15, 10, 0.35);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    will-change: transform, opacity;
+    z-index: 9998;
+    opacity: 0;
+    transition:
+      width 240ms var(--ease-expo),
+      height 240ms var(--ease-expo),
+      margin 240ms var(--ease-expo),
+      background-color 240ms var(--ease-soft),
+      border-color 240ms var(--ease-soft),
+      opacity 180ms ease;
+  }
+
+  .theboys-cursor-ring.is-interactive {
+    opacity: 1;
+    width: 68px;
+    height: 30px;
+    margin-left: -34px;
+    margin-top: -42px;
+    background: rgba(16, 13, 8, 0.92);
+    border-color: rgba(255, 209, 102, 0.72);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65), 0 0 12px rgba(245, 166, 35, 0.2);
+  }
+}
+
+@media (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .theboys-cursor-layer {
+    display: none !important;
+  }
+}
+
+/* ==========================================================================
+   LIQUID GLASS & INSTRUMENT SERIF FOOTER SYSTEM (.asme-footer-stage)
+   Protects pure white alpha typography & liquid-glass hover states
+   ========================================================================== */
+body:not(.g2c-light-mode) .asme-footer-stage .text-white\/40 {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+body:not(.g2c-light-mode) .asme-footer-stage .text-white\/50 {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+body:not(.g2c-light-mode) .asme-footer-stage .text-white\/60 {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+body:not(.g2c-light-mode) .asme-footer-stage .text-white\/70 {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+body:not(.g2c-light-mode) .asme-footer-stage .text-white\/80 {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+body:not(.g2c-light-mode) .asme-footer-stage .hover\:bg-white\/5:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+body:not(.g2c-light-mode) .asme-footer-stage .bg-white,
+body:not(.g2c-light-mode) .asme-footer-stage .bg-white * {
+  color: #000000 !important;
+}
+
+
 
 
 

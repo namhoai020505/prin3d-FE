@@ -70,6 +70,7 @@ export default function Create3DStudio() {
     selectedFile?: File;
     modelName?: string;
     detailLevel?: string;
+    faceCount?: FaceCount;
   } | null;
 
   // Mode selection: 'text' | 'image'
@@ -84,7 +85,11 @@ export default function Create3DStudio() {
   );
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [shouldTexture, setShouldTexture] = useState(false);
-  const [faceCount, setFaceCount] = useState<FaceCount>(FACE_COUNTS[0]);
+  const [faceCount, setFaceCount] = useState<FaceCount>(() =>
+    locationState?.faceCount && FACE_COUNTS.includes(locationState.faceCount)
+      ? locationState.faceCount
+      : FACE_COUNTS[0]
+  );
 
   // Ground Grid & Viewport settings
   const [groundGridEnabled, setGroundGridEnabled] = useState(true);
@@ -119,10 +124,13 @@ export default function Create3DStudio() {
 
   // If a file was passed via location.state, create object URL
   useEffect(() => {
-    if (locationState?.selectedFile && !uploadedImage) {
-      setUploadedImage(URL.createObjectURL(locationState.selectedFile));
+    const file = locationState?.selectedFile;
+    if (file && !uploadedImage) {
+      void Promise.resolve().then(() => {
+        setUploadedImage(URL.createObjectURL(file));
+      });
     }
-  }, [locationState]);
+  }, [locationState, uploadedImage]);
 
   // Close model dropdown on click outside
   useEffect(() => {
@@ -260,8 +268,10 @@ export default function Create3DStudio() {
   useEffect(() => {
     const token = getAccessToken();
     if (!token || isAccessTokenExpired(token)) {
-      setAssets([]);
-      setActiveModelMesh(null);
+      void Promise.resolve().then(() => {
+        setAssets([]);
+        setActiveModelMesh(null);
+      });
       return;
     }
 

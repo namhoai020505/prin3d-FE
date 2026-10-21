@@ -7,14 +7,14 @@ export default function UserLayout() {
   const isStudioPage = location.pathname === '/create';
 
   return (
-    <div className="min-h-screen w-full bg-[#08090a] text-slate-100 flex overflow-x-hidden selection:bg-[#FFD166] selection:text-black">
+    <div className="min-h-screen w-full bg-[#1a0205] text-white flex overflow-x-hidden selection:bg-white selection:text-[#2a0408]">
       {/* Left Sidebar Navigation */}
       <UserSidebar />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen relative pl-[64px] md:pl-[72px]">
         {/* Page Content */}
-        <main className={`flex-1 w-full ${isStudioPage ? 'h-screen overflow-hidden' : 'pt-2 md:pt-4'}`}>
+        <main className={`flex-1 w-full ${isStudioPage ? 'h-screen overflow-hidden' : ''}`}>
           <Outlet />
         </main>
 

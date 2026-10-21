@@ -1,10 +1,9 @@
 import { useEffect } from 'react';
 import { getCurrentUserProfile, getAccessToken } from './auth';
-import { notificationService } from '../services/notificationService';
 
 const ACTIVE_SESSIONS_KEY = 'g2c_active_sessions_v1';
-const HEARTBEAT_INTERVAL_MS = 30_000; // 30s is sufficient for online status tracking
-const ONLINE_THRESHOLD_MS = 90_000; // 3× heartbeat interval — buffer for network jitter & timing edge cases
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const ONLINE_THRESHOLD_MS = 90_000;
 
 export interface ActiveSessionEntry {
   userId: string;
@@ -35,7 +34,6 @@ export const updateMyHeartbeat = () => {
   const currentMap = readActiveSessionsMap();
   const now = Date.now();
 
-  // Clean old expired entries (> 60s)
   const updatedMap: Record<string, ActiveSessionEntry> = {};
   Object.entries(currentMap).forEach(([uid, entry]) => {
     if (now - entry.lastSeenAt < 60000) {
@@ -52,9 +50,6 @@ export const updateMyHeartbeat = () => {
       lastSeenAt: now,
       tabId: TAB_ID,
     };
-
-    // Send heartbeat to Backend API for cross-browser / cross-device online status tracking
-    void notificationService.sendHeartbeat().catch(() => {});
   }
 
   try {
@@ -82,7 +77,7 @@ export const removeMyHeartbeat = () => {
   }
 };
 
-export const isUserOnline = (userIdOrEmail: string, optionalEmail?: string, _optionalRole?: string): boolean => {
+export const isUserOnline = (userIdOrEmail: string, optionalEmail?: string): boolean => {
   if (!userIdOrEmail || typeof window === 'undefined') return false;
   const currentMap = readActiveSessionsMap();
   const now = Date.now();
@@ -99,27 +94,9 @@ export const isUserOnline = (userIdOrEmail: string, optionalEmail?: string, _opt
   return activeEntries.some((entry) => {
     const entryUid = (entry.userId || '').trim().toLowerCase();
     const entryEmail = (entry.email || '').trim().toLowerCase();
-    const entryRole = (entry.role || '').trim().toLowerCase();
 
-    // Direct match on ID or email
     if (entryUid && (entryUid === q1 || entryUid === q2)) return true;
     if (entryEmail && (entryEmail === q1 || entryEmail === q2)) return true;
-
-    // Match static staff aliases (e.g. U_STATIC_STAFF, staff@gmail.com, usr-staff-01)
-    if (
-      (q1.includes('staff') || q2.includes('staff')) &&
-      (entryUid.includes('staff') || entryEmail.includes('staff') || entryRole.includes('staff'))
-    ) {
-      return true;
-    }
-
-    // Match static manager aliases (e.g. U_STATIC_MANAGER, huy.manager@g2cinema.vn, usr-mgr-01)
-    if (
-      (q1.includes('manager') || q2.includes('manager') || q1.includes('mgr') || q2.includes('mgr')) &&
-      (entryUid.includes('manager') || entryEmail.includes('manager') || entryRole.includes('manager'))
-    ) {
-      return true;
-    }
 
     return false;
   });

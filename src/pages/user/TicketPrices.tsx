@@ -1,125 +1,215 @@
-import { FaChair } from "react-icons/fa";
-import { FiClock, FiCreditCard, FiInfo } from "react-icons/fi";
-
-const ticketGroups = [
-  {
-    name: "Ghế thường",
-    description: "Vị trí tiêu chuẩn, phù hợp xem phim hằng ngày.",
-    weekday: "45.000 - 55.000 đ",
-    weekend: "55.000 - 70.000 đ",
-    note: "Giá tốt cho học sinh, sinh viên và suất chiếu sớm.",
-  },
-  {
-    name: "Ghế VIP",
-    description: "Vị trí trung tâm, góc nhìn đẹp và khoảng cách thoải mái.",
-    weekday: "60.000 - 75.000 đ",
-    weekend: "75.000 - 90.000 đ",
-    note: "Phù hợp phim bom tấn, 2D, 3D hoặc phòng chiếu lớn.",
-  },
-  {
-    name: "Ghế đôi",
-    description: "Ghế đôi dành cho 2 khách, ưu tiên trải nghiệm riêng tư hơn.",
-    weekday: "120.000 - 150.000 đ",
-    weekend: "150.000 - 180.000 đ",
-    note: "Giá tính theo cặp ghế, có thể thay đổi theo rạp/phòng.",
-  },
-];
-
-const policyNotes = [
-  "Giá vé có thể thay đổi theo định dạng phim, thời điểm chiếu và chương trình ưu đãi tại từng rạp.",
-  "Ghế VIP thường nằm ở khu vực trung tâm phòng chiếu nên có giá cao hơn ghế thường.",
-  "Ghế đôi được tính cho 2 người, phù hợp khi đặt vé theo cặp.",
-  "Vé đã thanh toán thành công sẽ hiển thị trong mục Vé của tôi và dùng để soát vé tại rạp.",
-];
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Box,
+  CheckCircle,
+  HelpCircle,
+  Printer,
+  ShieldCheck,
+  Sparkles,
+  Truck,
+  Zap,
+} from 'lucide-react';
+import {
+  listPricingPackages,
+  type PricingPackage,
+} from '../../services/pricingPackageService';
 
 export default function TicketPrices() {
+  const navigate = useNavigate();
+  const [packages, setPackages] = useState<PricingPackage[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPackages = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const data = await listPricingPackages();
+        if (isMounted) {
+          setPackages(data);
+        }
+      } catch (err: unknown) {
+        if (isMounted) {
+          const message =
+            err instanceof Error
+              ? err.message
+              : 'Không thể tải danh sách gói in 3D lúc này.';
+          setError(message);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchPackages();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const formatCurrency = (val: number) =>
+    val.toLocaleString('vi-VN') + ' đ';
+
   return (
-    <div className="bg-slate-50 text-slate-900 transition-colors duration-300 dark:bg-[#182437] dark:text-white">
-      <section className="px-4 pb-14 pt-8 sm:px-6 sm:pb-16">
-        <div className="mx-auto w-full max-w-[1120px]">
-          <div className="mb-8 border-b border-slate-200 pb-5 dark:border-white/10">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-[#0EA5E9] dark:text-[#FFD166]">
-              G2Cinema
-            </p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-              Giá vé
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-600 dark:text-white/65">
-              Bảng giá dưới đây mô tả cách tính vé theo loại ghế. Ghế thường có
-              mức giá cơ bản, ghế VIP có vị trí xem tốt hơn, còn ghế đôi được
-              tính theo cặp ghế cho hai khách.
+    <div className="min-h-screen bg-[#140204] text-white selection:bg-rose-500/30">
+      {/* Hero Section */}
+      <section className="relative overflow-hidden pt-12 pb-16 px-4 sm:px-6 lg:px-8 border-b border-white/10">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-rose-900/25 via-[#1a0205] to-[#140204] pointer-events-none" />
+        <div className="relative max-w-5xl mx-auto text-center space-y-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.08] border border-white/15 text-rose-200 text-xs font-semibold backdrop-blur-md">
+            <Sparkles className="w-3.5 h-3.5 text-rose-300" />
+            <span>Dịch vụ tạo 3D AI & Gia công In 3D Thực tế</span>
+          </div>
+          <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white drop-shadow-md">
+            Bảng Giá In 3D & Gói Sản Xuất
+          </h1>
+          <p className="max-w-2xl mx-auto text-sm sm:text-base text-rose-100/70 font-medium leading-relaxed">
+            Biến ý tưởng và mô hình 3D do AI tạo thành hiện vật thực tế với chất liệu nhựa Resin SLA cao cấp và sợi nhựa FDM bền bỉ, độ chuẩn xác tới từng milimet.
+          </p>
+        </div>
+      </section>
+
+      {/* Pricing Packages List */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <div className="w-10 h-10 border-3 border-rose-500/30 border-t-rose-400 rounded-full animate-spin" />
+            <p className="text-sm text-rose-100/60 font-medium">Đang tải biểu phí dịch vụ in 3D...</p>
+          </div>
+        ) : error ? (
+          <div className="max-w-md mx-auto p-6 rounded-2xl bg-rose-950/30 border border-rose-500/30 text-center space-y-3">
+            <HelpCircle className="w-10 h-10 text-rose-400 mx-auto" />
+            <h3 className="font-bold text-base text-white">Lỗi kết nối</h3>
+            <p className="text-xs text-rose-200/80">{error}</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-4 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-500 rounded-xl transition-all cursor-pointer"
+            >
+              Thử lại
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
+            {packages.map((pkg, idx) => {
+              const isSla = pkg.name.toLowerCase().includes('sla') || pkg.material.toLowerCase().includes('resin');
+              return (
+                <div
+                  key={pkg.id || idx}
+                  className={`relative rounded-3xl border transition-all duration-300 p-6 sm:p-8 flex flex-col justify-between backdrop-blur-xl ${
+                    isSla
+                      ? 'bg-gradient-to-b from-rose-950/40 via-black/40 to-black/60 border-rose-500/40 shadow-[0_8px_32px_rgba(225,29,72,0.15)] hover:border-rose-400'
+                      : 'bg-white/[0.04] border-white/12 hover:border-white/30 hover:bg-white/[0.06]'
+                  }`}
+                >
+                  {isSla && (
+                    <div className="absolute -top-3.5 right-6 px-3 py-1 rounded-full bg-gradient-to-r from-rose-600 to-pink-600 text-[11px] font-bold text-white shadow-lg tracking-wide uppercase">
+                      Được ưa chuộng nhất
+                    </div>
+                  )}
+
+                  <div className="space-y-5">
+                    <div className="flex items-center gap-3.5">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${
+                        isSla ? 'bg-rose-500/20 border-rose-400/40 text-rose-300' : 'bg-white/10 border-white/20 text-white'
+                      }`}>
+                        {isSla ? <Sparkles className="w-6 h-6" /> : <Printer className="w-6 h-6" />}
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-white">{pkg.name}</h2>
+                        <p className="text-xs text-rose-100/60 font-medium">Chất liệu: <span className="text-white font-semibold">{pkg.material}</span></p>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 pb-4 border-b border-white/10">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+                          {formatCurrency(pkg.priceVnd)}
+                        </span>
+                        <span className="text-xs text-rose-100/60 font-medium">/ 1 mẫu phẩm</span>
+                      </div>
+                      <p className="text-xs text-rose-200/80 mt-1">Đã bao gồm chi phí kiểm duyệt lưới & hỗ trợ làm sạch bề mặt</p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-bold text-rose-200 uppercase tracking-wider">Thông số kỹ thuật & Lợi ích</h4>
+                      <ul className="space-y-2.5 text-xs text-rose-100/80">
+                        <li className="flex items-center gap-2.5">
+                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>Phù hợp chiều cao: <strong className="text-white">{pkg.heightRangeCm || `${pkg.minHeightMm}-${pkg.maxHeightMm} mm`}</strong></span>
+                        </li>
+                        <li className="flex items-center gap-2.5">
+                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>Độ phân giải lớp in: <strong className="text-white">{isSla ? '0.05 mm (Siêu mịn)' : '0.12 mm (Tiêu chuẩn)'}</strong></span>
+                        </li>
+                        <li className="flex items-center gap-2.5">
+                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>Đảm bảo mô hình kín nước, chịu lực và chống biến dạng</span>
+                        </li>
+                        <li className="flex items-center gap-2.5">
+                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>Tự động xuất tệp chuẩn STL gia công máy in 3D công nghiệp</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="pt-6 mt-6 border-t border-white/10 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => navigate('/create')}
+                      className={`w-full py-3 px-5 rounded-2xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer ${
+                        isSla
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/40 hover:scale-[1.02]'
+                          : 'bg-white/15 hover:bg-white/25 text-white border border-white/20 hover:scale-[1.02]'
+                      }`}
+                    >
+                      <Zap className="w-4 h-4" />
+                      <span>Tạo mô hình & Đặt in ngay</span>
+                    </button>
+                    <p className="text-[11px] text-center text-rose-100/50">Thời gian gia công: 24 - 48 giờ làm việc</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Feature Highlights */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-16 pt-12 border-t border-white/10">
+          <div className="flex flex-col items-center text-center p-6 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 flex items-center justify-center">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-sm text-white">Kiểm tra kích thước tự động</h3>
+            <p className="text-xs text-rose-100/60 leading-relaxed">
+              Hệ thống tự động tính toán thể tích và kích thước hộp bao Bounding Box để báo giá chuẩn xác tức thì.
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            {ticketGroups.map((group) => (
-              <article
-                key={group.name}
-                className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#1E293B]"
-              >
-                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#FFD166] text-[#111827]">
-                  <FaChair size={20} aria-hidden="true" />
-                </div>
-                <h2 className="mt-4 text-lg font-black">{group.name}</h2>
-                <p className="mt-2 min-h-[48px] text-sm font-semibold leading-6 text-slate-600 dark:text-white/60">
-                  {group.description}
-                </p>
-
-                <dl className="mt-5 space-y-3 text-sm">
-                  <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-100 px-3 py-2 dark:bg-white/[0.06]">
-                    <dt className="font-bold text-slate-500 dark:text-white/55">
-                      Thứ 2 - Thứ 6
-                    </dt>
-                    <dd className="font-black">{group.weekday}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-100 px-3 py-2 dark:bg-white/[0.06]">
-                    <dt className="font-bold text-slate-500 dark:text-white/55">
-                      Cuối tuần
-                    </dt>
-                    <dd className="font-black">{group.weekend}</dd>
-                  </div>
-                </dl>
-
-                <p className="mt-4 text-xs font-bold leading-5 text-slate-500 dark:text-white/45">
-                  {group.note}
-                </p>
-              </article>
-            ))}
+          <div className="flex flex-col items-center text-center p-6 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 flex items-center justify-center">
+              <Box className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-sm text-white">Hỗ trợ file STL / GLB</h3>
+            <p className="text-xs text-rose-100/60 leading-relaxed">
+              Bạn có thể tải trực tiếp file mô hình 3D về máy để tự in hoặc chỉnh sửa trên Blender tùy thích.
+            </p>
           </div>
 
-          <div className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#1E293B]">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-500 dark:text-cyan-300">
-                  <FiCreditCard size={19} aria-hidden="true" />
-                </div>
-                <h2 className="text-lg font-black">Quy định giá vé</h2>
-              </div>
-
-              <ul className="mt-4 space-y-3 text-sm font-semibold leading-6 text-slate-600 dark:text-white/65">
-                {policyNotes.map((note) => (
-                  <li key={note} className="flex gap-3">
-                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#FFD166]" />
-                    <span>{note}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <aside className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#1E293B]">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-500 dark:text-emerald-300">
-                  <FiClock size={19} aria-hidden="true" />
-                </div>
-                <h2 className="text-lg font-black">Lưu ý khi đặt vé</h2>
-              </div>
-              <div className="mt-4 rounded-lg border border-dashed border-slate-300 p-4 text-sm font-semibold leading-6 text-slate-600 dark:border-white/15 dark:text-white/65">
-                <FiInfo className="mb-2 text-[#FFD166]" size={18} aria-hidden="true" />
-                Giá cuối cùng sẽ được hệ thống tính lại tại bước chọn ghế và
-                thanh toán, dựa trên suất chiếu, loại phòng, loại ghế và ưu đãi
-                đang áp dụng.
-              </div>
-            </aside>
+          <div className="flex flex-col items-center text-center p-6 rounded-2xl bg-white/[0.03] border border-white/10 space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 flex items-center justify-center">
+              <Truck className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-sm text-white">Đóng gói an toàn & Giao hàng</h3>
+            <p className="text-xs text-rose-100/60 leading-relaxed">
+              Mẫu vật được khử độc, bọc xốp chống sốc đa tầng và giao đến tận nơi theo địa chỉ bạn đăng ký.
+            </p>
           </div>
         </div>
       </section>
