@@ -18,6 +18,12 @@ export type AuthResponseData = {
   refreshToken?: string;
   fullName?: string;
   role?: string;
+  user?: {
+    id?: string;
+    email?: string;
+    fullName?: string;
+    role?: string;
+  };
 };
 
 export type RegisterResponseData = {

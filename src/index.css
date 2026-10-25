@@ -1925,3 +1925,98 @@ body:not(.g2c-light-mode) .asme-footer-stage .bg-white * {
     width: 100%;
   }
 }
+
+/* ============================================================
+   18-STOP POOLED-LIGHT GOOGLE BUTTON & 3D PARALLAX SHADER
+   ============================================================ */
+.btn-pooled-google {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(
+    to top,
+    rgba(66, 133, 244, 0.35) 1px,
+    rgba(52, 168, 83, 0.25) 2px,
+    rgba(251, 188, 5, 0.20) 3px,
+    rgba(234, 67, 53, 0.18) 4px,
+    rgba(255, 255, 255, 0.12) 6px,
+    rgba(255, 255, 255, 0.08) 10px,
+    #131a29 14px,
+    #0f1422 20px,
+    #0b0f1a 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  box-shadow:
+    inset 0 3px 3px -2px rgba(255, 255, 255, 0.25),
+    inset 1px 0 0 rgba(255, 255, 255, 0.10),
+    inset -1px 0 0 rgba(255, 255, 255, 0.10),
+    0 1px 0 rgba(255, 255, 255, 0.25),
+    0 0 16px rgba(66, 133, 244, 0.20),
+    0 4px 14px -2px rgba(0, 0, 0, 0.60);
+  transition: transform 0.25s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.25s ease, filter 0.25s ease, border-color 0.25s ease;
+}
+
+.btn-pooled-google:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.40);
+  box-shadow:
+    inset 0 3px 4px -2px rgba(255, 255, 255, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.45),
+    0 0 24px rgba(66, 133, 244, 0.35),
+    0 6px 18px -3px rgba(66, 133, 244, 0.30);
+}
+
+.btn-pooled-google:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+/* Top specular streak */
+.btn-pooled-google::before {
+  content: "";
+  position: absolute;
+  left: 20%;
+  right: 32%;
+  top: 0.8px;
+  height: 1.9px;
+  z-index: 1;
+  pointer-events: none;
+  filter: blur(0.55px);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.60) 34%,
+    rgba(255, 255, 255, 0.90) 50%,
+    rgba(255, 255, 255, 0.60) 66%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+/* Side rim light */
+.btn-pooled-google::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.50), rgba(255, 255, 255, 0) 13px),
+    linear-gradient(270deg, rgba(255, 255, 255, 0.50), rgba(255, 255, 255, 0) 13px);
+  -webkit-mask: linear-gradient(
+    to top,
+    #000 0, #000 6px, rgba(0, 0, 0, 0.40) 12px,
+    rgba(0, 0, 0, 0.15) 18px, rgba(0, 0, 0, 0.09) 24px,
+    rgba(0, 0, 0, 0.02) 30px, rgba(0, 0, 0, 0.02) 100%
+  );
+  mask: linear-gradient(
+    to top,
+    #000 0, #000 6px, rgba(0, 0, 0, 0.40) 12px,
+    rgba(0, 0, 0, 0.15) 18px, rgba(0, 0, 0, 0.09) 24px,
+    rgba(0, 0, 0, 0.02) 30px, rgba(0, 0, 0, 0.02) 100%
+  );
+}

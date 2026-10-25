@@ -174,7 +174,7 @@ export const useLoginController = () => {
       setAuthSession({
         accessToken: token,
         refreshToken: authData?.refreshToken || null,
-        fullName: authData?.fullName || 'Người dùng',
+        fullName: authData?.user?.fullName || authData?.fullName || 'Người dùng',
       });
 
       navigate(getPostLoginRedirect(getRoleFromAccessToken(token)));
@@ -215,7 +215,7 @@ export const useLoginController = () => {
       setAuthSession({
         accessToken: token,
         refreshToken: authData?.refreshToken || null,
-        fullName: authData?.fullName || 'Người dùng',
+        fullName: authData?.user?.fullName || authData?.fullName || 'Người dùng',
       });
 
       navigate(getPostLoginRedirect(getRoleFromAccessToken(token)));

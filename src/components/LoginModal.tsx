@@ -15,10 +15,12 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { useGoogleLogin } from '@react-oauth/google';
 import logoTheBoy from '../assets/images/LOGOTheBoy.png';
 import TiltCard from './ui/TiltCard';
 import {
   login,
+  googleLogin,
   register,
   verifyEmail,
   resendVerificationOtp,
@@ -145,6 +147,48 @@ export default function LoginModal({
       setIsLoading(false);
     }
   };
+
+  // Xử lý Đăng Nhập qua Google OAuth2 với hook useGoogleLogin chính thức (Click trực tiếp vào button, không lệch hitbox)
+  const triggerGoogleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      if (!tokenResponse.access_token) {
+        toast.error('Không nhận được mã xác thực từ Google.');
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const response = await googleLogin(undefined, tokenResponse.access_token);
+        const user = response?.user;
+        toast.success(
+          user?.fullName
+            ? `Đăng nhập Google thành công! Chào mừng ${user.fullName}.`
+            : 'Đăng nhập Google thành công!'
+        );
+        handleClose();
+        onLoginSuccess?.();
+
+        const role = user?.role || getRoleFromAccessToken();
+        const normalizedRole = normalizeRole(role);
+        if (normalizedRole === 'admin' || normalizedRole === 'staff' || normalizedRole === 'manager') {
+          const targetUrl = getPostLoginRedirect(role);
+          navigate(targetUrl, { replace: true });
+        }
+      } catch (err: unknown) {
+        const error = err as { response?: { data?: { message?: string; detail?: string } } };
+        const msg =
+          error.response?.data?.detail ||
+          error.response?.data?.message ||
+          'Đăng nhập qua tài khoản Google thất bại.';
+        toast.error(msg);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    onError: () => {
+      toast.error('Đăng nhập Google bị gián đoạn hoặc thất bại. Vui lòng thử lại.');
+    },
+  });
 
   // Xử lý Đăng Ký
   const handleSignUpSubmit = async (e: FormEvent) => {
@@ -440,6 +484,44 @@ export default function LoginModal({
               )}
             </button>
 
+            {/* Phân cách hoặc tiếp tục với Google */}
+            <div className="relative my-3 flex items-center justify-center">
+              <div className="border-t border-white/15 w-full" />
+              <span className="bg-[#0b0f19] px-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider shrink-0 rounded">
+                Hoặc
+              </span>
+              <div className="border-t border-white/15 w-full" />
+            </div>
+
+            {/* Nút Đăng Nhập Google hiệu ứng nổi 3D (Pooled-Light & Specular Streak) */}
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => triggerGoogleLogin()}
+              style={{ transform: 'translateZ(20px)' }}
+              className="btn-pooled-google w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(66,133,244,0.20)] active:scale-98 transition-all"
+            >
+              <svg className="w-4.5 h-4.5 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24Z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.97 0 12c0 2.03.45 3.84 1.25 5.42l4.03-3.15Z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98Z"
+                />
+              </svg>
+              <span className="text-white font-medium text-sm">Đăng Nhập Bằng Google</span>
+            </button>
+
             <div className="text-center pt-2">
               <span className="text-xs text-slate-400">Chưa có tài khoản? </span>
               <button
@@ -523,6 +605,44 @@ export default function LoginModal({
               ) : (
                 <span>Đăng Ký & Nhận 2 Lượt Free</span>
               )}
+            </button>
+
+            {/* Phân cách hoặc tiếp tục với Google */}
+            <div className="relative my-3 flex items-center justify-center">
+              <div className="border-t border-white/15 w-full" />
+              <span className="bg-[#0b0f19] px-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider shrink-0 rounded">
+                Hoặc
+              </span>
+              <div className="border-t border-white/15 w-full" />
+            </div>
+
+            {/* Nút Đăng Ký Google hiệu ứng nổi 3D (Pooled-Light & Specular Streak) */}
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => triggerGoogleLogin()}
+              style={{ transform: 'translateZ(20px)' }}
+              className="btn-pooled-google w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(66,133,244,0.20)] active:scale-98 transition-all"
+            >
+              <svg className="w-4.5 h-4.5 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24Z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.97 0 12c0 2.03.45 3.84 1.25 5.42l4.03-3.15Z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98Z"
+                />
+              </svg>
+              <span className="text-white font-medium text-sm">Đăng Ký Bằng Google</span>
             </button>
 
             <div className="text-center pt-2">

@@ -33,6 +33,11 @@ import {
   Flame,
   Zap,
   Loader2,
+  Shapes,
+  Pyramid,
+  Crosshair,
+  Split,
+  User,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import {
@@ -44,7 +49,7 @@ import {
 import { IdempotencyManager } from '../../lib/idempotency';
 import { AI_CONSENT_POLICY_VERSION } from '../../lib/env';
 import QuoteModalV2 from '../../components/QuoteModalV2';
-import { createImageGeneration, downloadGenerationFile, getGeneration, listGenerations, type GenerationStatus, type GenerationTask } from '../../services/generationService';
+import { createImageGeneration, downloadGenerationFile, getGeneration, listGenerations, getGenerationModelBlobUrl, type GenerationStatus, type GenerationTask } from '../../services/generationService';
 import {
   AUTH_SESSION_EVENT,
   getAccessToken,
@@ -68,6 +73,7 @@ interface GeneratedAsset {
   stage: string;
   progress: number;
   errorMessage?: string | null;
+  imageUrl?: string | null;
   glbUrl?: string | null;
   stlUrl?: string | null;
   isApprovedForPrinting?: boolean;
@@ -114,6 +120,7 @@ const toAsset = (task: GenerationTask): GeneratedAsset => ({
   stage: task.stage,
   progress: task.progress,
   errorMessage: task.errorMessage,
+  imageUrl: task.imageUrl,
   glbUrl: task.glbUrl,
   stlUrl: task.stlUrl,
   isApprovedForPrinting: task.isApprovedForPrinting,
@@ -151,6 +158,106 @@ const QUICK_PRESETS = [
     url: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=700&auto=format&fit=crop&q=80',
   },
 ];
+
+interface ModelThumbnailCardProps {
+  asset: GeneratedAsset;
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+function ModelThumbnailCard({ asset, isSelected, onSelect }: ModelThumbnailCardProps) {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let createdUrl: string | null = null;
+    const controller = new AbortController();
+
+    // If asset has a direct http/https/blob/data URL, use it directly
+    if (
+      asset.imageUrl &&
+      (asset.imageUrl.startsWith('blob:') ||
+        asset.imageUrl.startsWith('data:') ||
+        asset.imageUrl.startsWith('http://') ||
+        asset.imageUrl.startsWith('https://'))
+    ) {
+      setThumbnailUrl(asset.imageUrl);
+      return;
+    }
+
+    getGenerationModelBlobUrl(asset.id, 'image', controller.signal)
+      .then((url) => {
+        if (active) {
+          createdUrl = url;
+          setThumbnailUrl(url);
+        } else {
+          URL.revokeObjectURL(url);
+        }
+      })
+      .catch(() => {
+        if (active) setImageError(true);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [asset.id, asset.imageUrl]);
+
+  return (
+    <div
+      onClick={onSelect}
+      title={`${asset.name} (${statusLabel(asset.status)})`}
+      aria-label={asset.name}
+      data-testid={`asset-card-${asset.id}`}
+      className={`group relative aspect-square rounded-xl flex items-center justify-center cursor-pointer transition-all duration-200 overflow-hidden bg-[#131722] select-none ${
+        isSelected
+          ? 'border-2 border-cyan-400 bg-cyan-950/30 shadow-[0_0_15px_rgba(6,182,212,0.3)]'
+          : 'border border-white/8 hover:border-white/25 hover:bg-[#181d2a]'
+      }`}
+    >
+      {/* Hidden text for screen readers & E2E locators */}
+      <span className="sr-only">{asset.name}</span>
+
+      {/* 3D Model Thumbnail Image or Status Feedback */}
+      {thumbnailUrl && !imageError ? (
+        <img
+          src={thumbnailUrl}
+          alt={asset.name}
+          onError={() => setImageError(true)}
+          className="w-full h-full object-contain p-2 transition-transform duration-200 group-hover:scale-105 select-none pointer-events-none"
+          loading="lazy"
+        />
+      ) : asset.status === 'processing' || asset.status === 'queued' ? (
+        <div className="flex flex-col items-center justify-center gap-1 text-cyan-400 pointer-events-none">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-[9px] font-mono">{asset.progress}%</span>
+        </div>
+      ) : asset.status === 'failed' ? (
+        <div
+          className="flex flex-col items-center justify-center gap-1 text-rose-400 pointer-events-none"
+          title={getFriendlyErrorMessage(asset.errorMessage) || 'Lỗi tạo mô hình'}
+        >
+          <AlertTriangle className="w-5 h-5" />
+          <span className="text-[9px] text-rose-300">Lỗi</span>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center text-zinc-500 group-hover:text-cyan-400 transition-colors pointer-events-none">
+          <Box className="w-7 h-7 stroke-[1.5]" />
+        </div>
+      )}
+
+      {/* Selected Blue Checkmark Badge (Top-Right, matching Image 2) */}
+      {isSelected && (
+        <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-md z-10 animate-in fade-in zoom-in-75 duration-150">
+          <Check className="w-2.5 h-2.5 stroke-[3]" />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Create3DStudio() {
   const location = useLocation();
@@ -454,6 +561,8 @@ export default function Create3DStudio() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [assets, setAssets] = useState<GeneratedAsset[]>([]);
   const [activeModelMesh, setActiveModelMesh] = useState<GeneratedAsset | null>(null);
+  const [activeModelBlobUrl, setActiveModelBlobUrl] = useState<string | null>(null);
+  const [isLoadingModelBlob, setIsLoadingModelBlob] = useState(false);
   const [generationError, setGenerationError] = useState('');
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
   const [authSessionRevision, setAuthSessionRevision] = useState(0);
@@ -482,6 +591,47 @@ export default function Create3DStudio() {
   }, [approvedConfigMap]);
 
   const activeApproved = activeModelMesh?.versionId ? approvedConfigMap[activeModelMesh.versionId] : undefined;
+
+  // Load authenticated Blob URL for 3D GLB model with automatic revocation & abort controller
+  useEffect(() => {
+    if (!activeModelMesh?.id || activeModelMesh.status !== 'succeeded') {
+      setActiveModelBlobUrl(null);
+      setIsLoadingModelBlob(false);
+      return;
+    }
+
+    const abortController = new AbortController();
+    let currentBlobUrl: string | null = null;
+    setIsLoadingModelBlob(true);
+
+    getGenerationModelBlobUrl(activeModelMesh.id, 'glb', abortController.signal)
+      .then((blobUrl) => {
+        if (!abortController.signal.aborted) {
+          currentBlobUrl = blobUrl;
+          setActiveModelBlobUrl(blobUrl);
+        } else {
+          URL.revokeObjectURL(blobUrl);
+        }
+      })
+      .catch((err) => {
+        if (!abortController.signal.aborted) {
+          console.warn('[Create3DStudio] Không thể nạp blob model GLB:', err);
+          setActiveModelBlobUrl(null);
+        }
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) {
+          setIsLoadingModelBlob(false);
+        }
+      });
+
+    return () => {
+      abortController.abort();
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+      }
+    };
+  }, [activeModelMesh?.id, activeModelMesh?.status]);
 
   const handleCustomerApproval = async (autoOpenQuote = false) => {
     if (!activeModelMesh) return;
@@ -822,8 +972,9 @@ export default function Create3DStudio() {
         onToggleGroundGrid={() => setGroundGridEnabled((prev) => !prev)}
         isLeftPanelOpen={isLeftPanelOpen}
         isRightPanelOpen={isRightPanelOpen}
-        activeModelGlbUrl={activeModelMesh?.glbUrl}
+        activeModelGlbUrl={activeModelBlobUrl}
         activeModelName={activeModelMesh?.name}
+        isLoadingModel={isLoadingModelBlob}
         isGenerating={isGenerating}
         showBoundingBox={showBoundingBox}
         onToggleBoundingBox={() => setShowBoundingBox((prev) => !prev)}
@@ -1322,12 +1473,12 @@ export default function Create3DStudio() {
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setRightTab('Assets')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${rightTab === 'Assets'
-                    ? 'bg-white/15 text-white shadow-sm border border-white/20'
-                    : 'text-neutral-400 hover:text-white'
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${rightTab === 'Assets'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-white/[0.03] text-neutral-400 hover:text-white hover:bg-white/[0.08]'
                   }`}
               >
-                <span>Tài sản</span>
+                <span>Assets</span>
                 {assets.length > 0 && (
                   <span className="px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-mono">
                     {assets.length}
@@ -1336,21 +1487,21 @@ export default function Create3DStudio() {
               </button>
               <button
                 onClick={() => setRightTab('Layer')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${rightTab === 'Layer'
-                    ? 'bg-white/15 text-white shadow-sm border border-white/20'
-                    : 'text-neutral-400 hover:text-white'
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${rightTab === 'Layer'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-white/[0.03] text-neutral-400 hover:text-white hover:bg-white/[0.08]'
                   }`}
               >
                 Layer
               </button>
               <button
                 onClick={() => setRightTab('Property')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${rightTab === 'Property'
-                    ? 'bg-white/15 text-white shadow-sm border border-white/20'
-                    : 'text-neutral-400 hover:text-white'
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${rightTab === 'Property'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-white/[0.03] text-neutral-400 hover:text-white hover:bg-white/[0.08]'
                   }`}
               >
-                Thuộc tính
+                Property
               </button>
             </div>
 
@@ -1415,108 +1566,92 @@ export default function Create3DStudio() {
           {/* Tab Body */}
           <div className="flex-1 overflow-y-auto p-3.5 flex flex-col text-left no-scrollbar">
             {rightTab === 'Assets' && (
-              assets.length === 0 ? (
-                <div className="flex flex-col items-center justify-center my-auto gap-2.5 py-8 text-center">
-                  <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-zinc-400 shadow-inner">
-                    <Box className="w-6 h-6 stroke-[1.5]" />
-                  </div>
-                  <p className="text-xs text-white/90 font-medium">
-                    Chưa có mô hình nào
-                  </p>
-                  <p className="text-[11px] text-neutral-500 max-w-[210px] leading-relaxed">
-                    Tải ảnh hoặc chọn mẫu nhanh ở bảng bên trái và nhấn &quot;Tạo model từ ảnh&quot;.
-                  </p>
+              <>
+                {/* Subcategory / Filter Toolbar (matching Image 2) */}
+                <div className="flex items-center justify-between px-2 py-1.5 bg-[#141822] border border-white/6 rounded-xl mb-3 text-neutral-400">
+                  <button
+                    type="button"
+                    className="p-1 rounded-md bg-white/10 text-white transition-colors cursor-pointer"
+                    title="Tất cả mô hình"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="p-1 rounded-md hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                    title="Hình khối học"
+                  >
+                    <Shapes className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="p-1 rounded-md hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                    title="Khối lập phương"
+                  >
+                    <Box className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="p-1 rounded-md hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                    title="Khối chóp"
+                  >
+                    <Pyramid className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="p-1 rounded-md hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                    title="Khung dây & Lưới"
+                  >
+                    <Crosshair className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="p-1 rounded-md hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                    title="Chia tỉ lệ"
+                  >
+                    <Split className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="p-1 rounded-md hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                    title="Nhân vật đứng"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="p-1 rounded-md hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                    title="Nhân vật chuyển động"
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              ) : (
-                <div className="w-full flex flex-col gap-2.5">
-                  {assets.map((asset) => (
-                    <div
-                      key={asset.id}
-                      onClick={() => setActiveModelMesh(asset)}
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${activeModelMesh?.id === asset.id
-                          ? 'bg-cyan-950/25 border-cyan-400/50 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
-                          : 'bg-white/[0.03] border-white/8 hover:border-white/20'
-                        }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-white truncate">{asset.name}</span>
-                        <span className={`text-[10px] font-medium ${asset.status === 'succeeded'
-                            ? 'text-emerald-300'
-                            : asset.status === 'failed'
-                              ? 'text-rose-300'
-                              : 'text-cyan-300'
-                          }`}>
-                          {statusLabel(asset.status)}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-neutral-400 block mt-1">
-                        {asset.date} · {asset.status === 'succeeded' ? 'Hoàn tất' : `${asset.progress}%`}
-                      </span>
-                      {asset.errorMessage && (
-                        <div className="mt-1.5 px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[10px] flex items-center gap-1.5" title={asset.errorMessage}>
-                          <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
-                          <span className="truncate">{getFriendlyErrorMessage(asset.errorMessage)}</span>
-                        </div>
-                      )}
 
-                      {/* Badge Trạng thái Duyệt In (PrintReview Badge) */}
-                      {asset.status === 'succeeded' && (
-                        <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                          {asset.isApprovedForPrinting || asset.reviewStatus === 'Approved' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[10px] font-medium font-mono">
-                              <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                              Đạt chuẩn in 3D (Đã duyệt)
-                            </span>
-                          ) : asset.reviewStatus === 'Rejected' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/15 border border-rose-400/40 text-rose-300 text-[10px] font-medium">
-                              <AlertTriangle className="w-3 h-3 text-rose-400" />
-                              Cần chỉnh sửa lưới {asset.reviewNote ? `(${asset.reviewNote})` : ''}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-400/35 text-cyan-300 text-[10px] font-medium">
-                              <Clock className="w-3 h-3 text-cyan-400" />
-                              Chờ duyệt kỹ thuật in
-                            </span>
-                          )}
-
-                          {asset.versionId && approvedConfigMap[asset.versionId] && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono">
-                              <Check className="w-3 h-3" />
-                              Đã chốt: #{approvedConfigMap[asset.versionId].approvalDto.configurationHash.slice(0, 6)}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {(asset.glbUrl || asset.stlUrl) && (
-                        <div className="mt-2.5 flex gap-2">
-                          {asset.glbUrl && (
-                            <button
-                              type="button"
-                              onClick={(event) => void handleDownload(event, asset, 'glb')}
-                              disabled={downloadingFile === `${asset.id}-glb`}
-                              className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
-                            >
-                              <Download className="h-3 w-3" />
-                              {downloadingFile === `${asset.id}-glb` ? 'Đang tải...' : 'Tải GLB'}
-                            </button>
-                          )}
-                          {asset.stlUrl && (
-                            <button
-                              type="button"
-                              onClick={(event) => void handleDownload(event, asset, 'stl')}
-                              disabled={downloadingFile === `${asset.id}-stl`}
-                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
-                            >
-                              <Download className="h-3 w-3" />
-                              {downloadingFile === `${asset.id}-stl` ? 'Đang tải...' : 'Tải STL in 3D'}
-                            </button>
-                          )}
-                        </div>
-                      )}
+                {assets.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center my-auto gap-2.5 py-8 text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-zinc-400 shadow-inner">
+                      <Box className="w-6 h-6 stroke-[1.5]" />
                     </div>
-                  ))}
-                </div>
-              )
+                    <p className="text-xs text-white/90 font-medium">
+                      Chưa có mô hình nào
+                    </p>
+                    <p className="text-[11px] text-neutral-500 max-w-[210px] leading-relaxed">
+                      Tải ảnh hoặc chọn mẫu nhanh ở bảng bên trái và nhấn &quot;Tạo model từ ảnh&quot;.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="w-full grid grid-cols-3 gap-2.5">
+                    {assets.map((asset) => (
+                      <ModelThumbnailCard
+                        key={asset.id}
+                        asset={asset}
+                        isSelected={activeModelMesh?.id === asset.id}
+                        onSelect={() => setActiveModelMesh(asset)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
 
             {rightTab === 'Layer' && (
@@ -2183,14 +2318,42 @@ export default function Create3DStudio() {
           {activeModelMesh && activeModelMesh.status === 'succeeded' && (
             <div className="p-3 border-t border-cyan-500/25 bg-[#080d14]/95 backdrop-blur-xl flex flex-col gap-2.5 shadow-[0_-10px_25px_rgba(0,0,0,0.5)]">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                  Chốt Mẫu In Sản Xuất
+                <span className="text-[11px] font-bold text-white flex items-center gap-1.5 truncate max-w-[170px]" title={activeModelMesh.name}>
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <span className="truncate">{activeModelMesh.name}</span>
                 </span>
-                <span className="text-[10px] font-mono text-cyan-300">
+                <span className="text-[10px] font-mono text-cyan-300 shrink-0">
                   Cao: {Math.min(120, Math.max(100, Math.round(dimensions.y || 100)))} mm
                 </span>
               </div>
+
+              {/* Quick Downloads for Active Model */}
+              {(activeModelMesh.glbUrl || activeModelMesh.stlUrl) && (
+                <div className="flex gap-2">
+                  {activeModelMesh.glbUrl && (
+                    <button
+                      type="button"
+                      onClick={(event) => void handleDownload(event, activeModelMesh, 'glb')}
+                      disabled={downloadingFile === `${activeModelMesh.id}-glb`}
+                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 py-1.5 text-[10.5px] font-medium text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors cursor-pointer"
+                    >
+                      <Download className="h-3 w-3" />
+                      {downloadingFile === `${activeModelMesh.id}-glb` ? 'Đang tải...' : 'Tải GLB'}
+                    </button>
+                  )}
+                  {activeModelMesh.stlUrl && (
+                    <button
+                      type="button"
+                      onClick={(event) => void handleDownload(event, activeModelMesh, 'stl')}
+                      disabled={downloadingFile === `${activeModelMesh.id}-stl`}
+                      className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-1.5 text-[10.5px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors cursor-pointer"
+                    >
+                      <Download className="h-3 w-3" />
+                      {downloadingFile === `${activeModelMesh.id}-stl` ? 'Đang tải...' : 'Tải STL in 3D'}
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Material Selector Buttons */}
               <div className="grid grid-cols-2 gap-1.5">

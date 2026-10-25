@@ -54,6 +54,7 @@ const refreshClient = axios.create({
  */
 const PUBLIC_AUTH_PATHS = [
   '/api/auth/login',
+  '/api/auth/google-login',
   '/api/auth/register',
   '/api/auth/refresh',
   '/api/auth/refresh-token',

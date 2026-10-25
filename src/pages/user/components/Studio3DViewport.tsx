@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ShieldCheck,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { FaceCount } from '../../../constants/models';
@@ -31,6 +32,7 @@ interface Studio3DViewportProps {
   isRightPanelOpen: boolean;
   activeModelGlbUrl?: string | null;
   activeModelName?: string;
+  isLoadingModel?: boolean;
   isGenerating?: boolean;
   showBoundingBox?: boolean;
   onToggleBoundingBox?: () => void;
@@ -734,6 +736,7 @@ export default function Studio3DViewport({
   isRightPanelOpen,
   activeModelGlbUrl,
   activeModelName,
+  isLoadingModel = false,
   isGenerating,
   showBoundingBox = true,
   onToggleBoundingBox,
@@ -1052,16 +1055,32 @@ export default function Studio3DViewport({
       laserPlaneRef.current = null;
     }
 
-    while (meshGroup.children.length > 0) {
-      const child = meshGroup.children[0] as THREE.Mesh;
-      if (child.geometry) child.geometry.dispose();
-      if (Array.isArray(child.material)) {
-        child.material.forEach((m) => m.dispose());
-      } else if (child.material) {
-        child.material.dispose();
-      }
-      meshGroup.remove(child);
-    }
+    // Deep recursive disposal to prevent memory leaks in WebGL
+    const disposeHierarchy = (obj: THREE.Object3D) => {
+      obj.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.geometry) {
+          mesh.geometry.dispose();
+        }
+        if (mesh.material) {
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          mats.forEach((mat) => {
+            if (mat && typeof mat === 'object') {
+              for (const key of Object.keys(mat)) {
+                const val = (mat as unknown as Record<string, unknown>)[key];
+                if (val && typeof val === 'object' && 'isTexture' in val && (val as THREE.Texture).isTexture) {
+                  (val as THREE.Texture).dispose();
+                }
+              }
+              mat.dispose();
+            }
+          });
+        }
+      });
+    };
+
+    disposeHierarchy(meshGroup);
+    meshGroup.clear();
 
     const updateBoundingBoxAndDimensions = (targetGroup: THREE.Group) => {
       // 1. Remove old bounding cage and laser plane before measuring base geometry
@@ -1263,14 +1282,21 @@ export default function Studio3DViewport({
       targetMeshGroup.add(coreMesh);
     };
 
-    // If there is an actual GLB model from backend, load it!
+    let isCancelled = false;
+
+    // If there is an actual GLB model (e.g. authenticated Blob URL), load it!
     if (activeModelGlbUrl) {
       const loader = new GLTFLoader();
       loader.load(
         activeModelGlbUrl,
         (gltf) => {
+          if (isCancelled) {
+            disposeHierarchy(gltf.scene);
+            return;
+          }
           const model = gltf.scene;
-          // Center and scale model
+
+          // Auto-scale to fit 3D print bed (normalize to max 2.4 units)
           const box = new THREE.Box3().setFromObject(model);
           const size = box.getSize(new THREE.Vector3());
           const maxAxis = Math.max(size.x, size.y, size.z) || 1;
@@ -1280,43 +1306,59 @@ export default function Studio3DViewport({
           model.updateMatrixWorld(true);
           box.setFromObject(model);
           const center = box.getCenter(new THREE.Vector3());
+
+          // Center model on X and Z
           model.position.x -= center.x;
           model.position.z -= center.z;
+          // Align bottom of model to ground grid (Y = 0)
           model.position.y -= box.min.y;
 
-          // Apply wireframe overlay if in solid-wire mode
-          if (shadingMode === 'solid-wire' || shadingMode === 'wireframe') {
-            model.traverse((child) => {
-              if ((child as THREE.Mesh).isMesh) {
-                const mesh = child as THREE.Mesh;
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-                if (shadingMode === 'wireframe') {
-                  mesh.material = new THREE.MeshBasicMaterial({
-                    color: 0x00f2fe,
-                    wireframe: true,
-                  });
-                }
+          // Apply shadows & shading modes
+          model.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+              const mesh = child as THREE.Mesh;
+              mesh.castShadow = true;
+              mesh.receiveShadow = true;
+              if (shadingMode === 'wireframe') {
+                mesh.material = new THREE.MeshBasicMaterial({
+                  color: 0x00f2fe,
+                  wireframe: true,
+                });
+              } else if (shadingMode === 'sla-resin') {
+                mesh.material = new THREE.MeshStandardMaterial({
+                  color: 0xb5bac1,
+                  roughness: 0.35,
+                  metalness: 0.08,
+                });
               }
-            });
-          }
+            }
+          });
 
+          // Clean previous meshes and attach real 3D model
+          disposeHierarchy(meshGroup);
+          meshGroup.clear();
           meshGroup.add(model);
           updateBoundingBoxAndDimensions(meshGroup);
         },
         undefined,
-        () => {
-          // Fallback to procedural mesh if load fails
-          buildProceduralGeometry(meshGroup);
-          updateBoundingBoxAndDimensions(meshGroup);
+        (error) => {
+          if (isCancelled) return;
+          console.warn('[Studio3DViewport] Không thể nạp mô hình GLB từ Blob URL:', error);
+          // Only fallback to procedural geometry when no URL was supplied
         }
       );
-      return;
+      return () => {
+        isCancelled = true;
+      };
     }
 
-    // Procedural 3D Mesh reflecting Face Count
+    // Procedural 3D Mesh reflecting Face Count (fallback when no GLB URL is present)
     buildProceduralGeometry(meshGroup);
     updateBoundingBoxAndDimensions(meshGroup);
+
+    return () => {
+      isCancelled = true;
+    };
   }, [faceCount, shouldTexture, shadingMode, activeModelGlbUrl]);
 
   // 3b. Sync mesh scale from parent
@@ -1733,6 +1775,19 @@ export default function Studio3DViewport({
     <div className="relative w-full h-full overflow-hidden select-none">
       {/* Three.js Canvas Container */}
       <div ref={mountRef} className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing" />
+
+      {/* Loading Spinner Overlay for GLB Model Loading */}
+      {isLoadingModel && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/45 backdrop-blur-sm pointer-events-none transition-opacity duration-300">
+          <div className="flex flex-col items-center gap-3 px-6 py-4 rounded-2xl bg-[#090d16]/90 border border-cyan-500/30 shadow-2xl shadow-cyan-950/60">
+            <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+            <div className="flex flex-col items-center text-center">
+              <span className="text-xs font-semibold text-cyan-200">Đang nạp mô hình 3D...</span>
+              <span className="text-[10px] text-zinc-400 font-mono mt-0.5">Xử lý tệp GLB & cấu trúc hình học</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FLOATING VERTICAL 3D SLICER HUD (Cura / Bambu Studio Style) */}
       {isSlicingActive && (

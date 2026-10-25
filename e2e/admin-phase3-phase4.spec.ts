@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 const resetTestDefectReport = () => {
   const sql = `
@@ -7,16 +9,22 @@ SET QUOTED_IDENTIFIER ON;
 DECLARE @repId UNIQUEIDENTIFIER = 'A558C872-ECF1-4319-A726-74990FDDAABC';
 DECLARE @asgId UNIQUEIDENTIFIER = '74321C22-7762-42EC-986D-B5E92C40FAAA';
 UPDATE DefectReports SET Status = 'Open', ResolutionNote = NULL, ResolvedByUserId = NULL, ResolvedAtUtc = NULL, ReprintRunId = NULL, RefundId = NULL WHERE Id = @repId;
-UPDATE Notifications SET OutboxMessageId = NULL WHERE OutboxMessageId IN (SELECT Id FROM OutboxMessages WHERE DeduplicationKey LIKE '%a558c872-ecf1-4319-a726-74990fddaabc%');
+DELETE FROM Notifications WHERE OutboxMessageId IN (SELECT Id FROM OutboxMessages WHERE DeduplicationKey LIKE '%a558c872-ecf1-4319-a726-74990fddaabc%');
 DELETE FROM OutboxMessages WHERE DeduplicationKey LIKE '%a558c872-ecf1-4319-a726-74990fddaabc%';
 DELETE FROM OrderStatusHistories WHERE OperationKey LIKE '%a558c872-ecf1-4319-a726-74990fddaabc%';
 DELETE FROM ProductionRuns WHERE AssignmentId = @asgId AND RunNo > 1;
 UPDATE Orders SET FulfillmentStatus = 'Completed', ReprintApproved = 0 WHERE Id = '6F51BB53-DA8E-40DB-8CC7-107E409F15D6';
 `;
+  const tmpFile = path.resolve(process.cwd(), 'temp_defect_reset.sql');
   try {
-    execSync(`sqlcmd -S "(localdb)\\mssqllocaldb" -d "TheBoysDb" -Q "${sql.replace(/\r?\n/g, ' ')}"`);
+    fs.writeFileSync(tmpFile, sql, 'utf8');
+    execSync(`sqlcmd -S "(localdb)\\mssqllocaldb" -d "TheBoysDb" -i "${tmpFile}"`);
   } catch (err) {
     console.warn('Warning: Could not run sqlcmd to reset test defect report:', err);
+  } finally {
+    if (fs.existsSync(tmpFile)) {
+      try { fs.unlinkSync(tmpFile); } catch {}
+    }
   }
 };
 
@@ -36,6 +44,9 @@ const loginAsAdmin = async (page: any) => {
   const loginRes = await page.request.post('http://localhost:5133/api/auth/login', {
     data: { email: 'admin@123', password: 'Admin@123456' },
   });
+  if (!loginRes.ok()) {
+    console.error('loginAsAdmin FAILED:', loginRes.status(), await loginRes.text());
+  }
   expect(loginRes.ok()).toBeTruthy();
   const loginData = await loginRes.json();
   const token = loginData.accessToken;
@@ -69,6 +80,7 @@ test.describe('Admin Portal Phase 3 & 4 E2E Suite (6/6 Tests)', () => {
 
   test.beforeEach(async ({ page }) => {
     resetUsers();
+    resetTestDefectReport();
     await page.goto('http://localhost:5173/', { waitUntil: 'commit' });
     await page.evaluate(() => {
       localStorage.clear();

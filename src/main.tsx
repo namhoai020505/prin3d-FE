@@ -6,7 +6,9 @@ import 'react-toastify/dist/ReactToastify.css';
 import './index.css';
 import App from './App.tsx';
 
-const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
+const googleClientId =
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) ||
+  '928800899912-81ire3k9j09sibcegq1hriqgg231ahqr.apps.googleusercontent.com';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

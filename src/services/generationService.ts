@@ -177,6 +177,20 @@ export const getDownloadUrl = (taskId: string, kind: 'glb' | 'stl' | 'image'): s
   return `${API_BASE_URL}/api/generations/${taskId}/files/${kind}`;
 };
 
+export const getGenerationModelBlobUrl = async (
+  taskId: string,
+  kind: 'glb' | 'stl' | 'image' = 'glb',
+  signal?: AbortSignal
+): Promise<string> => {
+  const res: any = await api.get(`/api/generations/${taskId}/files/${kind}`, {
+    ...keepStudioOpenOnAuthFailure,
+    responseType: 'blob',
+    signal,
+  });
+  const blob = res instanceof Blob ? res : (res?.data instanceof Blob ? res.data : new Blob([res]));
+  return URL.createObjectURL(blob);
+};
+
 export const downloadGenerationFile = async (url: string, fileName: string): Promise<void> => {
   const response = await api.get(url, {
     ...keepStudioOpenOnAuthFailure,
@@ -206,6 +220,7 @@ export const generationService = {
   recoverGeneration,
   getDownloadUrl,
   downloadGenerationFile,
+  getGenerationModelBlobUrl,
 };
 
 export default generationService;
