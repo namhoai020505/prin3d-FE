@@ -1,4 +1,4 @@
-const roleClaimKeys = [
+﻿const roleClaimKeys = [
   'role',
   'http://schemas.microsoft.com/ws/2008/06/identity/claims/role',
 ];
@@ -224,7 +224,11 @@ export const isCustomerRole = (role: string | null | undefined) => {
 };
 
 export const getPostLoginRedirect = (role: string | null | undefined) => {
-  if (isAdminRole(role) || isStaffRole(role) || isManagerRole(role)) {
+  if (isStaffRole(role)) {
+    return '/staff/reviews';
+  }
+
+  if (isAdminRole(role) || isManagerRole(role)) {
     return '/admin/orders';
   }
 

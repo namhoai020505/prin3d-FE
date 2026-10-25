@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+﻿import { Link, useLocation } from 'react-router-dom';
 import {
   FaBox,
   FaChartLine,
@@ -196,6 +196,22 @@ const Sidebar = ({ collapsed, isLightMode }: SidebarProps) => {
           isLightMode ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-[#0B0F17]'
         }`}
       >
+        {/* Switch to Staff Portal Link */}
+        <Link
+          to="/staff/reviews"
+          title="Chuy?n sang C?ng K? thu?t vi�n Staff"
+          className={[
+            'flex min-h-10 items-center gap-2.5 rounded-xl px-3 text-xs font-bold transition-all duration-150 no-underline',
+            collapsed ? 'justify-center' : 'justify-start',
+            isLightMode
+              ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 shadow-sm'
+              : 'bg-cyan-950/30 hover:bg-cyan-900/40 text-cyan-300 border border-cyan-500/30 shadow-[0_0_12px_rgba(0,240,255,0.15)]',
+          ].join(' ')}
+        >
+          <FaIndustry className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+          {!collapsed && <span className="truncate">C?ng K? Thu?t Staff ?</span>}
+        </Link>
+
         {/* Return to Client Portal Link */}
         <Link
           to="/"
