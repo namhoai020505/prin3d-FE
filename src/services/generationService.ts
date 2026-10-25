@@ -1,5 +1,7 @@
 import type { AxiosRequestConfig } from 'axios';
 import api from '../lib/api';
+import { API_BASE_URL } from '../lib/env';
+import { IdempotencyManager } from '../lib/idempotency';
 
 export type GenerationStatus =
   | 'queued'
@@ -12,6 +14,8 @@ export type GenerationStatus =
 
 export type GenerationTask = {
   id: string;
+  versionId?: string | null;
+  userId?: string;
   modelName?: string | null;
   status: GenerationStatus;
   stage: string;
@@ -19,9 +23,26 @@ export type GenerationTask = {
   errorMessage?: string | null;
   createdAtUtc: string;
   completedAtUtc?: string | null;
+  durationSeconds?: number | null;
   imageUrl: string;
   glbUrl?: string | null;
   stlUrl?: string | null;
+  requestedHeightMm?: number;
+  shouldTexture?: boolean;
+  aiModel?: string;
+  dimensions?: {
+    widthMm: number;
+    depthMm: number;
+    heightMm: number;
+  };
+  modelVolumeCm3?: number | null;
+  printabilityStatus?: string;
+  isWatertight?: boolean;
+  printability?: unknown;
+  isApprovedForPrinting?: boolean;
+  reviewStatus?: string;
+  reviewNote?: string;
+  reviewedAtUtc?: string | null;
 };
 
 export type PrintQuote = {
@@ -42,48 +63,85 @@ export type PrintQuote = {
   pricingBasis: string;
 };
 
-type CreateGenerationInput = {
-  image: File;
+export type CreateGenerationInput = {
+  image?: File;
   modelName?: string;
   shouldTexture?: boolean;
   heightMm?: number;
+  idempotencyKey?: string;
 };
 
-const toTask = (value: unknown) => value as GenerationTask;
+const unwrap = <T>(res: unknown): T => {
+  if (res && typeof res === 'object' && 'data' in res && 'status' in res && 'headers' in res) {
+    return (res as { data: T }).data;
+  }
+  return res as T;
+};
+
+const toTask = (value: unknown): GenerationTask => {
+  const unwrapped = unwrap<GenerationTask>(value);
+  // Đảm bảo versionId luôn có giá trị (fallback về id nếu versionId chưa gán)
+  if (!unwrapped.versionId && unwrapped.id) {
+    unwrapped.versionId = unwrapped.id;
+  }
+  return unwrapped;
+};
 
 const keepStudioOpenOnAuthFailure: AxiosRequestConfig & { skipAuthRedirect: boolean } = {
   skipAuthRedirect: true,
 };
 
-export const createImageGeneration = async ({
-  image,
-  modelName,
-  shouldTexture = false,
-  heightMm = 100,
-}: CreateGenerationInput) => {
-  const form = new FormData();
-  form.append('image', image);
-  form.append('heightMm', String(heightMm));
-  form.append('shouldTexture', String(shouldTexture));
-  if (modelName) form.append('modelName', modelName);
+/**
+ * Tạo tác vụ sinh mô hình 3D AI kèm header Idempotency-Key UUID v4.
+ * Hỗ trợ nhận cả FormData hoặc CreateGenerationInput để tương thích 100% với code hiện tại.
+ */
+export const createImageGeneration = async (
+  inputOrFormData: CreateGenerationInput | FormData,
+  explicitIdempotencyKey?: string,
+): Promise<GenerationTask> => {
+  let form: FormData;
+  let key: string | undefined = explicitIdempotencyKey;
+
+  if (inputOrFormData instanceof FormData) {
+    form = inputOrFormData;
+  } else {
+    form = new FormData();
+    if (inputOrFormData.image) form.append('image', inputOrFormData.image);
+    form.append('heightMm', String(inputOrFormData.heightMm ?? 100));
+    form.append('shouldTexture', String(inputOrFormData.shouldTexture ?? false));
+    if (inputOrFormData.modelName) form.append('modelName', inputOrFormData.modelName);
+    if (!key && inputOrFormData.idempotencyKey) {
+      key = inputOrFormData.idempotencyKey;
+    }
+  }
+
+  const finalKey = key || IdempotencyManager.getOrCreateKey('generation:image');
 
   const response = await api.post('/api/generations/image', form, {
     ...keepStudioOpenOnAuthFailure,
     headers: {
       'Content-Type': 'multipart/form-data',
-      'Idempotency-Key': crypto.randomUUID(),
+      'Idempotency-Key': finalKey,
     },
   });
+
+  IdempotencyManager.clearKey('generation:image');
 
   return toTask(response);
 };
 
-export const getGeneration = async (id: string) =>
-  toTask(await api.get(`/api/generations/${id}`, keepStudioOpenOnAuthFailure));
+export const getGeneration = async (id: string): Promise<GenerationTask> => {
+  const raw = await api.get(`/api/generations/${id}`, keepStudioOpenOnAuthFailure);
+  return toTask(raw);
+};
 
-export const listGenerations = async (page = 1) => {
-  const response = await api.get(`/api/generations?page=${page}`, keepStudioOpenOnAuthFailure);
-  return response as unknown as GenerationTask[];
+export const listGenerations = async (page = 1): Promise<GenerationTask[]> => {
+  const raw = await api.get(`/api/generations?page=${page}`, keepStudioOpenOnAuthFailure);
+  const items = unwrap<GenerationTask[]>(raw);
+  return (items || []).map((item) => {
+    if (!item.versionId && item.id) item.versionId = item.id;
+    return item;
+  });
 };
 
 export const getPrintQuote = async (
@@ -91,10 +149,10 @@ export const getPrintQuote = async (
   packageId: string,
   quantity = 1,
 ): Promise<PrintQuote> => {
-  const response = await api.get(`/api/generations/${id}/quote`, {
+  const raw = await api.get(`/api/generations/${id}/quote`, {
     params: { packageId, quantity },
   });
-  return response as unknown as PrintQuote;
+  return unwrap<PrintQuote>(raw);
 };
 
 export const reviewGeneration = async (
@@ -102,24 +160,28 @@ export const reviewGeneration = async (
   approved: boolean,
   note: string,
 ): Promise<GenerationTask> => {
-  const response = await api.post(`/api/generations/${id}/review`, { approved, note });
-  return toTask(response);
+  const raw = await api.post(`/api/generations/${id}/review`, { approved, note });
+  return toTask(raw);
 };
 
 export const recoverGeneration = async (
   id: string,
   providerTaskId?: string,
 ): Promise<GenerationTask> => {
-  const response = await api.post(`/api/generations/${id}/recover`, { providerTaskId });
-  return toTask(response);
+  const raw = await api.post(`/api/generations/${id}/recover`, { providerTaskId });
+  return toTask(raw);
 };
 
-export const downloadGenerationFile = async (url: string, fileName: string) => {
+export const getDownloadUrl = (taskId: string, kind: 'glb' | 'stl' | 'image'): string => {
+  return `${API_BASE_URL}/api/generations/${taskId}/files/${kind}`;
+};
+
+export const downloadGenerationFile = async (url: string, fileName: string): Promise<void> => {
   const response = await api.get(url, {
     ...keepStudioOpenOnAuthFailure,
     responseType: 'blob',
   });
-  const blob = response as unknown as Blob;
+  const blob = unwrap<Blob>(response);
   if (!(blob instanceof Blob)) {
     throw new Error('Backend không trả về file model hợp lệ.');
   }
@@ -133,3 +195,16 @@ export const downloadGenerationFile = async (url: string, fileName: string) => {
   link.remove();
   URL.revokeObjectURL(objectUrl);
 };
+
+export const generationService = {
+  createImageGeneration,
+  getGeneration,
+  listGenerations,
+  getPrintQuote,
+  reviewGeneration,
+  recoverGeneration,
+  getDownloadUrl,
+  downloadGenerationFile,
+};
+
+export default generationService;

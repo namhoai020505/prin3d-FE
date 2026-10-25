@@ -15,7 +15,7 @@ createRoot(document.getElementById('root')!).render(
       <ToastContainer
         theme="dark"
         position="top-center"
-        autoClose={300}
+        autoClose={3500}
         closeButton={false}
         hideProgressBar
         newestOnTop

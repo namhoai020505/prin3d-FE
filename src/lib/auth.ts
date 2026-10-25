@@ -178,16 +178,8 @@ export const isCustomerRole = (role: string | null | undefined) => {
 };
 
 export const getPostLoginRedirect = (role: string | null | undefined) => {
-  if (isAdminRole(role)) {
+  if (isAdminRole(role) || isStaffRole(role) || isManagerRole(role)) {
     return '/admin/dashboard';
-  }
-
-  if (isManagerRole(role)) {
-    return '/manager/dashboard';
-  }
-
-  if (isStaffRole(role)) {
-    return '/staff/ticket-scanner';
   }
 
   return '/';

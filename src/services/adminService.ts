@@ -1,10 +1,12 @@
 import api from '../lib/api';
+import { IdempotencyManager } from '../lib/idempotency';
 
 export type AdminUserItem = {
   id: string;
   email: string;
   fullName: string;
   role: string;
+  accountStatus?: string;
   freeTrialRemaining: number;
   purchasedRemaining: number;
 };
@@ -15,6 +17,7 @@ export type UpdateUserRolePayload = {
 
 export type AddUserCreditsPayload = {
   amount: number;
+  reason?: string;
 };
 
 export type UpdatePricingPackagePayload = {
@@ -36,13 +39,30 @@ export const adminService = {
   addUserCredits: async (
     id: string,
     amount: number,
+    reason = 'Quản trị viên cấp bổ sung lượt tạo 3D',
   ): Promise<{ id: string; freeTrialRemaining: number; purchasedRemaining: number }> => {
-    const response = await api.post(`/api/admin/users/${id}/credits`, { amount });
+    const key = IdempotencyManager.getOrCreateKey(`admin:credits:${id}`);
+    const response = await api.post(
+      `/api/admin/users/${id}/credits`,
+      { userId: id, amount, reason, idempotencyKey: key },
+      { headers: { 'Idempotency-Key': key } },
+    );
+    IdempotencyManager.clearKey(`admin:credits:${id}`);
     return response as unknown as {
       id: string;
       freeTrialRemaining: number;
       purchasedRemaining: number;
     };
+  },
+
+  lockUser: async (id: string, reason: string): Promise<{ message: string; targetUserId?: string }> => {
+    const response = await api.post(`/api/admin/users/${id}/lock`, { reason });
+    return response as unknown as { message: string; targetUserId?: string };
+  },
+
+  unlockUser: async (id: string): Promise<{ message: string; targetUserId?: string }> => {
+    const response = await api.post(`/api/admin/users/${id}/unlock`, {});
+    return response as unknown as { message: string; targetUserId?: string };
   },
 
   updatePricingPackage: async (
@@ -65,3 +85,5 @@ export const adminService = {
     };
   },
 };
+
+export default adminService;

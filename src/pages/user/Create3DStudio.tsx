@@ -33,7 +33,19 @@ import {
   Activity,
   Scale,
   Flame,
+  Zap,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'react-toastify';
+import {
+  approvalAndReviewService,
+  buildCanonicalPrintConfig,
+  type CanonicalPrintConfig,
+  type CustomerApprovalDto,
+} from '../../services/approvalAndReviewService';
+import { IdempotencyManager } from '../../lib/idempotency';
+import { AI_CONSENT_POLICY_VERSION } from '../../lib/env';
+import QuoteModalV2 from '../../components/QuoteModalV2';
 import { createImageGeneration, downloadGenerationFile, getGeneration, listGenerations, type GenerationStatus, type GenerationTask } from '../../services/generationService';
 import { AUTH_SESSION_EVENT, getAccessToken, isAccessTokenExpired } from '../../lib/auth';
 import { AI_MODELS, FACE_COUNTS, type FaceCount } from '../../constants/models';
@@ -41,6 +53,7 @@ import Studio3DViewport from './components/Studio3DViewport';
 
 interface GeneratedAsset {
   id: string;
+  versionId: string;
   name: string;
   date: string;
   status: GenerationStatus;
@@ -49,10 +62,22 @@ interface GeneratedAsset {
   errorMessage?: string | null;
   glbUrl?: string | null;
   stlUrl?: string | null;
+  isApprovedForPrinting?: boolean;
+  reviewStatus?: string;
+  reviewNote?: string | null;
+  isWatertight?: boolean;
+  printabilityStatus?: string;
+  requestedHeightMm?: number;
+}
+
+interface ApprovedConfig {
+  approvalDto: CustomerApprovalDto;
+  config: CanonicalPrintConfig;
 }
 
 const toAsset = (task: GenerationTask): GeneratedAsset => ({
   id: task.id,
+  versionId: task.versionId || task.id,
   name: task.modelName?.trim() || '3D model',
   date: new Date(task.createdAtUtc).toLocaleString('vi-VN'),
   status: task.status,
@@ -61,6 +86,12 @@ const toAsset = (task: GenerationTask): GeneratedAsset => ({
   errorMessage: task.errorMessage,
   glbUrl: task.glbUrl,
   stlUrl: task.stlUrl,
+  isApprovedForPrinting: task.isApprovedForPrinting,
+  reviewStatus: task.reviewStatus,
+  reviewNote: task.reviewNote,
+  isWatertight: task.isWatertight,
+  printabilityStatus: task.printabilityStatus,
+  requestedHeightMm: task.requestedHeightMm,
 });
 
 const isTerminalStatus = (status: GenerationStatus) =>
@@ -402,6 +433,97 @@ export default function Create3DStudio() {
   const [authSessionRevision, setAuthSessionRevision] = useState(0);
   const pollTimers = useRef<number[]>([]);
 
+  // Customer Approval & Quote Modal states
+  const [approvedConfigMap, setApprovedConfigMap] = useState<Record<string, ApprovedConfig>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = sessionStorage.getItem('idea2model_approved_configs');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [printMaterial, setPrintMaterial] = useState<'Resin' | 'PLA'>('Resin');
+  const [isApprovingPrint, setIsApprovingPrint] = useState(false);
+  const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('idea2model_approved_configs', JSON.stringify(approvedConfigMap));
+    } catch {
+      // Ignore sessionStorage errors
+    }
+  }, [approvedConfigMap]);
+
+  const activeApproved = activeModelMesh ? approvedConfigMap[activeModelMesh.versionId] : undefined;
+
+  const handleCustomerApproval = async (autoOpenQuote = false) => {
+    if (!activeModelMesh) return;
+    const token = getAccessToken();
+    if (!token || isAccessTokenExpired(token)) {
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
+      return;
+    }
+
+    const heightMm = Math.min(120, Math.max(100, Math.round(dimensions.y || 100)));
+    const canonicalConfig = buildCanonicalPrintConfig({
+      material: printMaterial,
+      heightMm,
+      scale: scalePercent / 100,
+    });
+
+    setIsApprovingPrint(true);
+    try {
+      const approvalDto = await approvalAndReviewService.createCustomerApproval({
+        versionId: activeModelMesh.versionId,
+        configuration: canonicalConfig,
+        policyVersion: AI_CONSENT_POLICY_VERSION,
+      });
+
+      setApprovedConfigMap((prev) => ({
+        ...prev,
+        [activeModelMesh.versionId]: {
+          approvalDto,
+          config: canonicalConfig,
+        },
+      }));
+
+      toast.success(
+        `Đã chốt cấu hình mẫu in 3D! Mã Hash: #${approvalDto.configurationHash.slice(0, 8)}`,
+      );
+
+      if (autoOpenQuote) {
+        setIsQuoteModalOpen(true);
+      }
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { detail?: string; message?: string } } };
+      const msg = errorObj.response?.data?.detail || errorObj.response?.data?.message || 'Không thể chốt mẫu in.';
+      toast.error(msg);
+    } finally {
+      setIsApprovingPrint(false);
+    }
+  };
+
+  const handleOpenQuoteModal = async () => {
+    if (!activeModelMesh) return;
+    const token = getAccessToken();
+    if (!token || isAccessTokenExpired(token)) {
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
+      return;
+    }
+
+    if (activeApproved) {
+      setIsQuoteModalOpen(true);
+      return;
+    }
+
+    await handleCustomerApproval(true);
+  };
+
   // If a file was passed via location.state, create object URL
   useEffect(() => {
     const file = locationState?.selectedFile;
@@ -432,6 +554,7 @@ export default function Create3DStudio() {
       if (uploadedImage && uploadedImage.startsWith('blob:')) {
         URL.revokeObjectURL(uploadedImage);
       }
+      IdempotencyManager.refreshKey('generation:image');
       setUploadedFile(file);
       setUploadedImage(URL.createObjectURL(file));
       setGenerationError('');
@@ -477,6 +600,9 @@ export default function Create3DStudio() {
     const token = getAccessToken();
     if (!token || isAccessTokenExpired(token)) {
       setGenerationError('Hãy đăng nhập trước khi tạo mô hình 3D.');
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
       return;
     }
     if (!uploadedFile && !uploadedImage) {
@@ -503,6 +629,7 @@ export default function Create3DStudio() {
         image: fileToUpload,
         modelName: promptText.trim().slice(0, 200) || selectedModel,
         shouldTexture,
+        heightMm: Math.min(120, Math.max(100, Math.round(dimensions.y || 100))),
       });
       const asset = updateAsset(task);
       setActiveModelMesh(asset);
@@ -513,6 +640,10 @@ export default function Create3DStudio() {
         || (error as { response?: { data?: { title?: string } } }).response?.data?.title
         || (error as { response?: { data?: { message?: string } } }).response?.data?.message
         : undefined;
+      const lower = String(message || '').toLowerCase();
+      if (lower.includes('consent') || lower.includes('aimodelprocessing')) {
+        window.dispatchEvent(new CustomEvent('idea2model:open-ai-consent-modal'));
+      }
       setGenerationError(message || 'Không thể gửi yêu cầu tạo mô hình. Kiểm tra backend và kết nối.');
       setIsGenerating(false);
     }
@@ -759,6 +890,7 @@ export default function Create3DStudio() {
                         key={preset.label}
                         type="button"
                         onClick={() => {
+                          IdempotencyManager.refreshKey('generation:image');
                           setUploadedImage(preset.url);
                           setUploadedFile(null);
                           setGenerationError('');
@@ -1289,6 +1421,35 @@ export default function Create3DStudio() {
                       </span>
                       {asset.errorMessage && (
                         <span className="text-[10px] text-rose-300 block mt-1 leading-relaxed">{asset.errorMessage}</span>
+                      )}
+
+                      {/* Badge Trạng thái Duyệt In (PrintReview Badge) */}
+                      {asset.status === 'succeeded' && (
+                        <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                          {asset.isApprovedForPrinting || asset.reviewStatus === 'Approved' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[10px] font-medium font-mono">
+                              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                              Đạt chuẩn in 3D (Đã duyệt)
+                            </span>
+                          ) : asset.reviewStatus === 'Rejected' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/15 border border-rose-400/40 text-rose-300 text-[10px] font-medium">
+                              <AlertTriangle className="w-3 h-3 text-rose-400" />
+                              Cần chỉnh sửa lưới {asset.reviewNote ? `(${asset.reviewNote})` : ''}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-400/35 text-cyan-300 text-[10px] font-medium">
+                              <Clock className="w-3 h-3 text-cyan-400" />
+                              Chờ duyệt kỹ thuật in
+                            </span>
+                          )}
+
+                          {approvedConfigMap[asset.versionId] && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono">
+                              <Check className="w-3 h-3" />
+                              Đã chốt: #{approvedConfigMap[asset.versionId].approvalDto.configurationHash.slice(0, 6)}
+                            </span>
+                          )}
+                        </div>
                       )}
                       {(asset.glbUrl || asset.stlUrl) && (
                         <div className="mt-2.5 flex gap-2">
@@ -1981,6 +2142,89 @@ export default function Create3DStudio() {
               </div>
             )}
           </div>
+
+          {/* Fixed Bottom CTA for Active Model (CustomerApproval & QuoteModalV2) */}
+          {activeModelMesh && activeModelMesh.status === 'succeeded' && (
+            <div className="p-3 border-t border-cyan-500/25 bg-[#080d14]/95 backdrop-blur-xl flex flex-col gap-2.5 shadow-[0_-10px_25px_rgba(0,0,0,0.5)]">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                  Chốt Mẫu In Sản Xuất
+                </span>
+                <span className="text-[10px] font-mono text-cyan-300">
+                  Cao: {Math.min(120, Math.max(100, Math.round(dimensions.y || 100)))} mm
+                </span>
+              </div>
+
+              {/* Material Selector Buttons */}
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPrintMaterial('Resin')}
+                  className={`py-1.5 px-2 rounded-lg border text-left transition-all cursor-pointer ${
+                    printMaterial === 'Resin'
+                      ? 'bg-cyan-500/20 border-cyan-400/60 text-white shadow-[0_0_10px_rgba(0,240,255,0.15)]'
+                      : 'bg-white/[0.02] border-white/8 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <div className="text-[10.5px] font-semibold flex items-center justify-between">
+                    <span>SLA Resin</span>
+                    <span className="text-[8px] font-mono text-cyan-300">Siêu Mịn</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPrintMaterial('PLA')}
+                  className={`py-1.5 px-2 rounded-lg border text-left transition-all cursor-pointer ${
+                    printMaterial === 'PLA'
+                      ? 'bg-cyan-500/20 border-cyan-400/60 text-white shadow-[0_0_10px_rgba(0,240,255,0.15)]'
+                      : 'bg-white/[0.02] border-white/8 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <div className="text-[10.5px] font-semibold flex items-center justify-between">
+                    <span>FDM PLA</span>
+                    <span className="text-[8px] font-mono text-cyan-300">Nhựa Bền</span>
+                  </div>
+                </button>
+              </div>
+
+              {/* Nút 1: Xác nhận chốt mẫu in */}
+              <button
+                type="button"
+                onClick={() => void handleCustomerApproval(false)}
+                disabled={isApprovingPrint}
+                className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${
+                  activeApproved
+                    ? 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                    : 'bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/25 shadow-[0_0_15px_rgba(0,240,255,0.1)]'
+                }`}
+              >
+                {isApprovingPrint ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : activeApproved ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                )}
+                <span className="truncate">
+                  {activeApproved
+                    ? `✓ Đã chốt in (#${activeApproved.approvalDto.configurationHash.slice(0, 8)})`
+                    : '1. Xác nhận chốt mẫu in 3D'}
+                </span>
+              </button>
+
+              {/* Nút 2: Mở Modal Báo Giá */}
+              <button
+                type="button"
+                onClick={() => void handleOpenQuoteModal()}
+                className="btn-pooled-cyan w-full py-2.5 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(0,240,255,0.2)]"
+              >
+                <Zap className="w-3.5 h-3.5 text-cyan-200" />
+                <span>2. Lấy Báo Giá & Đặt In 3D</span>
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <button
@@ -1990,6 +2234,19 @@ export default function Create3DStudio() {
         >
           <PanelRight className="w-5 h-5 text-cyan-400" />
         </button>
+      )}
+      {/* Modal Báo Giá Sản Xuất V2 */}
+      {activeModelMesh && (
+        <QuoteModalV2
+          isOpen={isQuoteModalOpen}
+          onClose={() => setIsQuoteModalOpen(false)}
+          versionId={activeModelMesh.versionId}
+          modelName={activeModelMesh.name}
+          initialHeightMm={Math.min(120, Math.max(100, Math.round(dimensions.y || 100)))}
+          initialMaterial={printMaterial}
+          initialScale={scalePercent / 100}
+          approvedConfigHash={activeApproved?.approvalDto.configurationHash || ''}
+        />
       )}
     </div>
   );

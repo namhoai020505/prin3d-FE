@@ -181,13 +181,9 @@ export default function HeroCreateSection() {
   };
 
   const handleGoToLogin = () => {
-    if (typeof document !== 'undefined' && 'startViewTransition' in document) {
-      document.startViewTransition(() => {
-        navigate('/login', { viewTransition: true });
-      });
-    } else {
-      navigate('/login', { viewTransition: true });
-    }
+    window.dispatchEvent(
+      new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+    );
   };
 
   const handleStartGeneration = () => {
@@ -361,7 +357,7 @@ export default function HeroCreateSection() {
               setMobileMenuOpen(false);
               handleGoToLogin();
             }}
-            className="text-[28px] font-medium text-amber-300 hover:opacity-75 transition-opacity cursor-pointer"
+            className="text-[28px] font-medium text-cyan-400 hover:text-cyan-300 transition-opacity cursor-pointer"
           >
             Đăng nhập
           </button>

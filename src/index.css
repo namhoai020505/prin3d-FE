@@ -1654,3 +1654,96 @@ body:not(.g2c-light-mode) .asme-footer-stage .bg-white * {
 
 
 
+
+
+/* ============================================================
+   18-STOP POOLED-LIGHT CYAN BUTTON & SPECULAR STREAK SHADER
+   Source: gehihiSkill/referencesshaders-typography-and-choreography.md
+   ============================================================ */
+.btn-pooled-cyan {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  background: linear-gradient(
+    to top,
+    #9ad9ec 1px, #89dff0 2px, #79e0f1 3px, #61daef 4px, #3ec8e4 5px,
+    #14a8c6 6px, #0596b3 7px, #038aa8 8px, #047796 9px, #006180 10px,
+    #025066 12px, #0a4f5e 13px, #04465a 14px, #073746 16px,
+    #0a2a37 18px, #0d212e 20px, #0f1824 24px, #0a121e 30px,
+    #0a111d 34px, #0a111d 100%
+  );
+  box-shadow:
+    inset 0 3px 3px -2px rgba(180, 228, 255, 0.14),
+    inset 1px 0 0 rgba(255, 255, 255, 0.10),
+    inset -1px 0 0 rgba(255, 255, 255, 0.10),
+    0 1px 0 rgba(152, 218, 234, 0.42),
+    1px 0 0 rgba(152, 218, 234, 0.18),
+    -1px 0 0 rgba(152, 218, 234, 0.18),
+    0 0 14px rgba(60, 190, 235, 0.22),
+    0 4px 12px -3px rgba(90, 220, 255, 0.50);
+  transition: transform 0.25s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.25s ease, filter 0.25s ease;
+}
+
+.btn-pooled-cyan:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 3px 4px -2px rgba(180, 228, 255, 0.22),
+    0 1px 0 rgba(152, 218, 234, 0.55),
+    0 0 22px rgba(0, 240, 255, 0.38),
+    0 6px 16px -3px rgba(90, 220, 255, 0.65);
+}
+
+.btn-pooled-cyan:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+/* Top specular streak */
+.btn-pooled-cyan::before {
+  content: "";
+  position: absolute;
+  left: 20%;
+  right: 32%;
+  top: 0.8px;
+  height: 1.9px;
+  z-index: 1;
+  pointer-events: none;
+  filter: blur(0.55px);
+  background: linear-gradient(
+    90deg,
+    rgba(120, 225, 255, 0) 0%,
+    rgba(120, 225, 255, 0.62) 34%,
+    rgba(160, 240, 255, 0.82) 50%,
+    rgba(120, 225, 255, 0.62) 66%,
+    rgba(120, 225, 255, 0) 100%
+  );
+}
+
+/* Side rim light attenuated upward by mask */
+.btn-pooled-cyan::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    linear-gradient(90deg, rgba(200, 245, 255, 0.70), rgba(200, 245, 255, 0) 13px),
+    linear-gradient(270deg, rgba(200, 245, 255, 0.70), rgba(200, 245, 255, 0) 13px);
+  -webkit-mask: linear-gradient(
+    to top,
+    #000 0, #000 6px, rgba(0, 0, 0, 0.40) 12px,
+    rgba(0, 0, 0, 0.15) 18px, rgba(0, 0, 0, 0.09) 24px,
+    rgba(0, 0, 0, 0.02) 30px, rgba(0, 0, 0, 0.02) 100%
+  );
+  mask: linear-gradient(
+    to top,
+    #000 0, #000 6px, rgba(0, 0, 0, 0.40) 12px,
+    rgba(0, 0, 0, 0.15) 18px, rgba(0, 0, 0, 0.09) 24px,
+    rgba(0, 0, 0, 0.02) 30px, rgba(0, 0, 0, 0.02) 100%
+  );
+}

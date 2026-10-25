@@ -5,10 +5,13 @@ import {
   Sparkles,
   LogOut,
   ChevronRight,
+  ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import logoTheBoy from '../../assets/images/LOGOTheBoy.png';
-import { AUTH_SESSION_EVENT, getAccessToken, getAuthFullName } from '../../lib/auth';
-import { getMe, logout, type CurrentUserDto } from '../../services/authService';
+import { AUTH_SESSION_EVENT, getAccessToken, getAuthFullName, isAdminRole, isStaffRole } from '../../lib/auth';
+import { getMe, logout, revokeAllSessions, type CurrentUserDto } from '../../services/authService';
+import NotificationBellV2 from '../../components/NotificationBellV2';
 
 export default function UserSidebar() {
   const navigate = useNavigate();
@@ -62,19 +65,13 @@ export default function UserSidebar() {
 
   const isLoggedIn = Boolean(token);
 
-
-
   const handleProfileClick = () => {
     if (isLoggedIn) {
       setIsAccountMenuOpen(!isAccountMenuOpen);
     } else {
-      if (typeof document !== 'undefined' && 'startViewTransition' in document) {
-        document.startViewTransition(() => {
-          navigate('/login', { viewTransition: true });
-        });
-      } else {
-        navigate('/login', { viewTransition: true });
-      }
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
     }
   };
 
@@ -98,6 +95,22 @@ export default function UserSidebar() {
     } else {
       navigate('/', { viewTransition: true });
     }
+  };
+
+  const handleRevokeAllSessions = async () => {
+    setIsAccountMenuOpen(false);
+    if (!window.confirm('Bạn có chắc muốn đăng xuất khỏi mọi thiết bị?')) return;
+    await revokeAllSessions();
+    if (typeof document !== 'undefined' && 'startViewTransition' in document) {
+      document.startViewTransition(() => {
+        navigate('/', { viewTransition: true });
+      });
+    } else {
+      navigate('/', { viewTransition: true });
+    }
+    window.dispatchEvent(
+      new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+    );
   };
 
   return (
@@ -147,11 +160,11 @@ export default function UserSidebar() {
             {isAccountMenuOpen && (
               <div
                 ref={accountMenuRef}
-                className="absolute left-full ml-3 top-0 w-52 bg-[#2b0509]/95 border border-white/20 rounded-2xl shadow-2xl p-2 z-[60] text-xs text-white flex flex-col gap-1 backdrop-blur-2xl"
+                className="absolute left-full ml-3 top-0 w-56 bg-[#0c1017]/95 border border-cyan-500/30 rounded-2xl shadow-[0_0_25px_rgba(0,240,255,0.15)] p-2 z-[60] text-xs text-white flex flex-col gap-1 backdrop-blur-2xl"
               >
                 <div className="px-3 py-2 border-b border-white/10 space-y-1">
                   <p className="font-bold text-white truncate">{fullName || 'Người dùng'}</p>
-                  <div className="flex items-center justify-between text-[10px] text-rose-200/80 font-medium">
+                  <div className="flex items-center justify-between text-[10px] text-cyan-300 font-medium">
                     <span>Lượt Free: {currentUser?.freeTrialRemaining ?? 0}</span>
                     <span>Mua: {currentUser?.purchasedRemaining ?? 0}</span>
                   </div>
@@ -189,11 +202,49 @@ export default function UserSidebar() {
                   <span>Bảng giá & Gói in 3D</span>
                   <ChevronRight className="w-3.5 h-3.5 text-white/50" />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAccountMenuOpen(false);
+                    window.dispatchEvent(new CustomEvent('idea2model:open-ai-consent-modal'));
+                  }}
+                  className="w-full px-3 py-2 rounded-lg hover:bg-cyan-950/40 text-left text-cyan-300 hover:text-cyan-200 flex items-center justify-between cursor-pointer"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Điều khoản AI &amp; Bản quyền</span>
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-cyan-400/60" />
+                </button>
+                {(isAdminRole(currentUser?.role) || isStaffRole(currentUser?.role) || currentUser?.role === 'admin' || currentUser?.role === 'staff') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAccountMenuOpen(false);
+                      navigate('/admin/dashboard', { viewTransition: true });
+                    }}
+                    className="w-full px-3 py-2 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-left text-cyan-300 hover:text-cyan-100 border border-cyan-500/40 flex items-center justify-between cursor-pointer font-bold shadow-sm"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>⚡ Trung tâm Quản trị V2</span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
+                  </button>
+                )}
                 <div className="h-[1px] bg-white/10 my-0.5" />
                 <button
                   type="button"
+                  onClick={handleRevokeAllSessions}
+                  className="w-full px-3 py-2 rounded-lg hover:bg-rose-950/40 text-left text-rose-300 hover:text-rose-200 flex items-center gap-2 cursor-pointer font-medium"
+                >
+                  <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Đăng xuất mọi thiết bị</span>
+                </button>
+                <button
+                  type="button"
                   onClick={handleLogout}
-                  className="w-full px-3 py-2 rounded-lg hover:bg-white/10 text-left text-rose-200 hover:text-white flex items-center gap-2 cursor-pointer font-medium"
+                  className="w-full px-3 py-2 rounded-lg hover:bg-white/10 text-left text-slate-300 hover:text-white flex items-center gap-2 cursor-pointer font-medium"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Đăng xuất</span>
@@ -202,6 +253,8 @@ export default function UserSidebar() {
             )}
           </div>
 
+          {/* In-App Notifications V2 Bell */}
+          {isLoggedIn && <NotificationBellV2 placement="sidebar" />}
         </div>
       </aside>
     </>

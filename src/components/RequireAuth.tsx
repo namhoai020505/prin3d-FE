@@ -109,13 +109,18 @@ const RequireAuth = ({ allowedRoles = [], verifyAdmin = false }: RequireAuthProp
   if (authState === 'checking') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0F172A] text-sm font-semibold text-white">
-        Dang kiem tra quyen truy cap...
+        Đang kiểm tra quyền truy cập...
       </div>
     );
   }
 
   if (authState === 'login') {
-    return <Navigate to="/login" replace />;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
+    }
+    return <Navigate to="/" replace />;
   }
 
   if (authState === 'forbidden') {
