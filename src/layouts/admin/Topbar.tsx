@@ -35,6 +35,24 @@ const getRouteHeader = (pathname: string) => {
       subtitle: 'Báo cáo chỉ số toàn sàn và giám sát tác vụ hệ thống',
     };
   }
+  if (pathname.startsWith('/admin/finance')) {
+    return {
+      title: 'Quản lý Giao dịch & Hoàn tiền',
+      subtitle: 'Đối soát cổng thanh toán PayOS và giải quyết yêu cầu hoàn tiền',
+    };
+  }
+  if (pathname.startsWith('/admin/warranty')) {
+    return {
+      title: 'Bảo hành & Khiếu nại Sản phẩm',
+      subtitle: 'Tiếp nhận báo cáo lỗi in, thẩm định bằng chứng và xử lý đền bù',
+    };
+  }
+  if (pathname.startsWith('/admin/system')) {
+    return {
+      title: 'Quản trị Hệ thống & Cấu hình',
+      subtitle: 'Quản lý tài khoản người dùng, phân quyền và cấu hình bảng giá in 3D',
+    };
+  }
   return {
     title: 'Trung tâm Quản trị',
     subtitle: 'Nền tảng Quản trị & Điều phối Sản xuất In 3D THE BOYS',

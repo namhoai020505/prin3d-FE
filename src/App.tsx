@@ -29,10 +29,13 @@ const Profile = lazy(() => import('./pages/user/Profile'));
 const OrderCheckoutReturn = lazy(() => import('./pages/user/OrderCheckoutReturn'));
 
 // Admin pages
-const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
+const DashboardPage = lazy(() => import('./pages/admin/dashboard/DashboardPage'));
 const OrdersPage = lazy(() => import('./pages/admin/orders/OrdersPage'));
 const ReviewsPage = lazy(() => import('./pages/admin/reviews/ReviewsPage'));
 const AdminFulfillmentPage = lazy(() => import('./pages/admin/fulfillment/AdminFulfillmentPage'));
+const FinancePage = lazy(() => import('./pages/admin/finance/FinancePage'));
+const WarrantyPage = lazy(() => import('./pages/admin/warranty/WarrantyPage'));
+const SystemAdminPage = lazy(() => import('./pages/admin/system/SystemAdminPage'));
 
 // Fallback spinner while lazy chunks are loading - Cyberpunk Dark Obsidian & Neon Cyan
 const PageLoader = () => (
@@ -93,13 +96,23 @@ const router = createBrowserRouter([
             element: <AdminLayout />,
             children: [
               { index: true, element: <Navigate to="orders" replace /> },
+              { path: 'dashboard', element: <DashboardPage /> },
               { path: 'orders', element: <OrdersPage /> },
               { path: 'orders/:id', element: <OrdersPage /> },
               { path: 'reviews', element: <ReviewsPage /> },
               { path: 'reviews/:generationId', element: <ReviewsPage /> },
               { path: 'fulfillment', element: <AdminFulfillmentPage /> },
               { path: 'fulfillment/:orderId', element: <AdminFulfillmentPage /> },
-              { path: 'dashboard', element: <Dashboard /> },
+              { path: 'finance', element: <FinancePage /> },
+              { path: 'warranty', element: <WarrantyPage /> },
+              {
+                path: 'system',
+                element: (
+                  <RequireAuth allowedRoles={['admin']} verifyAdmin>
+                    <SystemAdminPage />
+                  </RequireAuth>
+                ),
+              },
               { path: '*', element: <Navigate to="orders" replace /> },
             ],
           },

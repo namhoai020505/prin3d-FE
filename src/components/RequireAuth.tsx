@@ -16,6 +16,7 @@ type AuthCheckState = 'checking' | 'allowed' | 'login' | 'forbidden';
 type RequireAuthProps = {
   allowedRoles?: string[];
   verifyAdmin?: boolean;
+  children?: React.ReactNode;
 };
 
 const getErrorStatus = (error: unknown) =>
@@ -29,7 +30,11 @@ const getErrorStatus = (error: unknown) =>
     ? error.response.status
     : undefined;
 
-const RequireAuth = ({ allowedRoles = [], verifyAdmin = false }: RequireAuthProps) => {
+const RequireAuth = ({
+  allowedRoles = [],
+  verifyAdmin = false,
+  children,
+}: RequireAuthProps) => {
   const [authState, setAuthState] = useState<AuthCheckState>('checking');
 
   useEffect(() => {
@@ -127,7 +132,7 @@ const RequireAuth = ({ allowedRoles = [], verifyAdmin = false }: RequireAuthProp
     return <Navigate to="/" replace />;
   }
 
-  return <Outlet />;
+  return children ? <>{children}</> : <Outlet />;
 };
 
 export default RequireAuth;
