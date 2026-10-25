@@ -178,71 +178,9 @@ export default function Login() {
     }
   };
 
-  const handleGoogleSuccess = async (credentialResponse: { credential?: string }) => {
-    if (!credentialResponse.credential) {
-      setErrorMessage('Không nhận được thông tin xác thực từ Google.');
-      return;
-    }
-
-    setIsGoogleLoading(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
-    try {
-      const response = (await api.post('/api/auth/google-login', {
-        idToken: credentialResponse.credential,
-      })) as {
-        data?: { accessToken?: string; refreshToken?: string; fullName?: string };
-        accessToken?: string;
-        refreshToken?: string;
-        fullName?: string;
-        user?: { fullName?: string };
-      };
-
-      const token = response.data?.accessToken || response.accessToken;
-      const refToken = response.data?.refreshToken || response.refreshToken;
-      const name =
-        response.data?.fullName ||
-        response.fullName ||
-        response.user?.fullName ||
-        'Google User';
-
-      if (!token) {
-        throw new Error('Backend không trả về token xác thực Google.');
-      }
-
-      setAuthSession({
-        accessToken: token,
-        refreshToken: refToken,
-        fullName: name,
-      });
-
-      setSuccessMessage('Đăng nhập Google thành công! Đang chuyển hướng...');
-      setTimeout(() => {
-        const dest = getPostLoginRedirect(getRoleFromAccessToken(token)) || '/';
-        if (typeof document !== 'undefined' && 'startViewTransition' in document) {
-          document.startViewTransition(() => {
-            navigate(dest, { viewTransition: true });
-          });
-        } else {
-          navigate(dest, { viewTransition: true });
-        }
-      }, 400);
-    } catch (err: unknown) {
-      const error = err as {
-        response?: { data?: { detail?: string; title?: string; message?: string } };
-        message?: string;
-      };
-      setErrorMessage(
-        error.response?.data?.detail ||
-        error.response?.data?.message ||
-        error.response?.data?.title ||
-        error.message ||
-        'Máy chủ chưa hỗ trợ đồng bộ Google OAuth. Vui lòng đăng nhập bằng Email/Password.'
-      );
-    } finally {
-      setIsGoogleLoading(false);
-    }
+  const handleGoogleSuccess = async (_credentialResponse: { credential?: string }) => {
+    setIsGoogleLoading(false);
+    setErrorMessage('Tính năng đăng nhập Google đang phát triển (Sắp ra mắt). Vui lòng đăng nhập bằng Email và Mật khẩu.');
   };
 
   return (
@@ -486,7 +424,10 @@ export default function Login() {
                             d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                           />
                         </svg>
-                        <span>Continue with Google</span>
+                        <span className="flex items-center gap-2">
+                          <span>Continue with Google</span>
+                          <span className="text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">Sắp ra mắt</span>
+                        </span>
                       </>
                     )}
                   </button>

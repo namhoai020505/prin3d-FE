@@ -8,7 +8,6 @@ import {
 import ConfirmDialogHost from './components/ConfirmDialogHost';
 import RequireAuth from './components/RequireAuth';
 import { useIdleTimeout } from './hooks/useIdleTimeout';
-import { useMultiTabSecurity } from './hooks/useMultiTabSecurity';
 import { useSessionHeartbeat } from './lib/sessionHeartbeat';
 
 // Layouts — loaded eagerly
@@ -41,7 +40,6 @@ const adminRoles = ['admin'];
 
 const RootLayout = () => {
   useIdleTimeout(10);
-  useMultiTabSecurity();
   useSessionHeartbeat();
   return <Outlet />;
 };

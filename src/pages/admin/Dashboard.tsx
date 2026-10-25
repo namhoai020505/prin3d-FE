@@ -37,6 +37,7 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<AdminUserItem[]>([]);
   const [selectedUser, setSelectedUser] = useState<AdminUserItem | null>(null);
   const [creditAmount, setCreditAmount] = useState(5);
+  const [creditReason, setCreditReason] = useState('Admin cộng lượt tạo thủ công');
   const [newRole, setNewRole] = useState('cus');
   const [isUpdatingUser, setIsUpdatingUser] = useState(false);
 
@@ -116,11 +117,17 @@ export default function AdminDashboard() {
   // Actions
   const handleAddCredits = async () => {
     if (!selectedUser) return;
+    const trimmedReason = creditReason.trim();
+    if (trimmedReason.length < 3) {
+      alert('Vui lòng nhập lý do nạp (tối thiểu 3 ký tự).');
+      return;
+    }
     try {
       setIsUpdatingUser(true);
-      await adminService.addUserCredits(selectedUser.id, creditAmount);
+      await adminService.addUserCredits(selectedUser.id, creditAmount, trimmedReason);
       showToast(`Đã cộng ${creditAmount} lượt tạo 3D cho ${selectedUser.email}`);
       setSelectedUser(null);
+      setCreditReason('Admin cộng lượt tạo thủ công');
       await fetchUsers();
     } catch {
       alert('Không thể cộng lượt tạo lúc này.');
@@ -359,6 +366,16 @@ export default function AdminDashboard() {
                       value={creditAmount}
                       onChange={(e) => setCreditAmount(Number(e.target.value))}
                       className="w-20 px-2.5 py-1 rounded-lg bg-black/40 border border-white/20 text-white text-right"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-semibold text-rose-200">Lý do nạp (tối thiểu 3 ký tự):</label>
+                    <input
+                      type="text"
+                      value={creditReason}
+                      onChange={(e) => setCreditReason(e.target.value)}
+                      placeholder="VD: Khách hàng được tặng kèm gói Studio"
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-black/40 border border-white/20 text-white text-xs placeholder:text-neutral-500"
                     />
                   </div>
                   <button

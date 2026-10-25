@@ -88,7 +88,7 @@ const requestFreshAccessToken = async (redirectOnFail: boolean) => {
 
   try {
     const refreshResponse = await refreshClient.post<RefreshTokenResponse>(
-      '/api/auth/refresh-token',
+      '/api/auth/refresh',
       { refreshToken },
     );
 
@@ -160,7 +160,7 @@ api.interceptors.response.use(
     const originalRequestUrl = originalRequest?.url as string | undefined;
     const errorStatus = error.response?.status;
     const isLoginRequest = originalRequestUrl?.includes('/api/auth/login');
-    const isRefreshRequest = originalRequestUrl?.includes('/api/auth/refresh-token');
+    const isRefreshRequest = originalRequestUrl?.includes('/api/auth/refresh');
 
     if (errorStatus === 401 && originalRequest && !originalRequest._retry && !isLoginRequest && !isRefreshRequest) {
       originalRequest._retry = true;

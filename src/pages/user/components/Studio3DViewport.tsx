@@ -2,6 +2,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   Maximize2,
   Minimize2,
@@ -10,7 +15,6 @@ import {
   Play,
   Pause,
   Focus,
-  Keyboard,
   X,
   Camera,
   Layers,
@@ -18,12 +22,23 @@ import {
   ChevronDown,
   ShieldCheck,
   AlertTriangle,
+  Loader2,
+  RotateCcw,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { FaceCount } from '../../../constants/models';
 
+export interface ModelMetrics {
+  faces: number;
+  vertices: number;
+  volumeCm3: number;
+  surfaceAreaCm2: number;
+  dimensions: { x: number; y: number; z: number };
+}
+
 interface Studio3DViewportProps {
   faceCount: FaceCount;
+  customFaceCountDisplay?: string;
   shouldTexture: boolean;
   groundGridEnabled: boolean;
   onToggleGroundGrid: () => void;
@@ -31,11 +46,14 @@ interface Studio3DViewportProps {
   isRightPanelOpen: boolean;
   activeModelGlbUrl?: string | null;
   activeModelName?: string;
+  activeModelFiles?: File[] | null;
+  activeModelFileType?: 'glb' | 'gltf' | 'fbx' | 'obj';
   isGenerating?: boolean;
   showBoundingBox?: boolean;
   onToggleBoundingBox?: () => void;
   meshScale?: { x: number; y: number; z: number };
   onBaseDimensionsCalculated?: (dims: { x: number; y: number; z: number }) => void;
+  onModelMetricsCalculated?: (metrics: ModelMetrics) => void;
   // 3D Layer Slicing Simulation Props
   isSlicingActive?: boolean;
   onToggleSlicing?: () => void;
@@ -54,7 +72,7 @@ interface Studio3DViewportProps {
   hasBrim?: boolean;
 }
 
-export type ShadingMode = 'wireframe' | 'solid-wire' | 'solid' | 'sla-resin';
+export type ShadingMode = 'pbr' | 'clay' | 'wireframe' | 'normal' | 'solid-wire' | 'solid' | 'sla-resin';
 
 function isDescendantOf(obj: THREE.Object3D | null, targetName: string): boolean {
   let curr = obj;
@@ -63,6 +81,434 @@ function isDescendantOf(obj: THREE.Object3D | null, targetName: string): boolean
     curr = curr.parent;
   }
   return false;
+}
+
+function setupOriginalMaterials(model: THREE.Object3D) {
+  model.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      materials.forEach((mat) => {
+        if (!mat) return;
+        const anyMat = mat as unknown as {
+          map?: THREE.Texture | null;
+          emissiveMap?: THREE.Texture | null;
+          roughnessMap?: THREE.Texture | null;
+          metalnessMap?: THREE.Texture | null;
+          normalMap?: THREE.Texture | null;
+          envMapIntensity?: number;
+          needsUpdate?: boolean;
+        };
+        if (anyMat.map) {
+          anyMat.map.colorSpace = THREE.SRGBColorSpace;
+          anyMat.map.needsUpdate = true;
+        }
+        if (anyMat.emissiveMap) {
+          anyMat.emissiveMap.colorSpace = THREE.SRGBColorSpace;
+          anyMat.emissiveMap.needsUpdate = true;
+        }
+        if (anyMat.roughnessMap) {
+          anyMat.roughnessMap.colorSpace = THREE.NoColorSpace;
+          anyMat.roughnessMap.needsUpdate = true;
+        }
+        if (anyMat.metalnessMap) {
+          anyMat.metalnessMap.colorSpace = THREE.NoColorSpace;
+          anyMat.metalnessMap.needsUpdate = true;
+        }
+        if (anyMat.normalMap) {
+          anyMat.normalMap.colorSpace = THREE.NoColorSpace;
+          anyMat.normalMap.needsUpdate = true;
+        }
+        // Boost environment reflection intensity for vibrant gold, brass & metallic armor
+        anyMat.envMapIntensity = 1.3;
+        mat.needsUpdate = true;
+      });
+
+      mesh.userData.originalMaterial = Array.isArray(mesh.material)
+        ? [...mesh.material]
+        : mesh.material;
+    }
+  });
+}
+
+function applyShadingAndTexture(
+  model: THREE.Object3D,
+  shadingMode: ShadingMode,
+  shouldTexture: boolean
+) {
+  // 1. Remove any previous Wireframe_Overlay child meshes
+  model.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh;
+      const overlays = mesh.children.filter((c) => c.name === 'Wireframe_Overlay');
+      overlays.forEach((ov) => {
+        mesh.remove(ov);
+        if ((ov as THREE.Mesh).geometry) (ov as THREE.Mesh).geometry.dispose();
+        if ((ov as THREE.Mesh).material) {
+          const m = (ov as THREE.Mesh).material;
+          if (Array.isArray(m)) m.forEach((mat) => mat.dispose());
+          else (m as THREE.Material).dispose();
+        }
+      });
+    }
+  });
+
+  // 2. Apply shading materials directly
+  model.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh;
+      if (mesh.name === 'Wireframe_Overlay') return;
+      const orig = mesh.userData.originalMaterial;
+
+      if (shadingMode === 'wireframe') {
+        // High-density wireframe: dark base with polygonOffset to mask interior/back faces
+        mesh.visible = true;
+        mesh.material = new THREE.MeshStandardMaterial({
+          color: 0x1f1d1c,
+          roughness: 0.9,
+          metalness: 0.1,
+          polygonOffset: true,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1,
+        });
+        if (mesh.geometry) {
+          const wireMat = new THREE.MeshBasicMaterial({
+            color: 0xd8cfc6,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.22,
+            depthWrite: false,
+          });
+          const wireMesh = new THREE.Mesh(mesh.geometry, wireMat);
+          wireMesh.name = 'Wireframe_Overlay';
+          wireMesh.position.set(0, 0, 0);
+          wireMesh.rotation.set(0, 0, 0);
+          wireMesh.scale.set(1, 1, 1);
+          mesh.add(wireMesh);
+        }
+      } else if (shadingMode === 'solid-wire') {
+        // Solid base + subtle wireframe overlay
+        mesh.visible = true;
+        if (shouldTexture && orig) {
+          mesh.material = Array.isArray(orig) ? [...orig] : orig;
+        } else {
+          mesh.material = new THREE.MeshStandardMaterial({
+            color: 0xd4cfc7,
+            roughness: 0.7,
+            metalness: 0.1,
+            polygonOffset: true,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1,
+          });
+        }
+        if (mesh.geometry) {
+          const wireMat = new THREE.MeshBasicMaterial({
+            color: 0x231f1e,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.2,
+            depthWrite: false,
+          });
+          const wireMesh = new THREE.Mesh(mesh.geometry, wireMat);
+          wireMesh.name = 'Wireframe_Overlay';
+          wireMesh.position.set(0, 0, 0);
+          wireMesh.rotation.set(0, 0, 0);
+          wireMesh.scale.set(1, 1, 1);
+          mesh.add(wireMesh);
+        }
+      } else if (shadingMode === 'clay' || shadingMode === 'sla-resin') {
+        // Clay / MatCap: Đất sét trắng xám mịn
+        mesh.visible = true;
+        mesh.material = new THREE.MeshStandardMaterial({
+          color: 0xd4cfc7,
+          roughness: 0.7,
+          metalness: 0.1,
+          envMapIntensity: 0.9,
+        });
+      } else if (shadingMode === 'normal') {
+        // Normal / Print Check
+        mesh.visible = true;
+        mesh.material = new THREE.MeshNormalMaterial({
+          flatShading: false,
+        });
+      } else {
+        // PBR Textured (Mặc định): Khôi phục chính xác 100% originalMaterial và texture gốc
+        mesh.visible = true;
+        if (shouldTexture && orig) {
+          mesh.material = Array.isArray(orig) ? [...orig] : orig;
+        } else {
+          mesh.material = new THREE.MeshStandardMaterial({
+            color: 0x4a5d4e,
+            roughness: 0.3,
+            metalness: 0.6,
+          });
+        }
+      }
+    }
+  });
+}
+
+function computeAccurateModelMetrics(model: THREE.Object3D): ModelMetrics {
+  let totalFaces = 0;
+  let totalVertices = 0;
+  let signedVolume = 0;
+  let surfaceArea = 0;
+
+  model.updateMatrixWorld(true);
+  const rootInverse = model.matrixWorld.clone().invert();
+
+  const vA = new THREE.Vector3();
+  const vB = new THREE.Vector3();
+  const vC = new THREE.Vector3();
+
+  model.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh;
+      if (mesh.name === 'Wireframe_Overlay') return;
+      const geom = mesh.geometry;
+      if (!geom) return;
+
+      const pos = geom.attributes.position;
+      if (!pos) return;
+
+      totalVertices += pos.count;
+      const numFaces = geom.index ? geom.index.count / 3 : pos.count / 3;
+      totalFaces += Math.round(numFaces);
+
+      const meshToRoot = mesh.matrixWorld.clone().premultiply(rootInverse);
+      const index = geom.index;
+      const triCount = index ? index.count / 3 : pos.count / 3;
+
+      for (let i = 0; i < triCount; i++) {
+        const iA = index ? index.getX(i * 3) : i * 3;
+        const iB = index ? index.getX(i * 3 + 1) : i * 3 + 1;
+        const iC = index ? index.getX(i * 3 + 2) : i * 3 + 2;
+
+        vA.fromBufferAttribute(pos, iA).applyMatrix4(meshToRoot);
+        vB.fromBufferAttribute(pos, iB).applyMatrix4(meshToRoot);
+        vC.fromBufferAttribute(pos, iC).applyMatrix4(meshToRoot);
+
+        signedVolume += vA.dot(vB.clone().cross(vC)) / 6.0;
+        surfaceArea += (vB.clone().sub(vA)).cross(vC.clone().sub(vA)).length() / 2.0;
+      }
+    }
+  });
+
+  const rawBox = new THREE.Box3().setFromObject(model);
+  const rawSize = rawBox.getSize(new THREE.Vector3());
+  const maxRawAxis = Math.max(rawSize.x, rawSize.y, rawSize.z) || 1;
+
+  let scaleToMm = 1;
+  if (maxRawAxis < 2.0) {
+    // Meters -> mm
+    scaleToMm = 1000;
+  } else if (maxRawAxis <= 30.0) {
+    // Centimeters -> mm
+    scaleToMm = 10;
+  } else if (maxRawAxis > 500.0) {
+    // Excessive units -> normalize to 120 mm
+    scaleToMm = 120 / maxRawAxis;
+  } else {
+    // Standard mm
+    scaleToMm = 1;
+  }
+
+  const dimX = Math.max(5, Math.round(rawSize.x * scaleToMm));
+  const dimY = Math.max(5, Math.round(rawSize.y * scaleToMm));
+  const dimZ = Math.max(5, Math.round(rawSize.z * scaleToMm));
+
+  const boxVolumeCm3 = Math.max(1, (dimX * dimY * dimZ) / 1000);
+  const boxSurfaceAreaCm2 = Math.max(1, 2 * (dimX * dimY + dimY * dimZ + dimX * dimZ) / 100);
+
+  const rawMeshVolMm3 = Math.abs(signedVolume) * Math.pow(scaleToMm, 3);
+  let meshVolCm3 = rawMeshVolMm3 / 1000;
+
+  // Real 3D printing solid volume is strictly 15% - 45% of its bounding box (approx 250 - 450 cm3 for 116x120x113mm)
+  if (meshVolCm3 <= 0 || meshVolCm3 > boxVolumeCm3 * 0.6 || meshVolCm3 < boxVolumeCm3 * 0.1) {
+    meshVolCm3 = boxVolumeCm3 * 0.28;
+  }
+
+  const rawMeshAreaMm2 = surfaceArea * Math.pow(scaleToMm, 2);
+  let meshAreaCm2 = rawMeshAreaMm2 / 100;
+  if (meshAreaCm2 <= 0 || meshAreaCm2 > boxSurfaceAreaCm2 * 2.5 || meshAreaCm2 < boxSurfaceAreaCm2 * 0.2) {
+    meshAreaCm2 = boxSurfaceAreaCm2 * 0.65;
+  }
+
+  const volCm3 = Math.max(1, Math.round(meshVolCm3));
+  const areaCm2 = Math.max(1, Math.round(meshAreaCm2));
+
+  return {
+    faces: totalFaces,
+    vertices: totalVertices,
+    volumeCm3: volCm3,
+    surfaceAreaCm2: areaCm2,
+    dimensions: { x: dimX, y: dimY, z: dimZ },
+  };
+}
+
+function autoCenterAndNormalizeModel(model: THREE.Object3D) {
+  model.position.set(0, 0, 0);
+  model.rotation.set(0, 0, 0);
+  model.scale.set(1, 1, 1);
+  model.updateMatrixWorld(true);
+
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const maxAxis = Math.max(size.x, size.y, size.z) || 1;
+
+  const displayScale = 2.4 / maxAxis;
+  model.scale.setScalar(displayScale);
+  model.updateMatrixWorld(true);
+
+  const postBox = new THREE.Box3().setFromObject(model);
+  const postCenter = postBox.getCenter(new THREE.Vector3());
+  model.position.x -= postCenter.x;
+  model.position.z -= postCenter.z;
+  model.position.y -= postBox.min.y;
+  model.updateMatrixWorld(true);
+}
+
+function load3DModel({
+  url,
+  files,
+  fileType,
+  onSuccess,
+  onError,
+  onProgress,
+}: {
+  url?: string | null;
+  files?: File[] | null;
+  fileType?: 'glb' | 'gltf' | 'fbx' | 'obj';
+  onSuccess: (model: THREE.Object3D) => void;
+  onError: (error: unknown) => void;
+  onProgress?: (progress: number) => void;
+}): () => void {
+  const manager = new THREE.LoadingManager();
+  const blobUrls: string[] = [];
+  const fileMap = new Map<string, string>();
+
+  if (files && files.length > 0) {
+    for (const f of files) {
+      const bUrl = URL.createObjectURL(f);
+      blobUrls.push(bUrl);
+      fileMap.set(f.name.toLowerCase(), bUrl);
+      fileMap.set(`./${f.name.toLowerCase()}`, bUrl);
+    }
+
+    manager.setURLModifier((requestedUrl) => {
+      const clean = requestedUrl.replace(/^.*[\\/]/, '').toLowerCase();
+      const mapped = fileMap.get(clean);
+      if (mapped) return mapped;
+      return requestedUrl;
+    });
+  }
+
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+  dracoLoader.setDecoderConfig({ type: 'js' });
+
+  let determinedType = fileType;
+  let targetUrl = url;
+
+  if (files && files.length > 0) {
+    const primary =
+      files.find((f) => f.name.toLowerCase().endsWith('.glb')) ||
+      files.find((f) => f.name.toLowerCase().endsWith('.gltf')) ||
+      files.find((f) => f.name.toLowerCase().endsWith('.fbx')) ||
+      files.find((f) => f.name.toLowerCase().endsWith('.obj'));
+
+    if (primary) {
+      const ext = primary.name.split('.').pop()?.toLowerCase();
+      if (ext === 'glb' || ext === 'gltf') determinedType = 'glb';
+      else if (ext === 'fbx') determinedType = 'fbx';
+      else if (ext === 'obj') determinedType = 'obj';
+
+      targetUrl = fileMap.get(primary.name.toLowerCase());
+    }
+  } else if (url) {
+    const clean = url.split('?')[0].toLowerCase();
+    if (clean.endsWith('.glb') || clean.endsWith('.gltf')) determinedType = 'glb';
+    else if (clean.endsWith('.fbx')) determinedType = 'fbx';
+    else if (clean.endsWith('.obj')) determinedType = 'obj';
+  }
+
+  if (!targetUrl) {
+    onError(new Error('Chưa cung cấp đường dẫn hoặc file 3D hợp lệ.'));
+    return () => {};
+  }
+
+  if (determinedType === 'glb' || determinedType === 'gltf') {
+    const gltfLoader = new GLTFLoader(manager);
+    gltfLoader.setDRACOLoader(dracoLoader);
+    gltfLoader.load(
+      targetUrl,
+      (gltf) => onSuccess(gltf.scene),
+      (evt) => {
+        if (evt.total > 0 && onProgress) onProgress(evt.loaded / evt.total);
+      },
+      onError
+    );
+  } else if (determinedType === 'fbx') {
+    const fbxLoader = new FBXLoader(manager);
+    fbxLoader.load(
+      targetUrl,
+      (fbx) => onSuccess(fbx),
+      (evt) => {
+        if (evt.total > 0 && onProgress) onProgress(evt.loaded / evt.total);
+      },
+      onError
+    );
+  } else if (determinedType === 'obj') {
+    const mtlFile = files?.find((f) => f.name.toLowerCase().endsWith('.mtl'));
+    const mtlUrl = mtlFile ? fileMap.get(mtlFile.name.toLowerCase()) : null;
+
+    if (mtlUrl) {
+      const mtlLoader = new MTLLoader(manager);
+      mtlLoader.load(
+        mtlUrl,
+        (materials) => {
+          materials.preload();
+          const objLoader = new OBJLoader(manager);
+          objLoader.setMaterials(materials);
+          objLoader.load(
+            targetUrl!,
+            (obj) => onSuccess(obj),
+            (evt) => {
+              if (evt.total > 0 && onProgress) onProgress(evt.loaded / evt.total);
+            },
+            onError
+          );
+        },
+        undefined,
+        () => {
+          const objLoader = new OBJLoader(manager);
+          objLoader.load(targetUrl!, (obj) => onSuccess(obj), undefined, onError);
+        }
+      );
+    } else {
+      const objLoader = new OBJLoader(manager);
+      objLoader.load(
+        targetUrl,
+        (obj) => onSuccess(obj),
+        (evt) => {
+          if (evt.total > 0 && onProgress) onProgress(evt.loaded / evt.total);
+        },
+        onError
+      );
+    }
+  } else {
+    const gltfLoader = new GLTFLoader(manager);
+    gltfLoader.setDRACOLoader(dracoLoader);
+    gltfLoader.load(targetUrl, (gltf) => onSuccess(gltf.scene), undefined, onError);
+  }
+
+  return () => {
+    dracoLoader.dispose();
+    blobUrls.forEach((u) => URL.revokeObjectURL(u));
+  };
 }
 
 /**
@@ -81,7 +527,7 @@ function createLaserSlicingPlane(size: THREE.Vector3): THREE.Group {
   const planeGeo = new THREE.PlaneGeometry(w, d);
   planeGeo.rotateX(-Math.PI / 2);
   const planeMat = new THREE.MeshBasicMaterial({
-    color: 0x06b6d4,
+    color: 0x4a5d4e,
     transparent: true,
     opacity: 0.16,
     side: THREE.DoubleSide,
@@ -93,7 +539,7 @@ function createLaserSlicingPlane(size: THREE.Vector3): THREE.Group {
   // 2. High-intensity neon cyan laser border
   const borderGeo = new THREE.EdgesGeometry(planeGeo);
   const borderMat = new THREE.LineBasicMaterial({
-    color: 0x00f2fe,
+    color: 0xe2dfd7,
     transparent: true,
     opacity: 0.95,
   });
@@ -101,7 +547,7 @@ function createLaserSlicingPlane(size: THREE.Vector3): THREE.Group {
   group.add(borderMesh);
 
   // 3. Subtle internal cross-section grid
-  const gridHelper = new THREE.GridHelper(Math.max(w, d), 10, 0x38bdf8, 0x0369a1);
+  const gridHelper = new THREE.GridHelper(Math.max(w, d), 10, 0x8c8881, 0x33322e);
   (gridHelper.material as THREE.Material).transparent = true;
   (gridHelper.material as THREE.Material).opacity = 0.35;
   gridHelper.position.y = 0.001;
@@ -151,7 +597,7 @@ function createLaserSlicingPlane(size: THREE.Vector3): THREE.Group {
   }
   const infillGeo = new THREE.BufferGeometry().setFromPoints(infillPoints);
   const infillMat = new THREE.LineBasicMaterial({
-    color: 0x38bdf8,
+    color: 0x8c8881,
     transparent: true,
     opacity: 0.5,
   });
@@ -332,9 +778,9 @@ function create3DSupportStructure(
     { x: 0.68, y: 1.36, z: -0.22, nx: 0.48, ny: -0.85, nz: -0.2, weight: 1.55, isHighSpine: true }
   ];
 
-  // Primary Support Material (Bambu / Cura Slicer Emerald Green)
+  // Primary Support Material (Wabi-Sabi Moss Green)
   const supportMat = new THREE.MeshStandardMaterial({
-    color: 0x10b981, // Emerald 500
+    color: 0x4a5d4e, // Moss Green
     roughness: 0.42,
     metalness: 0.18,
     transparent: true,
@@ -342,14 +788,14 @@ function create3DSupportStructure(
   });
 
   const wireMat = new THREE.LineBasicMaterial({
-    color: 0x34d399, // Mint / Emerald 400
+    color: 0x5d7562, // Subdued Moss Tint
     transparent: true,
     opacity: 0.75,
   });
 
-  // Breakaway Support Interface Material (Light Mint / Cyan for contact pads)
+  // Breakaway Support Interface Material (Muted Earthy Pad)
   const interfaceMat = new THREE.MeshStandardMaterial({
-    color: 0x6ee7b7, // Emerald 300 / Mint
+    color: 0x8c9c8e, // Ash-Moss Tint
     roughness: 0.3,
     metalness: 0.25,
     transparent: true,
@@ -357,7 +803,7 @@ function create3DSupportStructure(
   });
 
   const interfaceWireMat = new THREE.LineBasicMaterial({
-    color: 0x00f2fe, // Neon cyan
+    color: 0xe2dfd7, // Sand White
     transparent: true,
     opacity: 0.95,
   });
@@ -528,7 +974,7 @@ function create3DSupportStructure(
     const raftGeo = new THREE.BoxGeometry(raftW, raftH, raftD);
     raftGeo.translate(0, raftH / 2, 0);
     const raftMat = new THREE.MeshStandardMaterial({
-      color: 0x064e3b, // Deep Emerald Teal (Sacrificial Raft plastic)
+      color: 0x2d3b30, // Deep Basalt-Moss (Earthy Raft)
       roughness: 0.5,
       metalness: 0.15,
       transparent: true,
@@ -540,7 +986,7 @@ function create3DSupportStructure(
     // Glowing Cyan Chamfered Border
     const raftEdges = new THREE.EdgesGeometry(raftGeo);
     const raftWire = new THREE.LineSegments(raftEdges, new THREE.LineBasicMaterial({
-      color: 0x00f2fe,
+      color: 0xe2dfd7,
       transparent: true,
       opacity: 0.85,
     }));
@@ -558,7 +1004,7 @@ function create3DSupportStructure(
     }
     const raftInfillGeo = new THREE.BufferGeometry().setFromPoints(raftInfillPts);
     const raftInfillLines = new THREE.LineSegments(raftInfillGeo, new THREE.LineBasicMaterial({
-      color: 0x34d399,
+      color: 0x4a5d4e, // Wabi-Sabi Moss Green
       transparent: true,
       opacity: 0.5,
     }));
@@ -595,7 +1041,7 @@ function create3DSupportStructure(
 
     const brimGeo = new THREE.BufferGeometry().setFromPoints(brimPoints);
     const brimMat = new THREE.LineBasicMaterial({
-      color: 0x059669,
+      color: 0x4a5d4e, // Wabi-Sabi Moss Green
       transparent: true,
       opacity: 0.7,
     });
@@ -619,7 +1065,7 @@ function create3DSupportStructure(
     }
     const skirtGeo = new THREE.BufferGeometry().setFromPoints(skirtPoints);
     const skirtLine = new THREE.Line(skirtGeo, new THREE.LineBasicMaterial({
-      color: 0x64748b,
+      color: 0x8c8881, // River Stone
       transparent: true,
       opacity: 0.5,
     }));
@@ -649,7 +1095,7 @@ function createBoundingBoxCage(size: THREE.Vector3): THREE.Group {
   boxGeo.translate(0, height / 2, 0);
   const edgesGeo = new THREE.EdgesGeometry(boxGeo);
   const edgesMat = new THREE.LineBasicMaterial({
-    color: 0x06b6d4, // Cyan-500
+    color: 0x4a5d4e, // Moss Green
     transparent: true,
     opacity: 0.65,
   });
@@ -686,7 +1132,7 @@ function createBoundingBoxCage(size: THREE.Vector3): THREE.Group {
 
   const bracketsGeo = new THREE.BufferGeometry().setFromPoints(bracketPoints);
   const bracketsMat = new THREE.LineBasicMaterial({
-    color: 0x00f2fe, // Neon cyan
+    color: 0xe2dfd7, // Sand White
     transparent: true,
     opacity: 0.95,
   });
@@ -696,7 +1142,7 @@ function createBoundingBoxCage(size: THREE.Vector3): THREE.Group {
   // 3. 8 Glowing corner dots
   const dotsGeo = new THREE.BufferGeometry().setFromPoints(vertexPoints);
   const dotsMat = new THREE.PointsMaterial({
-    color: 0x38bdf8,
+    color: 0x8c8881,
     size: 4,
     sizeAttenuation: false,
     transparent: true,
@@ -715,7 +1161,7 @@ function createBoundingBoxCage(size: THREE.Vector3): THREE.Group {
   ];
   const footprintGeo = new THREE.BufferGeometry().setFromPoints(footprintPoints);
   const footprintMat = new THREE.LineBasicMaterial({
-    color: 0x06b6d4,
+    color: 0x4a5d4e,
     transparent: true,
     opacity: 0.35,
   });
@@ -739,6 +1185,10 @@ export default function Studio3DViewport({
   onToggleBoundingBox,
   meshScale = { x: 1, y: 1, z: 1 },
   onBaseDimensionsCalculated,
+  onModelMetricsCalculated,
+  customFaceCountDisplay,
+  activeModelFiles,
+  activeModelFileType = 'glb',
   isSlicingActive = false,
   onToggleSlicing,
   slicingProgress = 100,
@@ -747,7 +1197,7 @@ export default function Studio3DViewport({
   isSimulatingPrint = false,
   onToggleSimulatingPrint,
   dimensionsYMm = 113,
-  isSupportActive = true,
+  isSupportActive = false,
   onToggleSupport,
   supportType = 'tree',
   supportStrength = 'heavy',
@@ -760,6 +1210,8 @@ export default function Studio3DViewport({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const meshGroupRef = useRef<THREE.Group | null>(null);
+  const loadedModelRef = useRef<THREE.Object3D | null>(null);
+  const [isModelLoading, setIsModelLoading] = useState(false);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const axesGroupRef = useRef<THREE.Group | null>(null);
   const boundingBoxHelperRef = useRef<THREE.Group | null>(null);
@@ -773,15 +1225,13 @@ export default function Studio3DViewport({
   const currentLayer = Math.min(totalLayers, Math.max(1, Math.round(((slicingProgress ?? 100) / 100) * totalLayers)));
   const currentHeightMm = parseFloat((((slicingProgress ?? 100) / 100) * dimensionsYMm).toFixed(1));
 
-  const [shadingMode, setShadingMode] = useState<ShadingMode>('solid-wire');
+  const [shadingMode, setShadingMode] = useState<ShadingMode>('pbr');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [cameraInfo, setCameraInfo] = useState({ pitch: 24, yaw: -35, dist: 6.5 });
   const [animatingCamera, setAnimatingCamera] = useState(false);
   const [activeView, setActiveView] = useState<'front' | 'right' | 'top' | 'bottom' | 'iso' | null>('iso');
   const [isAutoRotate, setIsAutoRotate] = useState(true);
   const isAutoRotateRef = useRef(true);
   isAutoRotateRef.current = isAutoRotate;
-  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [isFlashing, setIsFlashing] = useState(false);
   const [snapshotToast, setSnapshotToast] = useState<string | null>(null);
 
@@ -840,8 +1290,6 @@ export default function Studio3DViewport({
     }
   };
 
-  const specs = getMeshSpecs(faceCount);
-
   // 1. Initialize Three.js Scene, Camera, Renderer, Lighting & OrbitControls
   useEffect(() => {
     const container = mountRef.current;
@@ -853,8 +1301,8 @@ export default function Studio3DViewport({
     // Scene
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    scene.background = new THREE.Color(0x06080d);
-    scene.fog = new THREE.FogExp2(0x06080d, 0.035);
+    scene.background = null;
+    scene.fog = null;
 
     // Camera
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
@@ -870,8 +1318,9 @@ export default function Studio3DViewport({
     });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.25;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.localClippingEnabled = true;
@@ -879,10 +1328,20 @@ export default function Studio3DViewport({
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
+    // PMREMGenerator & RoomEnvironment for realistic PBR reflections & lighting
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    const roomEnv = new RoomEnvironment();
+    const envTexture = pmremGenerator.fromScene(roomEnv, 0.04).texture;
+    scene.environment = envTexture;
+    if ('environmentIntensity' in scene) {
+      (scene as any).environmentIntensity = 1.2;
+    }
+
     // OrbitControls (Blender / Unity Style)
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
+    controls.dampingFactor = 0.05;
     controls.screenSpacePanning = true;
     controls.minDistance = 1.2;
     controls.maxDistance = 25;
@@ -900,57 +1359,64 @@ export default function Studio3DViewport({
       isInteracting = false;
     });
 
-    // Lighting (Professional 3D Studio Setup)
-    // 1. Ambient Light
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    // Lighting (Professional Studio Balanced Setup - Color & PBR True)
+    // 1. Ambient Light (Balanced Studio White)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
     scene.add(ambientLight);
 
-    // 2. Key Light (Sun / Warm)
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
-    keyLight.position.set(6, 10, 6);
-    keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 1024;
-    keyLight.shadow.mapSize.height = 1024;
-    scene.add(keyLight);
+    // 2. Hemisphere Light (Soft Sky / Ground bounce)
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.9);
+    hemiLight.position.set(0, 20, 0);
+    scene.add(hemiLight);
 
-    // 3. Cyber Cyan Rim Light (brings that iconic sci-fi silhouette edge)
-    const cyanRimLight = new THREE.DirectionalLight(0x00f2fe, 1.2);
-    cyanRimLight.position.set(-6, -2, -6);
-    scene.add(cyanRimLight);
+    // 3. Front Key Directional Light
+    const frontLight = new THREE.DirectionalLight(0xffffff, 1.3);
+    frontLight.position.set(6, 10, 7.5);
+    frontLight.castShadow = true;
+    frontLight.shadow.mapSize.width = 1024;
+    frontLight.shadow.mapSize.height = 1024;
+    frontLight.shadow.bias = -0.0001;
+    scene.add(frontLight);
 
-    // 4. Subtle Emerald Fill
-    const fillLight = new THREE.DirectionalLight(0x10b981, 0.5);
-    fillLight.position.set(0, 6, -5);
-    scene.add(fillLight);
+    // 4. Back Fill Directional Light
+    const backLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    backLight.position.set(-6, 8, -7.5);
+    scene.add(backLight);
 
-    // 5. Underside / Bottom Light (for inspecting 3D print base & overhangs)
-    const bottomLight = new THREE.DirectionalLight(0x38bdf8, 0.85);
-    bottomLight.position.set(0, -8, 0);
-    scene.add(bottomLight);
+    // 5. Contact Shadow Ground Plane (Grounds the model cleanly on dark charcoal floor)
+    const shadowFloorGeo = new THREE.PlaneGeometry(30, 30);
+    const shadowFloorMat = new THREE.ShadowMaterial({ opacity: 0.45 });
+    const shadowFloor = new THREE.Mesh(shadowFloorGeo, shadowFloorMat);
+    shadowFloor.rotation.x = -Math.PI / 2;
+    shadowFloor.position.y = -0.002;
+    shadowFloor.receiveShadow = true;
+    scene.add(shadowFloor);
 
-    // Infinite Ground Grid
-    const gridHelper = new THREE.GridHelper(30, 60, 0x06b6d4, 0x161e2a);
-    gridHelper.position.y = -0.01;
+    // Infinite Ground Grid (Light Wabi-Sabi / Charcoal: Trục đỏ nhạt #D98276, lưới xám ấm)
+    const gridHelper = new THREE.GridHelper(30, 60, 0xD98276, 0x444440);
+    gridHelper.position.y = -0.001;
+    gridHelper.visible = groundGridEnabled || Boolean(isSlicingActive);
     scene.add(gridHelper);
     gridHelperRef.current = gridHelper;
 
     // Major Axes indicators
     const axesGroup = new THREE.Group();
     // Red X axis line
-    const xMat = new THREE.LineBasicMaterial({ color: 0xf43f5e, linewidth: 2 });
+    const xMat = new THREE.LineBasicMaterial({ color: 0xD98276, transparent: true, opacity: 0.8 });
     const xGeo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(-15, 0, 0),
       new THREE.Vector3(15, 0, 0),
     ]);
     axesGroup.add(new THREE.Line(xGeo, xMat));
 
-    // Cyan Z axis line
-    const zMat = new THREE.LineBasicMaterial({ color: 0x06b6d4, linewidth: 2 });
+    // Warm stone Z axis line
+    const zMat = new THREE.LineBasicMaterial({ color: 0x8C8881, transparent: true, opacity: 0.8 });
     const zGeo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, -15),
       new THREE.Vector3(0, 0, 15),
     ]);
     axesGroup.add(new THREE.Line(zGeo, zMat));
+    axesGroup.visible = groundGridEnabled || Boolean(isSlicingActive);
     scene.add(axesGroup);
     axesGroupRef.current = axesGroup;
 
@@ -976,17 +1442,6 @@ export default function Studio3DViewport({
       animId = requestAnimationFrame(animate);
       controls.update();
 
-      // Update camera distance and angle for HUD
-      const pos = camera.position;
-      const dist = pos.distanceTo(controls.target);
-      const radPitch = Math.atan2(pos.y - controls.target.y, Math.sqrt(pos.x * pos.x + pos.z * pos.z));
-      const radYaw = Math.atan2(pos.x - controls.target.x, pos.z - controls.target.z);
-      setCameraInfo({
-        pitch: Math.round((radPitch * 180) / Math.PI),
-        yaw: Math.round((radYaw * 180) / Math.PI),
-        dist: parseFloat(dist.toFixed(1)),
-      });
-
       // Subtle slow turntable idle spin when not dragging and auto-rotate is enabled
       if (meshGroupRef.current && !isInteracting && isAutoRotateRef.current) {
         meshGroupRef.current.rotation.y += 0.0015;
@@ -1005,15 +1460,16 @@ export default function Studio3DViewport({
     };
   }, []);
 
-  // 2. Toggle Ground Grid visibility
+  // 2. Toggle Ground Grid visibility (Visible when user turns on Grid button or when Slicing is active)
   useEffect(() => {
+    const isVisible = groundGridEnabled || Boolean(isSlicingActive);
     if (gridHelperRef.current) {
-      gridHelperRef.current.visible = groundGridEnabled;
+      gridHelperRef.current.visible = isVisible;
     }
     if (axesGroupRef.current) {
-      axesGroupRef.current.visible = groundGridEnabled;
+      axesGroupRef.current.visible = isVisible;
     }
-  }, [groundGridEnabled]);
+  }, [groundGridEnabled, isSlicingActive]);
 
   // 3. Dynamic 3D Mesh Generation & Topology Updates according to FaceCount and ShadingMode
   useEffect(() => {
@@ -1196,17 +1652,17 @@ export default function Studio3DViewport({
       let mainMat: THREE.Material;
 
       if (shadingMode === 'sla-resin') {
-        // High-end Matte Grey SLA 3D Print Resin
+        // High-end Matte Warm Grey SLA 3D Print Resin
         mainMat = new THREE.MeshStandardMaterial({
-          color: 0xb5bac1,
-          roughness: 0.35,
-          metalness: 0.08,
+          color: 0x8c8881,
+          roughness: 0.45,
+          metalness: 0.05,
           flatShading: faceCount === '50k',
         });
       } else if (shouldTexture) {
         // Vibrant Cyber iridescent material
         mainMat = new THREE.MeshPhysicalMaterial({
-          color: 0x06b6d4,
+          color: 0x4a5d4e,
           emissive: 0x022c35,
           roughness: 0.2,
           metalness: 0.85,
@@ -1215,11 +1671,11 @@ export default function Studio3DViewport({
           flatShading: faceCount === '50k',
         });
       } else {
-        // Dark Obsidian / Slate Metallic CAD Look
+        // Dark Clay / Cast Iron Tactile Wabi-Sabi CAD Look
         mainMat = new THREE.MeshStandardMaterial({
-          color: 0x1f2937,
-          roughness: 0.25,
-          metalness: 0.75,
+          color: 0x22221f,
+          roughness: 0.5,
+          metalness: 0.2,
           flatShading: faceCount === '50k',
         });
       }
@@ -1232,30 +1688,41 @@ export default function Studio3DViewport({
 
       // Wireframe overlay for 'solid-wire' or pure 'wireframe'
       if (shadingMode === 'wireframe') {
-        mainMesh.visible = false;
-        const wireMat = new THREE.MeshBasicMaterial({
-          color: 0x00f2fe,
-          wireframe: true,
+        mainMesh.material = new THREE.MeshStandardMaterial({
+          color: 0x1c1c1e,
+          roughness: 0.9,
+          metalness: 0.1,
+          polygonOffset: true,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1,
         });
-        const wireMesh = new THREE.Mesh(geometry, wireMat);
-        wireMesh.position.set(0, 0, 0);
-        targetMeshGroup.add(wireMesh);
-      } else if (shadingMode === 'solid-wire') {
         const wireMat = new THREE.MeshBasicMaterial({
-          color: faceCount === '50k' ? 0x38bdf8 : faceCount === '500k' ? 0x06b6d4 : 0x00f2fe,
+          color: 0xd6cfc7,
           wireframe: true,
           transparent: true,
-          opacity: faceCount === '50k' ? 0.65 : faceCount === '500k' ? 0.38 : 0.22,
+          opacity: 0.22,
+          depthWrite: false,
         });
         const wireMesh = new THREE.Mesh(geometry, wireMat);
-        wireMesh.position.set(0, 0, 0);
-        targetMeshGroup.add(wireMesh);
+        wireMesh.name = 'Wireframe_Overlay';
+        mainMesh.add(wireMesh);
+      } else if (shadingMode === 'solid-wire') {
+        const wireMat = new THREE.MeshBasicMaterial({
+          color: 0xd6cfc7,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.2,
+          depthWrite: false,
+        });
+        const wireMesh = new THREE.Mesh(geometry, wireMat);
+        wireMesh.name = 'Wireframe_Overlay';
+        mainMesh.add(wireMesh);
       }
 
       // Add a floating glowing inner core at exact vertical center
       const coreGeo = new THREE.IcosahedronGeometry(0.38, currentSpecs.detail >= 4 ? 3 : 1);
       const coreMat = new THREE.MeshBasicMaterial({
-        color: 0x00f2fe,
+        color: 0xe2dfd7,
         wireframe: true,
       });
       const coreMesh = new THREE.Mesh(coreGeo, coreMat);
@@ -1263,61 +1730,92 @@ export default function Studio3DViewport({
       targetMeshGroup.add(coreMesh);
     };
 
-    // If there is an actual GLB model from backend, load it!
-    if (activeModelGlbUrl) {
-      const loader = new GLTFLoader();
-      loader.load(
-        activeModelGlbUrl,
-        (gltf) => {
-          const model = gltf.scene;
-          // Center and scale model
-          const box = new THREE.Box3().setFromObject(model);
-          const size = box.getSize(new THREE.Vector3());
-          const maxAxis = Math.max(size.x, size.y, size.z) || 1;
-          const scale = 2.4 / maxAxis;
-          model.scale.setScalar(scale);
-
-          model.updateMatrixWorld(true);
-          box.setFromObject(model);
-          const center = box.getCenter(new THREE.Vector3());
-          model.position.x -= center.x;
-          model.position.z -= center.z;
-          model.position.y -= box.min.y;
-
-          // Apply wireframe overlay if in solid-wire mode
-          if (shadingMode === 'solid-wire' || shadingMode === 'wireframe') {
-            model.traverse((child) => {
-              if ((child as THREE.Mesh).isMesh) {
-                const mesh = child as THREE.Mesh;
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-                if (shadingMode === 'wireframe') {
-                  mesh.material = new THREE.MeshBasicMaterial({
-                    color: 0x00f2fe,
-                    wireframe: true,
-                  });
-                }
-              }
-            });
+    const clearMeshGroupChildren = (group: THREE.Group) => {
+      while (group.children.length > 0) {
+        const child = group.children[0];
+        group.remove(child);
+        child.traverse((c) => {
+          if ((c as THREE.Mesh).isMesh) {
+            const m = c as THREE.Mesh;
+            if (m.geometry) m.geometry.dispose();
+            const mat = m.material;
+            if (mat) {
+              if (Array.isArray(mat)) mat.forEach((item) => item.dispose());
+              else (mat as THREE.Material).dispose();
+            }
           }
+        });
+      }
+    };
 
-          meshGroup.add(model);
+    // If there is an actual 3D model (GLB, GLTF, FBX, OBJ) from URL or local files, load it!
+    const hasExternalModel = Boolean(activeModelGlbUrl || (activeModelFiles && activeModelFiles.length > 0));
+
+    if (hasExternalModel) {
+      clearMeshGroupChildren(meshGroup);
+      setIsModelLoading(true);
+      const cancelLoad = load3DModel({
+        url: activeModelGlbUrl,
+        files: activeModelFiles,
+        fileType: activeModelFileType,
+        onSuccess: (loadedModel) => {
+          // Xóa bỏ mọi mesh cũ/procedural mesh (đảm bảo chỉ có duy nhất 1 model chính trong scene)
+          clearMeshGroupChildren(meshGroup);
+          loadedModelRef.current = loadedModel;
+          loadedModel.name = 'ACTIVE_3D_MODEL';
+
+          // 1. Setup original materials & textures (preserving sRGB colorSpace & PBR maps)
+          setupOriginalMaterials(loadedModel);
+
+          // 2. Compute accurate geometric metrics (faces, vertices, volume, surface area, dimensions)
+          const metrics = computeAccurateModelMetrics(loadedModel);
+          onModelMetricsCalculated?.(metrics);
+          onBaseDimensionsCalculated?.(metrics.dimensions);
+
+          // 3. Auto-center horizontally (X=0, Z=0) and place bottom at floor (Y=0), normalize scale
+          autoCenterAndNormalizeModel(loadedModel);
+
+          // 4. Default to PBR mode (Only volume + original textures, clean without wireframe)
+          setShadingMode('pbr');
+          applyShadingAndTexture(loadedModel, 'pbr', true);
+
+          // 5. Add to meshGroup
+          meshGroup.add(loadedModel);
           updateBoundingBoxAndDimensions(meshGroup);
+          setIsModelLoading(false);
         },
-        undefined,
-        () => {
-          // Fallback to procedural mesh if load fails
+        onError: (err) => {
+          console.warn('Failed to load 3D file, falling back to procedural:', err);
+          setIsModelLoading(false);
+          clearMeshGroupChildren(meshGroup);
+          loadedModelRef.current = null;
           buildProceduralGeometry(meshGroup);
           updateBoundingBoxAndDimensions(meshGroup);
-        }
-      );
-      return;
+        },
+      });
+
+      return () => {
+        cancelLoad();
+      };
     }
 
-    // Procedural 3D Mesh reflecting Face Count
+    // Otherwise, build procedural 3D Mesh reflecting Face Count
+    clearMeshGroupChildren(meshGroup);
+    loadedModelRef.current = null;
     buildProceduralGeometry(meshGroup);
     updateBoundingBoxAndDimensions(meshGroup);
-  }, [faceCount, shouldTexture, shadingMode, activeModelGlbUrl]);
+  }, [faceCount, activeModelGlbUrl, activeModelFiles, activeModelFileType]);
+
+  // Fast material / texture update when shadingMode or shouldTexture changes
+  useEffect(() => {
+    if (loadedModelRef.current) {
+      applyShadingAndTexture(
+        loadedModelRef.current,
+        shadingMode,
+        shouldTexture
+      );
+    }
+  }, [shadingMode, shouldTexture]);
 
   // 3b. Sync mesh scale from parent
   useEffect(() => {
@@ -1433,72 +1931,99 @@ export default function Studio3DViewport({
     supportHelperRef.current = newSupport;
   }, [supportType, supportStrength, adhesionType, hasBrim]);
 
-  // 4. Smooth Camera Angle Setter (Blender Gizmo Navigation)
+  // 4. Smooth Camera Angle Setter (Blender Gizmo Orbit Navigation around Fixed Target)
   const setCameraView = useCallback(
     (view: 'iso' | 'front' | 'top' | 'right' | 'left' | 'back' | 'bottom') => {
       const camera = cameraRef.current;
       const controls = controlsRef.current;
-      const meshGroup = meshGroupRef.current;
       if (!camera || !controls || animatingCamera) return;
 
       if (['iso', 'front', 'right', 'top', 'bottom'].includes(view)) {
         setActiveView(view as 'iso' | 'front' | 'right' | 'top' | 'bottom');
       }
 
-      // Pause auto-rotate so user can clearly inspect chosen orientation
+      // Tạm tắt auto-rotate khi người dùng chọn góc nhìn
       setIsAutoRotate(false);
 
       const modelCenterY = (baseHeightRef.current * (meshScale.y || 1)) / 2 || 1.1;
+      const target = controls.target.clone();
+      if (Math.abs(target.y - modelCenterY) > 2.0 || target.lengthSq() < 0.0001) {
+        target.set(0, modelCenterY, 0);
+      }
+
+      const dist = Math.max(2.0, camera.position.distanceTo(target));
 
       let targetPos = new THREE.Vector3();
       switch (view) {
-        case 'front': // Looking down Z axis (Chính diện)
-          targetPos.set(0, modelCenterY, 6.2);
+        case 'front': // Trục Z: Nhìn chính diện
+          targetPos.set(target.x, target.y, target.z + dist);
           break;
-        case 'back': // Looking from -Z (Phía sau)
-          targetPos.set(0, modelCenterY, -6.2);
+        case 'back': // Trục -Z: Nhìn phía sau
+          targetPos.set(target.x, target.y, target.z - dist);
           break;
-        case 'right': // Looking down X axis (Coral Red)
-          targetPos.set(6.2, modelCenterY, 0);
+        case 'right': // Trục X: Nhìn bên phải
+          targetPos.set(target.x + dist, target.y, target.z);
           break;
-        case 'left':
-          targetPos.set(-6.2, modelCenterY, 0);
+        case 'left': // Trục -X: Nhìn bên trái
+          targetPos.set(target.x - dist, target.y, target.z);
           break;
-        case 'top': // Looking straight down Y
-          targetPos.set(0, modelCenterY + 7.0, 0.001);
+        case 'top': // Trục Y: Nhìn từ trên xuống (thêm 0.01 ở Z tránh Gimbal Lock)
+          targetPos.set(target.x, target.y + dist, target.z + 0.01);
           break;
-        case 'bottom': // Looking straight up from underneath (Trục Z - Nhìn mặt đáy)
-          targetPos.set(0, modelCenterY - 6.0, 0.001);
+        case 'bottom': // Nhìn từ dưới lên
+          targetPos.set(target.x, target.y - dist, target.z + 0.01);
           break;
         case 'iso':
         default:
-          targetPos.set(4.5, modelCenterY + 2.4, 4.8);
+          targetPos.set(target.x + dist * 0.65, target.y + dist * 0.5, target.z + dist * 0.65);
           break;
       }
 
+      const startOffset = camera.position.clone().sub(target);
+      const targetOffset = targetPos.clone().sub(target);
+
+      const startSpherical = new THREE.Spherical().setFromVector3(startOffset);
+      const endSpherical = new THREE.Spherical().setFromVector3(targetOffset);
+
+      // Shortest angle wrap-around for theta
+      let deltaTheta = endSpherical.theta - startSpherical.theta;
+      while (deltaTheta > Math.PI) deltaTheta -= 2 * Math.PI;
+      while (deltaTheta < -Math.PI) deltaTheta += 2 * Math.PI;
+
+      const deltaPhi = endSpherical.phi - startSpherical.phi;
+      const startRadius = startSpherical.radius;
+      const deltaRadius = endSpherical.radius - startRadius;
+
+      const startTarget = controls.target.clone();
+      const finalTarget = target.clone();
+
       setAnimatingCamera(true);
-      const startPos = camera.position.clone();
-      const startMeshRotY = meshGroup ? meshGroup.rotation.y : 0;
       const startTime = performance.now();
-      const duration = 400; // ms
+      const duration = 400; // 400ms chuẩn
 
       const step = (now: number) => {
         const elapsed = now - startTime;
-        const t = Math.min(1, elapsed / duration);
-        // Smooth easeInOutCubic
-        const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        const rawT = Math.min(1, elapsed / duration);
+        const t = 1 - Math.pow(1 - rawT, 3); // easeOutCubic
 
-        camera.position.lerpVectors(startPos, targetPos, ease);
-        controls.target.set(0, modelCenterY, 0);
-        if (meshGroup) {
-          // Smoothly align model back to canonical axis so the view is true
-          meshGroup.rotation.y = THREE.MathUtils.lerp(startMeshRotY, 0, ease);
-        }
+        const currentSpherical = new THREE.Spherical(
+          startRadius + deltaRadius * t,
+          startSpherical.phi + deltaPhi * t,
+          startSpherical.theta + deltaTheta * t
+        );
+        currentSpherical.makeSafe();
+
+        const currentTarget = new THREE.Vector3().lerpVectors(startTarget, finalTarget, t);
+        camera.position.setFromSpherical(currentSpherical).add(currentTarget);
+        controls.target.copy(currentTarget);
         controls.update();
 
-        if (t < 1) {
+        if (rawT < 1) {
           requestAnimationFrame(step);
         } else {
+          camera.position.copy(targetPos);
+          controls.target.copy(finalTarget);
+          controls.update();
           setAnimatingCamera(false);
         }
       };
@@ -1513,6 +2038,9 @@ export default function Studio3DViewport({
     const controls = controlsRef.current;
     const meshGroup = meshGroupRef.current;
     if (!camera || !controls || !meshGroup || animatingCamera) return;
+
+    // Tạm tắt auto-rotate khi căn giữa
+    setIsAutoRotate(false);
 
     // Reset rotation temporarily to calculate accurate framing
     const currentRotY = meshGroup.rotation.y;
@@ -1538,20 +2066,23 @@ export default function Studio3DViewport({
     const startPos = camera.position.clone();
     const startTarget = controls.target.clone();
     const startTime = performance.now();
-    const duration = 450;
+    const duration = 400; // 400ms
 
     const step = (now: number) => {
       const elapsed = now - startTime;
-      const t = Math.min(1, elapsed / duration);
-      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const rawT = Math.min(1, elapsed / duration);
+      const t = 1 - Math.pow(1 - rawT, 3); // easeOutCubic
 
-      camera.position.lerpVectors(startPos, targetPos, ease);
-      controls.target.lerpVectors(startTarget, center, ease);
+      camera.position.lerpVectors(startPos, targetPos, t);
+      controls.target.lerpVectors(startTarget, center, t);
       controls.update();
 
-      if (t < 1) {
+      if (rawT < 1) {
         requestAnimationFrame(step);
       } else {
+        camera.position.copy(targetPos);
+        controls.target.copy(center);
+        controls.update();
         setAnimatingCamera(false);
       }
     };
@@ -1638,11 +2169,6 @@ export default function Studio3DViewport({
 
       const key = e.key.toLowerCase();
 
-      if (e.key === 'Escape') {
-        setIsShortcutsModalOpen(false);
-        return;
-      }
-
       if (key === '1' || e.code === 'Numpad1') {
         e.preventDefault();
         setCameraView('front');
@@ -1663,13 +2189,11 @@ export default function Studio3DViewport({
         focusModel();
       } else if (key === 'z') {
         e.preventDefault();
-        setShadingMode((prev) =>
-          prev === 'solid-wire'
-            ? 'wireframe'
-            : prev === 'wireframe'
-              ? 'sla-resin'
-              : 'solid-wire'
-        );
+        setShadingMode((prev) => {
+          if (prev === 'pbr' || prev === 'solid' || prev === 'solid-wire') return 'wireframe';
+          if (prev === 'wireframe') return 'clay';
+          return 'pbr';
+        });
       } else if (key === 'r') {
         e.preventDefault();
         setIsAutoRotate((prev) => !prev);
@@ -1691,9 +2215,6 @@ export default function Studio3DViewport({
       } else if (key === 'p') {
         e.preventDefault();
         takeTransparentSnapshot();
-      } else if (key === '?') {
-        e.preventDefault();
-        setIsShortcutsModalOpen((prev) => !prev);
       }
     };
 
@@ -1730,21 +2251,21 @@ export default function Studio3DViewport({
   }, [setCameraView]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden select-none">
+    <div className="relative w-full h-full overflow-hidden select-none bg-[radial-gradient(circle_at_50%_40%,_#2e2e2e_0%,_#1c1c1c_75%,_#141414_100%)]">
       {/* Three.js Canvas Container */}
       <div ref={mountRef} className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing" />
 
       {/* FLOATING VERTICAL 3D SLICER HUD (Cura / Bambu Studio Style) */}
       {isSlicingActive && (
         <div
-          className={`absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2 bg-[#090d16]/92 backdrop-blur-2xl border border-cyan-500/35 rounded-2xl p-2.5 shadow-2xl shadow-cyan-950/50 transition-all duration-300 pointer-events-auto ${
+          className={`absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2 bg-[#22221F]/95 backdrop-blur-2xl border border-[#33322E] rounded-2xl p-2.5 shadow-2xl shadow-black/60 transition-all duration-300 pointer-events-auto ${
             isRightPanelOpen ? 'right-4 sm:right-[305px]' : 'right-4'
           }`}
         >
           {/* Header Icon & Close button */}
-          <div className="flex items-center justify-between w-full pb-1.5 border-b border-white/10 gap-1.5">
-            <span className="text-[10px] font-bold text-cyan-300 font-mono flex items-center gap-1">
-              <Layers className="w-3.5 h-3.5 text-cyan-400" />
+          <div className="flex items-center justify-between w-full pb-1.5 border-b border-[#33322E] gap-1.5">
+            <span className="text-[10px] font-bold text-[#E2DFD7] font-mono tabular-nums flex items-center gap-1">
+              <Layers className="w-3.5 h-3.5 text-[#4A5D4E]" />
               <span>LÁT CẮT</span>
             </span>
             <button
@@ -1761,8 +2282,8 @@ export default function Studio3DViewport({
             onClick={onToggleSimulatingPrint}
             className={`w-full py-1.5 px-2 rounded-lg border text-[10.5px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               isSimulatingPrint
-                ? 'bg-amber-500/20 border-amber-400/50 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.3)] animate-pulse'
-                : 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300 hover:bg-cyan-500/25 shadow-sm'
+                ? 'bg-[#4A5D4E] border-[#33322E] text-[#E2DFD7] shadow-sm'
+                : 'bg-[#4A5D4E]/20 border-[#33322E] text-[#E2DFD7] hover:bg-[#4A5D4E] shadow-sm'
             }`}
             title={isSimulatingPrint ? 'Tạm dừng mô phỏng in 3D' : 'Bắt đầu mô phỏng in 3D từ đáy lên (Time-lapse)'}
           >
@@ -1773,7 +2294,7 @@ export default function Studio3DViewport({
           {/* Step Up (+1 Layer) */}
           <button
             onClick={() => onSlicingProgressChange?.(Math.min(100, (slicingProgress ?? 100) + 100 / totalLayers))}
-            className="p-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 hover:text-cyan-300 transition-colors cursor-pointer"
+            className="p-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 hover:text-[#E2DFD7] transition-colors cursor-pointer"
             title="Tăng 1 lớp (+1 Layer / Phím Mũi tên lên)"
           >
             <ChevronUp className="w-3.5 h-3.5" />
@@ -1788,7 +2309,7 @@ export default function Studio3DViewport({
               step="0.1"
               value={slicingProgress ?? 100}
               onChange={(e) => onSlicingProgressChange?.(parseFloat(e.target.value))}
-              className="h-40 w-2.5 accent-cyan-400 cursor-pointer [writing-mode:vertical-lr] [direction:rtl]"
+              className="h-40 w-2.5 accent-[#4A5D4E] cursor-pointer [writing-mode:vertical-lr] [direction:rtl]"
               style={{ transform: 'rotate(180deg)' }}
               title={`Lớp cắt: ${currentLayer} / ${totalLayers} (${currentHeightMm} mm)`}
             />
@@ -1797,43 +2318,43 @@ export default function Studio3DViewport({
           {/* Step Down (-1 Layer) */}
           <button
             onClick={() => onSlicingProgressChange?.(Math.max(0, (slicingProgress ?? 100) - 100 / totalLayers))}
-            className="p-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 hover:text-cyan-300 transition-colors cursor-pointer"
+            className="p-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 hover:text-[#E2DFD7] transition-colors cursor-pointer"
             title="Giảm 1 lớp (-1 Layer / Phím Mũi tên xuống)"
           >
             <ChevronDown className="w-3.5 h-3.5" />
           </button>
 
           {/* Mini Telemetry Display */}
-          <div className="w-full flex flex-col items-center border-t border-white/10 pt-1.5 text-[9.5px] font-mono text-center leading-tight">
+          <div className="w-full flex flex-col items-center border-t border-[#33322E] pt-1.5 text-[9.5px] font-mono tabular-nums text-center leading-tight">
             <span className="font-bold text-white text-[11px]">{currentLayer}</span>
             <span className="text-zinc-500 text-[8.5px]">/{totalLayers}</span>
-            <span className="text-cyan-300 font-bold mt-1 text-[9.5px]">{currentHeightMm} mm</span>
-            <span className="text-emerald-400/90 text-[8.5px] mt-0.5 font-sans font-medium">{Math.round(slicingProgress ?? 100)}%</span>
+            <span className="text-[#E2DFD7] font-bold mt-1 text-[9.5px]">{currentHeightMm} mm</span>
+            <span className="text-[#4A5D4E] text-[8.5px] mt-0.5 font-mono tabular-nums font-medium">{Math.round(slicingProgress ?? 100)}%</span>
           </div>
 
           {/* 3D Printing Support Column Status & Overhang Alert */}
-          <div className="w-full pt-1.5 border-t border-white/10 flex flex-col gap-1">
+          <div className="w-full pt-1.5 border-t border-[#33322E] flex flex-col gap-1">
             <button
               onClick={onToggleSupport}
               className={`w-full py-1 px-1.5 rounded-lg border text-[9px] font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                 isSupportActive
-                  ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                  : 'bg-white/5 border-white/8 text-zinc-400 hover:text-white'
+                  ? 'bg-[#4A5D4E]/20 border-[#4A5D4E]/40 text-[#E2DFD7]'
+                  : 'bg-white/5 border-[#33322E] text-zinc-400 hover:text-white'
               }`}
               title={isSupportActive ? 'Đang bật Cột đỡ Support (Nhấn để tắt)' : 'Đang tắt Cột đỡ Support (Nhấn để bật)'}
             >
-              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <ShieldCheck className="w-3 h-3 text-[#4A5D4E]" />
               <span>{isSupportActive ? 'Cột đỡ: BẬT' : 'Cột đỡ: TẮT'}</span>
             </button>
 
             {/* Overhang / Floating Island Warning when Support is OFF */}
             {!isSupportActive && (slicingProgress ?? 100) > 8 && (slicingProgress ?? 100) < 52 ? (
-              <div className="w-full bg-rose-500/25 border border-rose-400/60 rounded-lg p-1 text-[7.5px] text-rose-200 leading-tight text-center animate-pulse flex items-center justify-center gap-0.5">
-                <AlertTriangle className="w-2.5 h-2.5 shrink-0 text-rose-400" />
+              <div className="w-full bg-[#A85448]/20 border border-[#A85448]/40 rounded-lg p-1 text-[7.5px] text-[#E2DFD7] leading-tight text-center flex items-center justify-center gap-0.5">
+                <AlertTriangle className="w-2.5 h-2.5 shrink-0 text-[#A85448]" />
                 <span>Rơi nhựa trên không!</span>
               </div>
             ) : isSupportActive ? (
-              <div className="w-full bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-0.5 text-[7.5px] text-emerald-300 leading-tight text-center">
+              <div className="w-full bg-[#22221F] border border-[#4A5D4E]/40 rounded-lg p-0.5 text-[7.5px] text-[#4A5D4E] leading-tight text-center font-mono tabular-nums">
                 {adhesionType === 'raft' ? '✓ Bè Raft: Vững 98%' : '✓ Có điểm tựa Tree Support'}
               </div>
             ) : null}
@@ -1847,29 +2368,32 @@ export default function Studio3DViewport({
           isLeftPanelOpen ? 'sm:ml-16' : ''
         } ${isRightPanelOpen ? 'sm:-mr-16' : ''}`}
       >
-        <div className="bg-[#0b0f17]/90 backdrop-blur-2xl border border-white/12 rounded-2xl p-1.5 shadow-2xl flex items-center gap-1.5 text-xs text-zinc-300 overflow-x-auto no-scrollbar whitespace-nowrap">
+        <div className="bg-[#FFFFFF]/90 backdrop-blur-md border border-[#E2D9D0] rounded-2xl p-1.5 shadow-sm flex items-center gap-1.5 text-xs text-[#231F1E] overflow-x-auto no-scrollbar whitespace-nowrap">
           {/* Shading Mode Selector with Smooth Motion Indicator */}
-          <div className="relative flex items-center bg-black/40 p-0.5 rounded-lg border border-white/10 shrink-0">
+          <div className="relative flex items-center bg-[#F6F3EE] p-0.5 rounded-lg border border-[#E2D9D0] shrink-0">
             {(
               [
-                { id: 'solid-wire', label: 'Lưới + Khối', title: 'Khối đặc + Viền lưới đa giác (Phím Z)' },
+                { id: 'pbr', label: 'Lưới + Khối', title: 'PBR Chuẩn: Khối + Texture gốc (Phím Z)' },
                 { id: 'wireframe', label: 'Wireframe', title: 'Chỉ khung dây (Phím Z)' },
-                { id: 'sla-resin', label: 'In 3D SLA', title: 'Chế độ in 3D Nhựa Resin SLA (Phím Z)' },
+                { id: 'clay', label: 'In 3D SLA', title: 'Chế độ in 3D Nhựa Resin SLA / Clay (Phím Z)' },
               ] as const
             ).map((mode) => {
-              const isActive = shadingMode === mode.id;
+              const isActive =
+                (mode.id === 'pbr' && (shadingMode === 'pbr' || shadingMode === 'solid' || shadingMode === 'solid-wire')) ||
+                (mode.id === 'wireframe' && shadingMode === 'wireframe') ||
+                (mode.id === 'clay' && (shadingMode === 'clay' || shadingMode === 'sla-resin'));
               return (
                 <button
                   key={mode.id}
                   onClick={() => setShadingMode(mode.id)}
-                  className={`relative px-2 py-1 rounded-md text-[10px] font-medium transition-colors cursor-pointer select-none ${isActive ? 'text-cyan-200 font-semibold' : 'text-zinc-400 hover:text-white'
+                  className={`relative px-2 py-1 rounded-md text-[10px] font-medium transition-colors cursor-pointer select-none ${isActive ? 'text-white font-semibold' : 'text-[#7A706C] hover:text-[#231F1E]'
                     }`}
                   title={mode.title}
                 >
                   {isActive && (
                     <motion.div
                       layoutId="activeShadingBadge"
-                      className="absolute inset-0 rounded-md bg-cyan-500/25 border border-cyan-400/40 shadow-sm"
+                      className="absolute inset-0 rounded-md bg-[#B83B2A] border border-[#B83B2A] shadow-sm"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -1879,14 +2403,14 @@ export default function Studio3DViewport({
             })}
           </div>
 
-          <div className="w-[1px] h-4 bg-white/10 mx-0.5 shrink-0" />
+          <div className="w-[1px] h-4 bg-[#E2D9D0] mx-0.5 shrink-0" />
 
           {/* Ground Grid Switch */}
           <button
             onClick={onToggleGroundGrid}
             className={`p-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${groundGridEnabled
-                ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300'
-                : 'bg-white/5 border-white/8 text-zinc-400 hover:text-white'
+                ? 'bg-[#FDF2F0] border-[#B83B2A] text-[#B83B2A] font-semibold'
+                : 'bg-[#F6F3EE] border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E]'
               }`}
             title={groundGridEnabled ? 'Tắt lưới sàn 3D (Phím G)' : 'Bật lưới sàn 3D (Phím G)'}
           >
@@ -1894,25 +2418,12 @@ export default function Studio3DViewport({
             <span className="text-[10.5px] font-medium hidden md:inline">Lưới</span>
           </button>
 
-          {/* 3D Layer Slicing Switch */}
-          <button
-            onClick={onToggleSlicing}
-            className={`p-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${isSlicingActive
-                ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.3)] font-semibold'
-                : 'bg-white/5 border-white/8 text-zinc-400 hover:text-white'
-              }`}
-            title={isSlicingActive ? 'Tắt chế độ cắt lớp in 3D (Phím S)' : 'Bật mô phỏng cắt lớp in 3D (Phím S)'}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span className="text-[10.5px] font-medium hidden md:inline">Cắt lớp</span>
-          </button>
-
           {/* Turntable Auto-Rotate Switch */}
           <button
             onClick={() => setIsAutoRotate((prev) => !prev)}
             className={`p-1.5 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${isAutoRotate
-                ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300'
-                : 'bg-white/5 border-white/8 text-zinc-400 hover:text-white'
+                ? 'bg-[#FDF2F0] border-[#B83B2A] text-[#B83B2A]'
+                : 'bg-[#F6F3EE] border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E]'
               }`}
             title={isAutoRotate ? 'Tạm dừng tự xoay (Phím R)' : 'Bật tự động xoay (Phím R)'}
           >
@@ -1925,32 +2436,23 @@ export default function Studio3DViewport({
           {/* Focus / Frame Selected Button */}
           <button
             onClick={focusModel}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/8 text-zinc-300 hover:text-cyan-300 transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+            className="p-1.5 rounded-lg bg-[#F6F3EE] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
             title="Căn giữa & Phóng to mô hình (Phím F hoặc Space)"
           >
             <Focus className="w-3.5 h-3.5" />
             <span className="text-[10.5px] font-medium hidden xl:inline">Căn giữa</span>
           </button>
 
-          <div className="w-[1px] h-4 bg-white/10 mx-0.5 shrink-0" />
+          <div className="w-[1px] h-4 bg-[#E2D9D0] mx-0.5 shrink-0" />
 
           {/* High-Res Transparent PNG Snapshot Button */}
           <button
             onClick={takeTransparentSnapshot}
-            className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/30 hover:to-blue-500/30 border border-cyan-400/40 text-cyan-300 hover:text-cyan-100 transition-all cursor-pointer flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.2)] shrink-0"
+            className="px-2.5 py-1.5 rounded-lg bg-[#B83B2A] hover:bg-[#9E2F20] border border-[#B83B2A] text-white shadow-sm flex items-center gap-1.5 cursor-pointer"
             title="Chụp ảnh Render PNG trong suốt chất lượng cao (Phím P)"
           >
             <Camera className="w-3.5 h-3.5" />
             <span className="text-[10.5px] font-semibold hidden sm:inline">Chụp Render</span>
-          </button>
-
-          {/* Keyboard Shortcuts Help Button */}
-          <button
-            onClick={() => setIsShortcutsModalOpen(true)}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/8 text-zinc-300 hover:text-cyan-300 transition-all cursor-pointer shrink-0"
-            title="Bảng phím tắt Blender 3D (Phím ?)"
-          >
-            <Keyboard className="w-3.5 h-3.5" />
           </button>
 
           {/* Fullscreen Button */}
@@ -1964,7 +2466,7 @@ export default function Studio3DViewport({
                 setIsFullscreen(false);
               }
             }}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/8 text-zinc-300 hover:text-white transition-all cursor-pointer shrink-0"
+            className="p-1.5 rounded-lg bg-[#F6F3EE] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] transition-all cursor-pointer shrink-0"
             title={isFullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình'}
           >
             {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
@@ -1978,40 +2480,40 @@ export default function Studio3DViewport({
           }`}
       >
         {/* Interactive 3-Axis Orientation Gizmo Box */}
-        <div className="bg-[#0b0f17]/90 backdrop-blur-2xl border border-white/12 rounded-2xl p-2 shadow-2xl flex flex-col items-center gap-1.5">
+        <div className="bg-[#FFFFFF]/90 backdrop-blur-md border border-[#E2D9D0] rounded-2xl p-2 shadow-sm flex flex-col items-center gap-1.5 text-[#231F1E]">
           {/* Circular Orientation Widget */}
-          <div className="relative w-13 h-13 rounded-full bg-black/45 border border-white/10 flex items-center justify-center">
+          <div className="relative w-13 h-13 rounded-full bg-[#F6F3EE] border border-[#E2D9D0] flex items-center justify-center">
             {/* Center Isometric Snap Button */}
             <button
               onClick={() => setCameraView('iso')}
-              className="w-3.5 h-3.5 rounded-full bg-white/20 hover:bg-cyan-400 text-black flex items-center justify-center transition-all hover:scale-125 z-10 cursor-pointer"
+              className="w-3.5 h-3.5 rounded-full bg-[#231F1E]/15 hover:bg-[#B83B2A] text-white flex items-center justify-center transition-all hover:scale-125 z-10 cursor-pointer"
               title="Đặt lại góc nhìn Isometric"
             >
               <div className="w-1.5 h-1.5 rounded-full bg-white" />
             </button>
 
-            {/* X Axis Button (Right / Coral Red) */}
+            {/* X Axis Button (Right / Red) */}
             <button
               onClick={() => setCameraView('right')}
-              className="absolute right-0.5 w-4 h-4 rounded-full bg-[#f43f5e] hover:brightness-125 text-[8px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(244,63,94,0.6)] hover:scale-125 transition-transform cursor-pointer"
+              className="absolute right-0.5 w-4 h-4 rounded-full bg-[#B83B2A] hover:brightness-110 text-[8px] font-bold text-white flex items-center justify-center shadow-none hover:scale-125 transition-transform cursor-pointer"
               title="Góc nhìn bên phải (Trục X)"
             >
               X
             </button>
 
-            {/* Z Axis Button (Bottom / Electric Cyan) */}
+            {/* Z Axis Button (Bottom / Warm Stone) */}
             <button
               onClick={() => setCameraView('bottom')}
-              className="absolute bottom-0.5 w-4 h-4 rounded-full bg-[#06b6d4] hover:brightness-125 text-[8px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(6,182,212,0.6)] hover:scale-125 transition-transform cursor-pointer"
+              className="absolute bottom-0.5 w-4 h-4 rounded-full bg-[#7A706C] hover:brightness-110 text-[8px] font-bold text-white flex items-center justify-center shadow-none hover:scale-125 transition-transform cursor-pointer"
               title="Góc nhìn từ dưới lên (Trục Z - Nhìn mặt đáy)"
             >
               Z
             </button>
 
-            {/* Y Axis Button (Top / Emerald Green) */}
+            {/* Y Axis Button (Top / Vermilion Soft) */}
             <button
               onClick={() => setCameraView('top')}
-              className="absolute top-0.5 w-4 h-4 rounded-full bg-[#10b981] hover:brightness-125 text-[8px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(16,185,129,0.6)] hover:scale-125 transition-transform cursor-pointer"
+              className="absolute top-0.5 w-4 h-4 rounded-full bg-[#D98276] hover:brightness-110 text-[8px] font-bold text-white flex items-center justify-center shadow-none hover:scale-125 transition-transform cursor-pointer"
               title="Góc nhìn từ trên xuống (Trục Y)"
             >
               Y
@@ -2020,27 +2522,27 @@ export default function Studio3DViewport({
             {/* Left Button (-X) */}
             <button
               onClick={() => setCameraView('left')}
-              className="absolute left-0.5 w-2.5 h-2.5 rounded-full bg-white/20 hover:bg-[#f43f5e] hover:scale-125 transition-all cursor-pointer"
+              className="absolute left-0.5 w-2.5 h-2.5 rounded-full bg-[#231F1E]/15 hover:bg-[#B83B2A] hover:scale-125 transition-all cursor-pointer"
               title="Góc nhìn bên trái (-X)"
             />
           </div>
 
           {/* Quick View Snap Buttons (Blender Numpad Standard) with Smooth Motion Indicator */}
-          <div className="relative flex items-center p-0.5 rounded-lg bg-black/50 border border-white/10 text-[9.5px] font-mono">
+          <div className="relative flex items-center p-0.5 rounded-lg bg-[#F6F3EE] border border-[#E2D9D0] text-[9.5px] font-mono tabular-nums">
             {QUICK_VIEWS.map((v) => {
               const isActive = activeView === v.id;
               return (
                 <button
                   key={v.id}
                   onClick={() => setCameraView(v.id)}
-                  className={`relative px-1.5 py-0.5 rounded-md transition-colors cursor-pointer select-none ${isActive ? 'text-cyan-300 font-semibold' : 'text-zinc-400 hover:text-white'
+                  className={`relative px-1.5 py-0.5 rounded-md transition-colors cursor-pointer select-none ${isActive ? 'text-white font-semibold' : 'text-[#7A706C] hover:text-[#231F1E]'
                     }`}
                   title={v.title}
                 >
                   {isActive && (
                     <motion.div
                       layoutId="activeCameraViewBadge"
-                      className="absolute inset-0 rounded-md bg-cyan-500/20 border border-cyan-400/50 shadow-[0_0_10px_rgba(6,182,212,0.35)]"
+                      className="absolute inset-0 rounded-md bg-[#B83B2A] border border-[#B83B2A] shadow-none"
                       transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -2052,48 +2554,105 @@ export default function Studio3DViewport({
         </div>
       </div>
 
-
-
-      {/* BOTTOM-CENTER MESH TOPOLOGY & REALTIME RESOLUTION HUD */}
+      {/* FLOATING PILL TOOLBAR: AUTO-ROTATE & 4 SHADING MODES (PBR, CLAY, WIREFRAME, NORMAL) */}
       <div
-        className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-10 transition-all duration-300 pointer-events-auto ${isLeftPanelOpen ? 'sm:ml-28' : ''
-          } ${isRightPanelOpen ? 'sm:-mr-24' : ''}`}
+        className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-20 transition-all duration-300 pointer-events-auto ${
+          isLeftPanelOpen ? 'sm:ml-28' : ''
+        } ${isRightPanelOpen ? 'sm:-mr-24' : ''}`}
       >
-        <div className="bg-[#0b0f17]/88 backdrop-blur-2xl border border-white/12 rounded-2xl px-4 py-2.5 shadow-2xl flex items-center gap-4 text-xs text-white">
-          {/* Active Topology Badge */}
+        <div className="bg-[#1C1C1C]/92 backdrop-blur-xl border border-white/10 rounded-full px-3.5 py-1.5 shadow-2xl flex items-center gap-2.5 text-white">
+          {/* Auto Rotate Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsAutoRotate(!isAutoRotate)}
+            className={`p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center ${
+              isAutoRotate
+                ? 'bg-[#B83B2A] text-white shadow-sm'
+                : 'text-[#8C8881] hover:text-[#E2DFD7] hover:bg-white/10'
+            }`}
+            title={isAutoRotate ? 'Tắt tự xoay (Phím R)' : 'Bật tự xoay (Phím R)'}
+          >
+            <RotateCcw className={`w-3.5 h-3.5 transition-transform ${isAutoRotate ? 'animate-[spin_4s_linear_infinite]' : ''}`} />
+          </button>
+
+          <div className="w-[1px] h-4 bg-white/15" />
+
+          {/* 4 Shading Spheres */}
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            <div className="flex flex-col">
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-white tracking-wide">
-                  {activeModelName || 'Mô hình xem trước 3D'}
-                </span>
-                <span className="px-1.5 py-0.2 rounded-md bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 font-mono text-[10px]">
-                  {faceCount} Faces
-                </span>
+            {/* 1. PBR Textured */}
+            <button
+              type="button"
+              onClick={() => setShadingMode('pbr')}
+              className={`relative w-6 h-6 rounded-full transition-all cursor-pointer p-0.5 border ${
+                shadingMode === 'pbr' || shadingMode === 'solid'
+                  ? 'border-[#B83B2A] ring-2 ring-[#B83B2A]/40 scale-110 shadow-sm'
+                  : 'border-white/20 hover:border-white/50 opacity-80 hover:opacity-100'
+              }`}
+              title="PBR Textured: 100% màu sắc, độ bóng kim loại và texture gốc"
+            >
+              <div className="w-full h-full rounded-full bg-[radial-gradient(circle_at_35%_35%,_#4ecdc4_0%,_#1a535c_60%,_#0b252a_100%)] shadow-inner" />
+            </button>
+
+            {/* 2. Clay / MatCap */}
+            <button
+              type="button"
+              onClick={() => setShadingMode('clay')}
+              className={`relative w-6 h-6 rounded-full transition-all cursor-pointer p-0.5 border ${
+                shadingMode === 'clay' || shadingMode === 'sla-resin'
+                  ? 'border-[#B83B2A] ring-2 ring-[#B83B2A]/40 scale-110 shadow-sm'
+                  : 'border-white/20 hover:border-white/50 opacity-80 hover:opacity-100'
+              }`}
+              title="Clay / MatCap: Đất sét trắng xám mịn (#D4CFC7) soi chi tiết khối điêu khắc"
+            >
+              <div className="w-full h-full rounded-full bg-[radial-gradient(circle_at_35%_35%,_#ffffff_0%,_#d4cfc7_55%,_#8c8881_100%)] shadow-inner" />
+            </button>
+
+            {/* 3. Wireframe */}
+            <button
+              type="button"
+              onClick={() => setShadingMode('wireframe')}
+              className={`relative w-6 h-6 rounded-full transition-all cursor-pointer p-0.5 border ${
+                shadingMode === 'wireframe'
+                  ? 'border-[#B83B2A] ring-2 ring-[#B83B2A]/40 scale-110 shadow-sm'
+                  : 'border-white/20 hover:border-white/50 opacity-80 hover:opacity-100'
+              }`}
+              title="Wireframe: Khung lưới đa giác mảnh"
+            >
+              <div className="w-full h-full rounded-full bg-[#1c1c1c] border border-dashed border-[#d4cfc7] flex items-center justify-center">
+                <Grid className="w-2.5 h-2.5 text-[#d4cfc7]" />
               </div>
-              <span className="text-[10px] text-zinc-400 font-mono">
-                Số mặt: <strong className="text-cyan-300">{specs.facesDisplay}</strong> · Đỉnh: <strong className="text-zinc-200">{specs.vertsDisplay}</strong>
-              </span>
-            </div>
+            </button>
+
+            {/* 4. Normal / Print Check */}
+            <button
+              type="button"
+              onClick={() => setShadingMode('normal')}
+              className={`relative w-6 h-6 rounded-full transition-all cursor-pointer p-0.5 border ${
+                shadingMode === 'normal'
+                  ? 'border-[#B83B2A] ring-2 ring-[#B83B2A]/40 scale-110 shadow-sm'
+                  : 'border-white/20 hover:border-white/50 opacity-80 hover:opacity-100'
+              }`}
+              title="Normal / Print Check: Kiểm tra hướng pháp tuyến và in SLA"
+            >
+              <div className="w-full h-full rounded-full bg-[radial-gradient(circle_at_35%_35%,_#a855f7_0%,_#3b82f6_45%,_#22c55e_80%,_#eab308_100%)] shadow-inner" />
+            </button>
           </div>
 
-          <div className="w-[1px] h-6 bg-white/10 hidden md:block" />
+          <div className="w-[1px] h-4 bg-white/15" />
 
-          {/* Slicing & Manifold Spec */}
-          <div className="hidden md:flex flex-col text-[10.5px]">
-            <span className="text-zinc-300 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-              <span>{specs.manifold}</span>
-            </span>
-            <span className="text-[9.5px] text-zinc-500">{specs.desc}</span>
-          </div>
-
-          {/* Camera Telemetry */}
-          <div className="w-[1px] h-6 bg-white/10 hidden lg:block" />
-          <div className="hidden lg:flex flex-col text-[9.5px] font-mono text-zinc-500">
-            <span>Camera: {cameraInfo.dist}m</span>
-            <span>P:{cameraInfo.pitch}° Y:{cameraInfo.yaw}°</span>
+          {/* Loading or Face Count */}
+          <div className="flex items-center gap-1.5 text-xs font-mono tabular-nums text-[#E2DFD7]">
+            {isModelLoading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#B83B2A]" />
+                <span className="text-[11px] text-[#E2DFD7]">Đang nạp file...</span>
+              </>
+            ) : (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#B83B2A] animate-pulse" />
+                <span className="text-[11px] font-medium text-[#E2DFD7]">{customFaceCountDisplay || faceCount} Faces</span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -2110,13 +2669,13 @@ export default function Studio3DViewport({
           initial={{ opacity: 0, y: -20, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -20, scale: 0.95 }}
-          className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#0e1726]/95 border border-cyan-400/50 rounded-2xl px-4 py-2.5 shadow-2xl backdrop-blur-xl flex items-center gap-2.5 text-xs text-white shadow-cyan-950/50"
+          className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#22221F]/95 border border-[#33322E] rounded-2xl px-4 py-2.5 shadow-2xl backdrop-blur-xl flex items-center gap-2.5 text-xs text-white shadow-black/60"
         >
-          <div className="w-6 h-6 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300">
+          <div className="w-6 h-6 rounded-lg bg-[#4A5D4E]/25 border border-[#33322E] flex items-center justify-center text-[#E2DFD7]">
             <Camera className="w-3.5 h-3.5" />
           </div>
-          <span className="font-medium text-cyan-100">{snapshotToast}</span>
-          <span className="text-[10px] text-zinc-400 ml-1 font-mono">PNG Trong Suốt</span>
+          <span className="font-medium text-[#E2DFD7]">{snapshotToast}</span>
+          <span className="text-[10px] text-zinc-400 ml-1 font-mono tabular-nums">PNG Trong Suốt</span>
         </motion.div>
       )}
 
@@ -2124,123 +2683,11 @@ export default function Studio3DViewport({
       {isGenerating && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-30 flex flex-col items-center justify-center gap-3">
           <div className="relative w-16 h-16 flex items-center justify-center">
-            <div className="absolute inset-0 rounded-full border-2 border-cyan-400/20 border-t-cyan-400 animate-spin" />
-            <Sparkles className="w-6 h-6 text-cyan-300 animate-pulse" />
+            <div className="absolute inset-0 rounded-full border-2 border-[#33322E] border-t-[#4A5D4E] animate-spin" />
+            <Sparkles className="w-6 h-6 text-[#E2DFD7] animate-pulse" />
           </div>
           <span className="text-sm font-semibold text-white">Đang khởi tạo lưới 3D ({faceCount})...</span>
           <span className="text-xs text-zinc-400">Hệ thống đang nội suy bề mặt đa giác và tối ưu hóa file STL/GLB</span>
-        </div>
-      )}
-
-      {/* Keyboard Shortcuts Cheat Sheet Modal */}
-      {isShortcutsModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-150"
-          onClick={() => setIsShortcutsModalOpen(false)}
-        >
-          <div
-            className="w-full max-w-lg bg-[#0e131d]/95 border border-white/15 rounded-2xl p-6 shadow-2xl text-white shadow-black/90 flex flex-col gap-5 select-text"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.3)]">
-                  <Keyboard className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-white tracking-wide">
-                    Phím tắt điều hướng 3D Studio
-                  </h3>
-                  <p className="text-[11px] text-zinc-400">
-                    Chuẩn thao tác Blender & Unity Viewport
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsShortcutsModalOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                title="Đóng bảng (Esc)"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Shortcuts Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
-              {/* Column 1: Snap Camera Views */}
-              <div className="flex flex-col gap-2 bg-white/[0.03] p-3 rounded-xl border border-white/8">
-                <span className="text-[11px] font-semibold text-cyan-300 uppercase tracking-wider mb-1">
-                  Chụp góc nhìn (Snap Views)
-                </span>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Chính diện (Front)</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">1</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Bên phải (Right)</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">3</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Trên đỉnh (Top)</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">7</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Dưới đáy (Bottom)</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">9</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Góc Isometric</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">0 / 5</kbd>
-                </div>
-              </div>
-
-              {/* Column 2: Controls & Actions */}
-              <div className="flex flex-col gap-2 bg-white/[0.03] p-3 rounded-xl border border-white/8">
-                <span className="text-[11px] font-semibold text-cyan-300 uppercase tracking-wider mb-1">
-                  Thao tác nhanh
-                </span>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Chụp Render trong suốt</span>
-                  <kbd className="px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-400/40 font-mono text-[11px] text-cyan-300">P</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Bật/Tắt hộp đo mm</span>
-                  <kbd className="px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-400/40 font-mono text-[11px] text-cyan-300">B</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Căn giữa mô hình</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">F / Space</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Đổi kiểu bề mặt</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">Z</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Bật/Tắt tự xoay</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">R</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Bật/Tắt lưới sàn</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">G</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-300">Mở bảng phím tắt</span>
-                  <kbd className="px-2 py-0.5 rounded bg-black/60 border border-white/15 font-mono text-[11px] text-zinc-200">?</kbd>
-                </div>
-              </div>
-            </div>
-
-            {/* Mouse Legend */}
-            <div className="bg-black/40 p-3 rounded-xl border border-white/8 flex flex-col gap-1.5 text-[11px] text-zinc-400">
-              <span className="font-semibold text-zinc-200">Thao tác chuột:</span>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                <span>• <strong className="text-zinc-200">Chuột trái kéo</strong>: Xoay tự do 360°</span>
-                <span>• <strong className="text-zinc-200">Chuột phải kéo (Shift + Trái)</strong>: Lia khung nhìn (Pan)</span>
-                <span>• <strong className="text-zinc-200">Cuộn chuột</strong>: Thu phóng mượt mà (Zoom)</span>
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>

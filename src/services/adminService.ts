@@ -15,6 +15,7 @@ export type UpdateUserRolePayload = {
 
 export type AddUserCreditsPayload = {
   amount: number;
+  reason: string;
 };
 
 export type UpdatePricingPackagePayload = {
@@ -36,8 +37,38 @@ export const adminService = {
   addUserCredits: async (
     id: string,
     amount: number,
+    reason: string,
   ): Promise<{ id: string; freeTrialRemaining: number; purchasedRemaining: number }> => {
-    const response = await api.post(`/api/admin/users/${id}/credits`, { amount });
+    const response = await api.post(
+      `/api/admin/users/${id}/credits`,
+      { amount, reason },
+      {
+        headers: {
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+      },
+    );
+    return response as unknown as {
+      id: string;
+      freeTrialRemaining: number;
+      purchasedRemaining: number;
+    };
+  },
+
+  addCredits: async (
+    id: string,
+    amount: number,
+    reason: string,
+  ): Promise<{ id: string; freeTrialRemaining: number; purchasedRemaining: number }> => {
+    const response = await api.post(
+      `/api/admin/users/${id}/credits`,
+      { amount, reason },
+      {
+        headers: {
+          'Idempotency-Key': crypto.randomUUID(),
+        },
+      },
+    );
     return response as unknown as {
       id: string;
       freeTrialRemaining: number;

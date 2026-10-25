@@ -12,6 +12,7 @@ export type GenerationStatus =
 
 export type GenerationTask = {
   id: string;
+  versionId?: string | null;
   modelName?: string | null;
   status: GenerationStatus;
   stage: string;
@@ -22,6 +23,7 @@ export type GenerationTask = {
   imageUrl: string;
   glbUrl?: string | null;
   stlUrl?: string | null;
+  dimensions?: { widthMm: number; depthMm: number; heightMm: number } | null;
 };
 
 export type PrintQuote = {
@@ -42,11 +44,68 @@ export type PrintQuote = {
   pricingBasis: string;
 };
 
-type CreateGenerationInput = {
-  image: File;
+export type CreateGenerationInput = {
+  image?: File;
+  prompt?: string;
   modelName?: string;
   shouldTexture?: boolean;
   heightMm?: number;
+};
+
+export type GenerationApiError = {
+  status?: number;
+  code?: string;
+  message: string;
+  isNsfwBlocked: boolean;
+};
+
+export const parseGenerationError = (error: unknown): GenerationApiError => {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const axiosError = error as {
+      response?: {
+        status?: number;
+        data?: {
+          code?: string;
+          message?: string;
+          detail?: string;
+          title?: string;
+        };
+      };
+      message?: string;
+    };
+
+    const status = axiosError.response?.status;
+    const data = axiosError.response?.data;
+    const code = data?.code;
+    const isNsfwBlocked = status === 422 || code === 'NSFW_CONTENT_BLOCKED';
+
+    const message =
+      data?.message ||
+      data?.detail ||
+      data?.title ||
+      (isNsfwBlocked
+        ? 'Nội dung hình ảnh hoặc từ khóa vi phạm tiêu chuẩn kiểm duyệt (nhạy cảm, bạo lực hoặc 18+).'
+        : axiosError.message || 'Không thể tạo mô hình 3D.');
+
+    return {
+      status,
+      code,
+      message,
+      isNsfwBlocked,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      isNsfwBlocked: false,
+    };
+  }
+
+  return {
+    message: 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.',
+    isNsfwBlocked: false,
+  };
 };
 
 const toTask = (value: unknown) => value as GenerationTask;
@@ -61,6 +120,9 @@ export const createImageGeneration = async ({
   shouldTexture = false,
   heightMm = 100,
 }: CreateGenerationInput) => {
+  if (!image) {
+    throw new Error('Ảnh nguồn là bắt buộc để tạo mô hình 3D.');
+  }
   const form = new FormData();
   form.append('image', image);
   form.append('heightMm', String(heightMm));
