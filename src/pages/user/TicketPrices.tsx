@@ -106,10 +106,10 @@ export default function TicketPrices() {
                   key={pkg.id || idx}
                   maxTilt={5}
                   scale={1.015}
-                  className={`relative rounded-3xl border transition-all duration-300 p-6 sm:p-8 flex flex-col justify-between backdrop-blur-xl ${
+                  className={`relative rounded-3xl border transition-all duration-300 p-6 sm:p-8 flex flex-col justify-between backdrop-blur-2xl ${
                     isSla
-                      ? 'bg-gradient-to-b from-cyan-950/40 via-[#0c1017] to-[#070a0f] border-cyan-400/50 shadow-[0_0_35px_rgba(0,240,255,0.18)]'
-                      : 'bg-[#0c1017]/90 border-white/12 hover:border-white/25 shadow-lg'
+                      ? 'bg-gradient-to-b from-[#0f1d33]/90 via-[#0a1424]/95 to-[#060a12]/98 border-cyan-400/50 shadow-[0_25px_60px_rgba(0,0,0,0.9),0_0_40px_rgba(0,240,255,0.2),inset_0_1px_1px_rgba(255,255,255,0.25)]'
+                      : 'bg-gradient-to-b from-[#0d1624]/90 via-[#090f1a]/95 to-[#050810]/98 border-white/15 hover:border-cyan-400/40 shadow-[0_25px_60px_rgba(0,0,0,0.85),inset_0_1px_1px_rgba(255,255,255,0.15)]'
                   }`}
                 >
                   {isSla && (
@@ -172,10 +172,10 @@ export default function TicketPrices() {
                     <button
                       type="button"
                       onClick={() => navigate('/create')}
-                      className={`w-full py-3.5 px-5 rounded-2xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      className={`w-full h-12 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
                         isSla
                           ? 'btn-pooled-cyan shadow-[0_0_20px_rgba(0,240,255,0.25)] hover:scale-[1.01]'
-                          : 'bg-white/10 hover:bg-white/20 text-white border border-white/15 hover:scale-[1.01]'
+                          : 'liquid-glass text-white hover:text-cyan-300 border border-white/20 hover:border-cyan-400/50 hover:scale-[1.01]'
                       }`}
                     >
                       <Zap className="w-4 h-4 text-cyan-300" />
@@ -191,7 +191,7 @@ export default function TicketPrices() {
 
         {/* Feature Highlights: 3D Tilt Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-16 pt-12 border-t border-white/10">
-          <TiltCard maxTilt={4} className="flex flex-col items-center text-center p-6 rounded-2xl bg-[#0c1017]/90 border border-white/10 space-y-3">
+          <TiltCard maxTilt={4} className="flex flex-col items-center text-center p-6 rounded-2xl bg-gradient-to-b from-[#0c1422]/90 via-[#080d16]/95 to-[#05080f]/98 border border-white/10 hover:border-cyan-400/40 shadow-[0_15px_35px_rgba(0,0,0,0.7),inset_0_1px_1px_rgba(255,255,255,0.1)] space-y-3">
             <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.15)]">
               <ShieldCheck className="w-6 h-6 text-cyan-400" />
             </div>
@@ -201,7 +201,7 @@ export default function TicketPrices() {
             </p>
           </TiltCard>
 
-          <TiltCard maxTilt={4} className="flex flex-col items-center text-center p-6 rounded-2xl bg-[#0c1017]/90 border border-white/10 space-y-3">
+          <TiltCard maxTilt={4} className="flex flex-col items-center text-center p-6 rounded-2xl bg-gradient-to-b from-[#0c1422]/90 via-[#080d16]/95 to-[#05080f]/98 border border-white/10 hover:border-cyan-400/40 shadow-[0_15px_35px_rgba(0,0,0,0.7),inset_0_1px_1px_rgba(255,255,255,0.1)] space-y-3">
             <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.15)]">
               <Box className="w-6 h-6 text-cyan-400" />
             </div>
@@ -211,7 +211,7 @@ export default function TicketPrices() {
             </p>
           </TiltCard>
 
-          <TiltCard maxTilt={4} className="flex flex-col items-center text-center p-6 rounded-2xl bg-[#0c1017]/90 border border-white/10 space-y-3">
+          <TiltCard maxTilt={4} className="flex flex-col items-center text-center p-6 rounded-2xl bg-gradient-to-b from-[#0c1422]/90 via-[#080d16]/95 to-[#05080f]/98 border border-white/10 hover:border-cyan-400/40 shadow-[0_15px_35px_rgba(0,0,0,0.7),inset_0_1px_1px_rgba(255,255,255,0.1)] space-y-3">
             <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.15)]">
               <Truck className="w-6 h-6 text-cyan-400" />
             </div>

@@ -35,6 +35,7 @@ import {
 } from '../../services/fulfillmentService';
 import { DefectReportModal } from '../../components/DefectReportModal';
 import logoTheBoy from '../../assets/LOGOTheBoy.png';
+import TiltCard from '../../components/ui/TiltCard';
 
 type FilterTab = 'ALL' | 'UNPAID' | 'PRODUCTION' | 'SHIPPING_DELIVERED' | 'CANCELLED_REFUND';
 
@@ -508,9 +509,12 @@ export default function MyBookings() {
               const canDefect = ['Delivered', 'Shipped', 'InTransit', 'Shipping'].includes(fStatus) && fStatus !== 'Cancelled';
 
               return (
-                <div
+                <TiltCard
                   key={order.id}
-                  className="rounded-2xl bg-[#0c1017]/90 border border-white/10 hover:border-cyan-500/30 p-5 sm:p-6 backdrop-blur-xl space-y-5 transition-all shadow-xl shadow-black/40"
+                  maxTilt={2.5}
+                  perspective={1200}
+                  scale={1.008}
+                  className="rounded-2xl bg-gradient-to-b from-[#0d1422]/90 via-[#0a0f1a]/92 to-[#070a13]/96 border border-white/10 hover:border-cyan-500/40 p-5 sm:p-6 backdrop-blur-2xl space-y-5 transition-all shadow-[0_16px_45px_rgba(0,0,0,0.75),0_0_25px_rgba(0,240,255,0.06),inset_0_1px_1px_rgba(255,255,255,0.12)]"
                 >
                   {/* Top Bar: Code, Date & Dual-Axis Badges */}
                   <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10">
@@ -888,7 +892,7 @@ export default function MyBookings() {
                       )}
                     </div>
                   </div>
-                </div>
+                </TiltCard>
               );
             })}
           </div>

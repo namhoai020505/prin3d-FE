@@ -711,7 +711,7 @@ export default function CommunitySection() {
                     {/* Dynamic Pointer-Tracking Specular Sheen */}
                     <div className="showcase-card-sheen" aria-hidden="true" />
 
-                    {/* Bottom Deep Burgundy Gradient Scrim */}
+                    {/* Bottom Deep Dark Obsidian Gradient Scrim */}
                     <div
                       className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#070a0f] via-[#070a0f]/45 to-transparent"
                       aria-hidden="true"
@@ -779,7 +779,7 @@ export default function CommunitySection() {
       {selectedItem && (
         <div
           ref={lightboxBackdropRef}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-[#160204]/85 backdrop-blur-xl"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-[#03060a]/85 backdrop-blur-xl"
           onClick={handleCloseLightbox}
         >
           <div
@@ -789,7 +789,7 @@ export default function CommunitySection() {
             style={{ transformOrigin: 'center center' }}
           >
             {/* Left Column: 3D Viewport Preview & Wireframe Inspection */}
-            <div className="relative md:col-span-6 min-h-[280px] md:min-h-[420px] bg-[#160204] overflow-hidden flex flex-col justify-between p-4 border-b md:border-b-0 md:border-r border-white/15">
+            <div className="relative md:col-span-6 min-h-[280px] md:min-h-[420px] bg-[#03060a] overflow-hidden flex flex-col justify-between p-4 border-b md:border-b-0 md:border-r border-white/15">
               <img
                 src={selectedItem.imageUrl}
                 alt={selectedItem.title}
@@ -806,8 +806,8 @@ export default function CommunitySection() {
                   <defs>
                     <radialGradient id="lightbox-wf-glow" cx="50%" cy="50%" r="55%">
                       <stop offset="0%" stopColor="#ffffff" stopOpacity="0.6" />
-                      <stop offset="70%" stopColor="#fda4af" stopOpacity="0.22" />
-                      <stop offset="100%" stopColor="#160204" stopOpacity="0" />
+                      <stop offset="70%" stopColor="#00F0FF" stopOpacity="0.22" />
+                      <stop offset="100%" stopColor="#03060a" stopOpacity="0" />
                     </radialGradient>
                   </defs>
                   <circle cx="200" cy="230" r="145" stroke="url(#lightbox-wf-glow)" strokeWidth="1" />
@@ -825,7 +825,7 @@ export default function CommunitySection() {
                 </svg>
               )}
 
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#160204] via-transparent to-[#160204]/50" />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#03060a] via-transparent to-[#03060a]/50" />
 
               {/* Top Overlay Badges */}
               <div className="relative z-10 flex items-center justify-between gap-2">

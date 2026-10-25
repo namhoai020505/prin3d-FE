@@ -51,6 +51,7 @@ import {
 } from '../lib/auth';
 import { AI_CONSENT_POLICY_VERSION } from '../lib/env';
 import { IdempotencyManager } from '../lib/idempotency';
+import TiltCard from './ui/TiltCard';
 
 // Pure helper: Direct VietQR URL / EMVCo resolver
 export interface QuoteModalV2Props {
@@ -531,7 +532,7 @@ export default function QuoteModalV2({
       role="dialog"
       aria-modal="true"
     >
-      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col bg-[#090d14]/95 border border-cyan-500/30 rounded-2xl shadow-[0_0_50px_rgba(0,240,255,0.12)] backdrop-blur-2xl text-white overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col glass-card-3d text-white overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
         {/* Top Header */}
         <div className="p-4 sm:px-6 py-3.5 border-b border-white/10 flex items-center justify-between gap-3 bg-gradient-to-r from-cyan-950/40 via-transparent to-cyan-950/20">
           <div className="flex items-center gap-3">
@@ -967,18 +968,25 @@ export default function QuoteModalV2({
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col gap-5 text-left animate-in fade-in duration-200">
             {createdOrder && paymentAttempt && (
               <>
-                {/* TRẠNG THÁI A: THANH TOÁN THÀNH CÔNG (HIỆN NGAY TRONG MODAL!) */}
+                {/* TRẠNG THÁI A: THANH TOÁN THÀNH CÔNG (GLASSMORPHISM 3D & LAYERED 3D PARALLAX) */}
                 {isPaidSuccess ? (
-                  <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-b from-[#081a14] via-[#09151c] to-[#070d14] border border-emerald-400/50 flex flex-col items-center justify-center text-center gap-5 shadow-[0_0_50px_rgba(16,185,129,0.25)] animate-in zoom-in-95 duration-300">
-                    <div className="relative flex items-center justify-center">
-                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-emerald-500/20 border border-emerald-400/60 flex items-center justify-center text-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.4)]">
+                  <TiltCard
+                    maxTilt={4}
+                    perspective={1100}
+                    scale={1.01}
+                    className="w-full max-w-xl mx-auto p-7 sm:p-9 rounded-3xl glass-card-3d flex flex-col items-center justify-center text-center gap-5.5 shadow-[0_30px_70px_rgba(0,0,0,0.85),0_0_40px_rgba(16,185,129,0.2)] animate-in zoom-in-95 duration-300"
+                  >
+                    {/* 3D Floating Success Icon Badge */}
+                    <div className="relative flex items-center justify-center" style={{ transform: 'translateZ(26px)' }}>
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-emerald-500/20 border border-emerald-400/60 flex items-center justify-center text-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.45)]">
                         <CheckCircle2 className="w-10 h-10 stroke-[2.2]" />
                       </div>
                       <Sparkles className="absolute -top-2 -right-2 w-6 h-6 text-emerald-300 animate-pulse" />
                     </div>
 
-                    <div className="space-y-1.5 max-w-md">
-                      <h3 className="text-xl sm:text-2xl font-bold text-white tracking-wide">
+                    {/* Title & Subtitle */}
+                    <div className="space-y-1.5 max-w-md" style={{ transform: 'translateZ(18px)' }}>
+                      <h3 className="text-xl sm:text-2xl font-black text-white tracking-wide">
                         Thanh Toán Thành Công!
                       </h3>
                       <p className="text-xs sm:text-sm text-emerald-200/90 leading-relaxed font-sans">
@@ -987,7 +995,10 @@ export default function QuoteModalV2({
                     </div>
 
                     {/* Chi tiết biên lai tóm tắt */}
-                    <div className="w-full max-w-md p-4 rounded-xl bg-black/50 border border-emerald-500/30 text-xs font-mono space-y-2.5 text-left shadow-inner">
+                    <div
+                      className="w-full max-w-md p-4 rounded-xl bg-black/60 border border-emerald-500/30 text-xs font-mono space-y-2.5 text-left shadow-[inset_0_2px_8px_rgba(0,0,0,0.6)] backdrop-blur-md"
+                      style={{ transform: 'translateZ(14px)' }}
+                    >
                       <div className="flex justify-between items-center text-slate-300">
                         <span className="font-sans text-[11px] text-slate-400">Mã đơn hàng:</span>
                         <span className="text-white font-bold">#{createdOrder.orderCode}</span>
@@ -1010,35 +1021,41 @@ export default function QuoteModalV2({
                       </div>
                     </div>
 
-                    {/* Actions sau khi thành công */}
-                    <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md pt-2">
+                    {/* Actions sau khi thành công: CÂN ĐỐI 100% VỀ CHIỀU CAO, PADDING & VISUAL WEIGHT */}
+                    <div
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 w-full max-w-md pt-3"
+                      style={{ transform: 'translateZ(22px)' }}
+                    >
                       <button
                         type="button"
                         onClick={() => {
                           handleClose();
                           navigate('/my-bookings');
                         }}
-                        className="btn-pooled-cyan w-full py-3 px-5 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_25px_rgba(0,240,255,0.3)]"
+                        className="btn-pooled-cyan h-12 w-full px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_25px_rgba(0,240,255,0.35)] active:scale-95 transition-all"
                       >
-                        <span>Xem Hành Trình Đơn Hàng</span>
-                        <ArrowRight className="w-4 h-4" />
+                        <span className="truncate">Xem Hành Trình Đơn</span>
+                        <ArrowRight className="w-4 h-4 shrink-0" />
                       </button>
                       <button
                         type="button"
                         onClick={handleClose}
-                        className="w-full py-2.5 px-4 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+                        className="h-12 w-full px-4 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 hover:border-cyan-400/40 text-xs sm:text-sm font-bold text-slate-200 hover:text-white transition-all flex items-center justify-center cursor-pointer backdrop-blur-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.15),0_4px_12px_rgba(0,0,0,0.4)] active:scale-95"
                       >
-                        Đóng & Tiếp Tục Studio 3D
+                        <span className="truncate">Đóng & Tiếp Tục Studio</span>
                       </button>
                     </div>
-                  </div>
+                  </TiltCard>
                 ) : (
                   /* TRẠNG THÁI B: ĐANG CHỜ QUÉT MÃ VIETQR */
                   <>
-                    {/* 1. Thông tin giao dịch & Mã đơn (3 Thẻ ngang cân xứng, chống tràn chữ) */}
+                    {/* 1. Thông tin giao dịch & Mã đơn (3 Thẻ ngang Glassmorphism 3D Tilt) */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       {/* Mã đơn hàng */}
-                      <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 flex flex-col justify-between hover:border-cyan-500/30 transition-all min-w-0">
+                      <TiltCard
+                        maxTilt={4}
+                        className="p-3.5 rounded-xl bg-gradient-to-b from-white/[0.05] to-white/[0.01] border border-white/10 flex flex-col justify-between hover:border-cyan-500/40 transition-all min-w-0 backdrop-blur-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]"
+                      >
                         <span className="text-[11px] font-medium text-slate-400">Mã đơn hàng</span>
                         <div className="flex items-center justify-between gap-2 mt-1.5 min-w-0">
                           <span
@@ -1060,10 +1077,13 @@ export default function QuoteModalV2({
                             )}
                           </button>
                         </div>
-                      </div>
+                      </TiltCard>
 
                       {/* Số tiền cần thanh toán */}
-                      <div className="p-3.5 rounded-xl bg-gradient-to-br from-cyan-950/50 to-slate-900/60 border border-cyan-400/40 flex flex-col justify-between shadow-[0_0_20px_rgba(0,240,255,0.12)] min-w-0">
+                      <TiltCard
+                        maxTilt={4}
+                        className="p-3.5 rounded-xl bg-gradient-to-br from-cyan-950/60 via-[#0a1a24]/70 to-[#071018]/80 border border-cyan-400/50 flex flex-col justify-between shadow-[0_0_25px_rgba(0,240,255,0.18),inset_0_1px_1px_rgba(255,255,255,0.2)] min-w-0 backdrop-blur-xl"
+                      >
                         <div className="flex items-center justify-between">
                           <span className="text-[11px] font-medium text-cyan-200/90">Số tiền cần thanh toán</span>
                           <span className="px-1.5 py-0.2 rounded bg-cyan-500/25 text-cyan-300 text-[10px] font-mono font-bold">VND</span>
@@ -1072,10 +1092,13 @@ export default function QuoteModalV2({
                           <span>{paymentAttempt.amountVnd.toLocaleString('vi-VN')}</span>
                           <span className="text-xs font-bold text-cyan-400/80">đ</span>
                         </div>
-                      </div>
+                      </TiltCard>
 
                       {/* Mã tham chiếu PayOS & Cổng */}
-                      <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 flex flex-col justify-between hover:border-cyan-500/30 transition-all min-w-0">
+                      <TiltCard
+                        maxTilt={4}
+                        className="p-3.5 rounded-xl bg-gradient-to-b from-white/[0.05] to-white/[0.01] border border-white/10 flex flex-col justify-between hover:border-cyan-500/40 transition-all min-w-0 backdrop-blur-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]"
+                      >
                         <div className="flex items-center justify-between">
                           <span className="text-[11px] font-medium text-slate-400">Tham chiếu PayOS</span>
                           <span className="px-1.5 py-0.2 rounded bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 text-[10px] font-mono shrink-0">
@@ -1102,11 +1125,15 @@ export default function QuoteModalV2({
                             )}
                           </button>
                         </div>
-                      </div>
+                      </TiltCard>
                     </div>
 
                     {/* 2. Khung Quét mã QR 3D Holographic Laser & Chi tiết chuyển khoản */}
-                    <div className="p-5 sm:p-6 rounded-2xl bg-[#070b13]/90 border border-cyan-500/30 backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_25px_rgba(0,240,255,0.1)] flex flex-col md:flex-row items-center gap-6">
+                    <TiltCard
+                      maxTilt={2.5}
+                      scale={1.008}
+                      className="p-5 sm:p-6 rounded-3xl glass-card-3d flex flex-col md:flex-row items-center gap-6 shadow-[0_25px_60px_rgba(0,0,0,0.8)]"
+                    >
                       {paymentAttempt.status === 'Failed' || paymentAttempt.status === 'NeedsAttention' ? (
                         <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-400/30 text-rose-200 w-full space-y-2 text-center">
                           <div className="flex items-center justify-center gap-2 text-rose-300 font-bold text-xs">
@@ -1232,7 +1259,7 @@ export default function QuoteModalV2({
                           </div>
                         </>
                       )}
-                    </div>
+                    </TiltCard>
 
                     {/* 3. Action Buttons */}
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-white/8">

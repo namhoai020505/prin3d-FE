@@ -20,6 +20,7 @@ import { orderService, type OrderV2Dto } from '../../services/orderService';
 import { paymentService, type PaymentAttemptDto } from '../../services/paymentService';
 import { getRoleFromAccessToken, isAdminRole, isManagerRole, isStaffRole } from '../../lib/auth';
 import { IdempotencyManager } from '../../lib/idempotency';
+import TiltCard from '../../components/ui/TiltCard';
 
 export default function OrderCheckoutReturn() {
   const { id } = useParams<{ id: string }>();
@@ -330,9 +331,13 @@ export default function OrderCheckoutReturn() {
             TRẠNG THÁI 2: THANH TOÁN THÀNH CÔNG (PAID RECEIPT)
             ==================================================== */}
         {isPaid ? (
-          <div className="p-6 sm:p-8 rounded-3xl bg-[#0a0f18]/95 border border-emerald-400/40 shadow-[0_0_50px_rgba(16,185,129,0.15)] backdrop-blur-2xl space-y-6">
+          <TiltCard
+            maxTilt={3}
+            perspective={1100}
+            className="p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-[#0a1e17]/90 via-[#08151c]/92 to-[#060c14]/96 border border-emerald-400/40 shadow-[0_25px_60px_rgba(0,0,0,0.85),0_0_40px_rgba(16,185,129,0.2),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-2xl space-y-6"
+          >
             {/* Top Congratulations Card */}
-            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left" style={{ transform: 'translateZ(20px)' }}>
               <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.3)] shrink-0">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
@@ -352,7 +357,10 @@ export default function OrderCheckoutReturn() {
             </div>
 
             {/* Chi tiết Biên lai Điện Tử (Grid) */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-black/40 border border-white/8 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+            <div
+              className="p-4 sm:p-5 rounded-2xl bg-black/40 border border-white/8 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono shadow-[inset_0_2px_6px_rgba(0,0,0,0.5)]"
+              style={{ transform: 'translateZ(14px)' }}
+            >
               <div className="space-y-1">
                 <span className="text-[11px] text-slate-400 font-sans">Mã đơn hàng:</span>
                 <div className="text-sm font-bold text-white flex items-center gap-2">
@@ -360,7 +368,7 @@ export default function OrderCheckoutReturn() {
                   <button
                     type="button"
                     onClick={() => handleCopy(order.orderCode, 'orderCode')}
-                    className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-300"
+                    className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-300 cursor-pointer"
                   >
                     {copiedField === 'orderCode' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                   </button>
@@ -397,26 +405,26 @@ export default function OrderCheckoutReturn() {
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+            {/* Action Buttons: 2 nút đồng đều hoàn hảo về kích thước, chiều cao, visual weight */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2" style={{ transform: 'translateZ(20px)' }}>
               <button
                 type="button"
                 onClick={() => navigate('/create')}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                className="h-12 w-full px-5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 hover:border-cyan-400/40 text-slate-200 hover:text-white text-xs sm:text-sm font-bold transition-all flex items-center justify-center cursor-pointer backdrop-blur-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] active:scale-95"
               >
-                Tạo thêm mô hình 3D khác
+                Tạo Thêm Mô Hình 3D
               </button>
 
               <button
                 type="button"
-                onClick={() => navigate('/orders')}
-                className="btn-pooled-cyan w-full sm:w-auto py-2.5 px-6 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(0,240,255,0.25)]"
+                onClick={() => navigate('/my-bookings')}
+                className="btn-pooled-cyan h-12 w-full px-5 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_22px_rgba(0,240,255,0.35)] rounded-xl active:scale-95 transition-all"
               >
-                <span>Xem Hành Trình Sản Xuất Đơn Hàng</span>
-                <ArrowRight className="w-4 h-4" />
+                <span>Xem Hành Trình Đơn Hàng</span>
+                <ArrowRight className="w-4 h-4 shrink-0" />
               </button>
             </div>
-          </div>
+          </TiltCard>
         ) : isCancelledFlow ? (
           /* ====================================================
              TRẠNG THÁI 4: HỦY THANH TOÁN (CANCELLED FLOW)

@@ -9,9 +9,13 @@ import {
   ArrowLeft,
   CheckCircle2,
   RotateCcw,
+  Eye,
+  EyeOff,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import logoTheBoy from '../assets/images/LOGOTheBoy.png';
+import TiltCard from './ui/TiltCard';
 import {
   login,
   register,
@@ -45,7 +49,13 @@ export default function LoginModal({
   const [fullName, setFullName] = useState('');
   const [otpToken, setOtpToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [targetEmail, setTargetEmail] = useState('');
+
+  // Ẩn/Hiện mật khẩu
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
@@ -183,7 +193,7 @@ export default function LoginModal({
     }
   };
 
-  // Xử lý Gửi lại mã OTP
+  // Xử lý Gửi lại mã OTP xác thực email
   const handleResendOtp = async () => {
     if (countdown > 0) return;
     if (!targetEmail) {
@@ -201,40 +211,79 @@ export default function LoginModal({
     }
   };
 
-  // Xử lý Quên mật khẩu
+  // Xử lý Quên mật khẩu - Bước 1: Nhập Email và gửi request POST /api/auth/forgot-password
   const handleForgotPasswordSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const cleanEmail = email.trim().toLowerCase();
+
     if (!cleanEmail) {
-      toast.warn('Vui lòng nhập địa chỉ email nhận mã đặt lại mật khẩu.');
+      toast.warn('Vui lòng nhập địa chỉ email tài khoản cần khôi phục.');
       return;
     }
 
     setIsLoading(true);
     try {
       const res = await forgotPassword({ email: cleanEmail });
-      toast.info(res.message || 'Đã gửi mã xác nhận đặt lại mật khẩu.');
+      toast.success(res.message || 'Mã xác nhận OTP đã được gửi đến email của bạn. Vui lòng kiểm tra hộp thư!');
       setTargetEmail(cleanEmail);
-      setMode('reset-password');
+      setOtpToken('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setMode('reset-password'); // Chuyển sang khung mới /api/auth/reset-password
+      startResendCountdown();    // Khởi động đếm ngược 60s
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Xử lý Gửi lại mã OTP qua email sau 60s (Gọi lại /api/auth/forgot-password)
+  const handleResendResetOtp = async () => {
+    if (countdown > 0) return;
+    const target = targetEmail || email.trim().toLowerCase();
+    if (!target) {
+      toast.warn('Không tìm thấy email tài khoản để gửi lại mã.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await forgotPassword({ email: target });
+      toast.info(res.message || 'Đã gửi lại mã xác nhận OTP về email của bạn.');
       startResendCountdown();
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Xử lý Đặt lại mật khẩu với OTP
+  // Xử lý Đặt lại mật khẩu với Token và Mật khẩu mới - Bước 2: Gọi POST /api/auth/reset-password
   const handleResetPasswordSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const cleanOtp = otpToken.trim();
     const cleanNewPass = newPassword.trim();
+    const cleanConfirmPass = confirmPassword.trim();
 
-    if (!cleanOtp || !cleanNewPass) {
-      toast.warn('Vui lòng nhập mã OTP và Mật khẩu mới.');
+    if (!cleanOtp) {
+      toast.warn('Vui lòng nhập mã token OTP 6 ký tự nhận từ email.');
+      return;
+    }
+
+    if (cleanOtp.length < 6) {
+      toast.warn('Mã token OTP xác thực gồm 6 ký tự.');
+      return;
+    }
+
+    if (!cleanNewPass) {
+      toast.warn('Vui lòng nhập mật khẩu mới.');
       return;
     }
 
     if (cleanNewPass.length < 10) {
-      toast.warn('Mật khẩu mới phải có tối thiểu 10 ký tự.');
+      toast.warn('Mật khẩu mới bảo mật phải có tối thiểu 10 ký tự.');
+      return;
+    }
+
+    if (cleanNewPass !== cleanConfirmPass) {
+      toast.warn('Mật khẩu xác nhận không khớp với mật khẩu mới.');
       return;
     }
 
@@ -243,11 +292,11 @@ export default function LoginModal({
       const res = await resetPassword({
         token: cleanOtp,
         newPassword: cleanNewPass,
-        email: targetEmail,
       });
       toast.success(res.message || 'Đặt lại mật khẩu thành công! Hãy đăng nhập với mật khẩu mới.');
       setPassword('');
       setNewPassword('');
+      setConfirmPassword('');
       setOtpToken('');
       setMode('login');
     } finally {
@@ -264,44 +313,52 @@ export default function LoginModal({
         if (e.target === e.currentTarget) handleClose();
       }}
     >
-      {/* Cyberpunk Glass Card Container */}
-      <div
-        className="w-full max-w-[440px] rounded-2xl bg-[#0c1017]/95 border border-cyan-500/25 p-7 sm:p-8 text-white relative shadow-[0_0_50px_rgba(0,240,255,0.15)] backdrop-blur-2xl transition-all duration-300"
-        style={{
-          boxShadow:
-            '0 20px 60px rgba(0, 0, 0, 0.85), 0 0 35px rgba(0, 240, 255, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.15)',
-        }}
+      <TiltCard
+        maxTilt={4}
+        perspective={1200}
+        scale={1.01}
+        className="w-full max-w-[450px] glass-card-3d p-7 sm:p-8 text-white relative shadow-[0_30px_70px_rgba(0,0,0,0.85)]"
       >
         {/* Nút Đóng Modal */}
         <button
           type="button"
           onClick={handleClose}
-          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-all cursor-pointer group"
+          style={{ transform: 'translateZ(24px)' }}
+          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 border border-white/25 text-slate-300 hover:text-white backdrop-blur-md flex items-center justify-center transition-all cursor-pointer group z-20"
           aria-label="Đóng bảng đăng nhập"
         >
           <X className="w-4 h-4 group-hover:rotate-90 transition-transform text-slate-300 group-hover:text-cyan-300" />
         </button>
 
-        {/* Logo & Tiêu Đề */}
+        {/* Logo & Tiêu Đề Layered 3D */}
         <div className="flex flex-col items-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#090D14] to-[#121c2c] border border-cyan-400/40 p-2 flex items-center justify-center shadow-[0_0_20px_rgba(0,240,255,0.25)] mb-3">
+          <div
+            className="w-14 h-14 rounded-2xl bg-gradient-to-br from-white/25 via-white/10 to-transparent border border-white/35 backdrop-blur-xl p-2 flex items-center justify-center shadow-[0_8px_25px_rgba(0,0,0,0.4),inset_0_1px_2px_rgba(255,255,255,0.6)] mb-3"
+            style={{ transform: 'translateZ(22px)' }}
+          >
             <img src={logoTheBoy} alt="THE BOYS Logo" className="w-full h-full object-contain" />
           </div>
 
-          <h2 className="text-xl sm:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-cyan-100 to-cyan-400 tracking-tight">
+          <h2
+            className="text-xl sm:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-cyan-100 to-cyan-400 tracking-tight text-center"
+            style={{ transform: 'translateZ(18px)' }}
+          >
             {mode === 'login' && 'Đăng Nhập Tài Khoản'}
             {mode === 'signup' && 'Khởi Tạo Tài Khoản'}
             {mode === 'verify-otp' && 'Xác Thực Email OTP'}
             {mode === 'forgot-password' && 'Khôi Phục Mật Khẩu'}
-            {mode === 'reset-password' && 'Thiết Lập Mật Khẩu Mới'}
+            {mode === 'reset-password' && 'Đặt Lại Mật Khẩu Mới'}
           </h2>
 
-          <p className="text-xs text-slate-400 mt-1 text-center">
+          <p
+            className="text-xs text-slate-400 mt-1 text-center"
+            style={{ transform: 'translateZ(14px)' }}
+          >
             {mode === 'login' && 'Nền tảng Sáng tạo 3D AI & Đặt in đa chiều THE BOYS'}
             {mode === 'signup' && 'Nhận ngay 2 lượt tạo 3D AI miễn phí khi kích hoạt'}
             {mode === 'verify-otp' && `Nhập mã 6 chữ số gửi đến ${targetEmail || email}`}
-            {mode === 'forgot-password' && 'Nhập email để nhận mã OTP khôi phục mật khẩu'}
-            {mode === 'reset-password' && 'Nhập mã OTP 6 số và mật khẩu bảo mật mới (≥ 10 ký tự)'}
+            {mode === 'forgot-password' && 'Nhập email của bạn để nhận mã token OTP qua email'}
+            {mode === 'reset-password' && `Nhập token xác nhận gửi tới ${targetEmail || email} và thiết lập mật khẩu mới`}
           </p>
         </div>
 
@@ -317,7 +374,7 @@ export default function LoginModal({
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@example.com hoặc admin@123"
                   required
-                  className="w-full bg-[#080d14]/80 border border-slate-700/80 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               </div>
@@ -328,34 +385,48 @@ export default function LoginModal({
                 <label className="text-xs font-semibold text-slate-300">Mật khẩu</label>
                 <button
                   type="button"
-                  onClick={() => setMode('forgot-password')}
-                  className="text-xs text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"
+                  onClick={() => {
+                    setNewPassword('');
+                    setConfirmPassword('');
+                    setOtpToken('');
+                    setMode('forgot-password');
+                  }}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 hover:underline transition-colors cursor-pointer"
                 >
                   Quên mật khẩu?
                 </button>
               </div>
               <div className="relative flex items-center">
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"
                   required
-                  className="w-full bg-[#080d14]/80 border border-slate-700/80 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 pr-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
                 />
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className="btn-pooled-cyan w-full py-3.5 font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ transform: 'translateZ(20px)' }}
+              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all mt-2"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
-                <span>Đăng Nhập Ngay</span>
+                <span>Đăng Nhập</span>
               )}
             </button>
 
@@ -364,9 +435,9 @@ export default function LoginModal({
               <button
                 type="button"
                 onClick={() => setMode('signup')}
-                className="text-xs font-bold text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"
+                className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 hover:underline transition-colors cursor-pointer"
               >
-                Đăng ký thành viên
+                Đăng ký ngay
               </button>
             </div>
           </form>
@@ -376,7 +447,7 @@ export default function LoginModal({
         {mode === 'signup' && (
           <form onSubmit={handleSignUpSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Họ và tên</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Họ và tên của bạn</label>
               <div className="relative flex items-center">
                 <input
                   type="text"
@@ -384,22 +455,22 @@ export default function LoginModal({
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Nguyễn Văn A"
                   required
-                  className="w-full bg-[#080d14]/80 border border-slate-700/80 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
                 />
                 <User className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email / Tên đăng nhập</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email nhận tài khoản</label>
               <div className="relative flex items-center">
                 <input
-                  type="text"
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com hoặc admin@123"
+                  placeholder="name@example.com"
                   required
-                  className="w-full bg-[#080d14]/80 border border-slate-700/80 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               </div>
@@ -411,27 +482,36 @@ export default function LoginModal({
               </label>
               <div className="relative flex items-center">
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Tối thiểu 10 ký tự"
+                  placeholder="Tối thiểu 10 ký tự bảo mật"
                   required
                   minLength={10}
-                  className="w-full bg-[#080d14]/80 border border-slate-700/80 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 pr-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
                 />
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className="btn-pooled-cyan w-full py-3.5 font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ transform: 'translateZ(20px)' }}
+              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all mt-2"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
-                <span>Tạo Tài Khoản &amp; Nhận OTP</span>
+                <span>Đăng Ký & Nhận 2 Lượt Free</span>
               )}
             </button>
 
@@ -440,7 +520,7 @@ export default function LoginModal({
               <button
                 type="button"
                 onClick={() => setMode('login')}
-                className="text-xs font-bold text-cyan-400 hover:text-cyan-300 hover:underline transition-colors"
+                className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 hover:underline transition-colors cursor-pointer"
               >
                 Đăng nhập
               </button>
@@ -448,12 +528,12 @@ export default function LoginModal({
           </form>
         )}
 
-        {/* 3. MÀN HÌNH NHẬP MÃ OTP XÁC THỰC EMAIL */}
+        {/* 3. MÀN HÌNH XÁC THỰC EMAIL OTP */}
         {mode === 'verify-otp' && (
           <form onSubmit={handleVerifyOtpSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5 text-center">
-                Mã xác thực 6 ký tự
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Mã OTP xác thực 6 ký tự
               </label>
               <div className="relative flex items-center">
                 <input
@@ -461,18 +541,20 @@ export default function LoginModal({
                   maxLength={6}
                   value={otpToken}
                   onChange={(e) => setOtpToken(e.target.value.toUpperCase())}
-                  placeholder="VD: 7A9K2M"
+                  placeholder="VD: 8BF4A2"
                   required
                   autoFocus
-                  className="w-full text-center tracking-[0.5em] font-mono text-2xl font-bold bg-[#080d14]/90 border border-cyan-500/50 focus:border-cyan-300 focus:ring-2 focus:ring-cyan-400/40 rounded-xl px-4 py-3.5 text-cyan-300 placeholder:text-slate-600 outline-none transition-all shadow-[inset_0_2px_8px_rgba(0,0,0,0.6)]"
+                  className="w-full tracking-[0.3em] font-mono font-bold bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-cyan-300 placeholder:text-slate-500 outline-none transition-all"
                 />
+                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               </div>
             </div>
 
             <button
               type="submit"
               disabled={isLoading || otpToken.length < 6}
-              className="btn-pooled-cyan w-full py-3.5 font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ transform: 'translateZ(20px)' }}
+              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
@@ -488,7 +570,7 @@ export default function LoginModal({
               <button
                 type="button"
                 onClick={() => setMode('login')}
-                className="flex items-center gap-1 hover:text-white transition-colors"
+                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Quay lại</span>
@@ -507,7 +589,7 @@ export default function LoginModal({
           </form>
         )}
 
-        {/* 4. MÀN HÌNH QUÊN MẬT KHẨU */}
+        {/* 4. MÀN HÌNH QUÊN MẬT KHẨU (BƯỚC 1: CHỈ NHẬP EMAIL ĐỂ GỬI /api/auth/forgot-password) */}
         {mode === 'forgot-password' && (
           <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
             <div>
@@ -522,21 +604,25 @@ export default function LoginModal({
                   placeholder="name@example.com"
                   required
                   autoFocus
-                  className="w-full bg-[#080d14]/80 border border-slate-700/80 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
                 />
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               </div>
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                Hệ thống sẽ gửi mã token OTP xác thực 6 ký tự đến địa chỉ email này.
+              </p>
             </div>
 
             <button
               type="submit"
-              disabled={isLoading}
-              className="btn-pooled-cyan w-full py-3.5 font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isLoading || !email.trim()}
+              style={{ transform: 'translateZ(20px)' }}
+              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all mt-2"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
-                <span>Gửi Mã Khôi Phục</span>
+                <span>Gửi Mã Xác Nhận OTP</span>
               )}
             </button>
 
@@ -544,7 +630,7 @@ export default function LoginModal({
               <button
                 type="button"
                 onClick={() => setMode('login')}
-                className="text-xs text-slate-400 hover:text-white transition-colors flex items-center justify-center gap-1 mx-auto"
+                className="text-xs text-slate-400 hover:text-white transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Nhớ mật khẩu? Quay lại đăng nhập</span>
@@ -553,12 +639,29 @@ export default function LoginModal({
           </form>
         )}
 
-        {/* 5. MÀN HÌNH ĐẶT LẠI MẬT KHẨU VỚI MÃ OTP */}
+        {/* 5. MÀN HÌNH ĐẶT LẠI MẬT KHẨU (BƯỚC 2: TOKEN TỪ EMAIL + 2 Ô MẬT KHẨU MỚI & XÁC NHẬN + NÚT GỬI LẠI SAU 60S) */}
         {mode === 'reset-password' && (
-          <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+          <form onSubmit={handleResetPasswordSubmit} className="space-y-3.5">
+            {/* Thẻ hiển thị Email đã gửi mã */}
+            <div className="p-3 rounded-xl bg-white/[0.08] border border-cyan-400/40 backdrop-blur-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] flex items-center justify-between text-xs backdrop-blur-md">
+              <div className="flex items-center gap-2 truncate">
+                <Mail className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span className="text-slate-300">Đã gửi mã tới: </span>
+                <span className="text-cyan-300 font-semibold truncate font-mono">{targetEmail || email}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMode('forgot-password')}
+                className="text-cyan-400 hover:text-cyan-300 font-medium shrink-0 cursor-pointer ml-2 hover:underline"
+              >
+                Đổi email
+              </button>
+            </div>
+
+            {/* 1. Khung nhập Token OTP */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Mã OTP xác thực 6 ký tự
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Mã Token OTP xác thực (6 ký tự)
               </label>
               <div className="relative flex items-center">
                 <input
@@ -569,56 +672,111 @@ export default function LoginModal({
                   placeholder="VD: 8BF4A2"
                   required
                   autoFocus
-                  className="w-full tracking-[0.3em] font-mono font-bold bg-[#080d14]/80 border border-slate-700/80 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-cyan-300 placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full tracking-[0.35em] font-mono font-bold bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-2.5 pl-11 text-sm text-cyan-300 placeholder:text-slate-500 outline-none transition-all"
                 />
                 <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               </div>
             </div>
 
+            {/* 2. Ô Mật khẩu mới */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Mật khẩu mới <span className="text-slate-400 font-normal">(tối thiểu 10 ký tự)</span>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Mật khẩu mới <span className="text-slate-400 font-normal">(≥ 10 ký tự)</span>
               </label>
               <div className="relative flex items-center">
                 <input
-                  type="password"
+                  type={showNewPassword ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Nhập mật khẩu mới an toàn"
                   required
                   minLength={10}
-                  className="w-full bg-[#080d14]/80 border border-slate-700/80 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-2.5 pl-11 pr-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
                 />
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((prev) => !prev)}
+                  className="absolute right-3.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  title={showNewPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                >
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
+            {/* 3. Ô Xác nhận mật khẩu mới */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Xác nhận mật khẩu mới
+              </label>
+              <div className="relative flex items-center">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Nhập lại mật khẩu mới"
+                  required
+                  minLength={10}
+                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-2.5 pl-11 pr-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                />
+                <ShieldCheck className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  className="absolute right-3.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  title={showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {confirmPassword && newPassword !== confirmPassword && (
+                <p className="text-[11px] text-rose-400 mt-1">Mật khẩu xác nhận chưa khớp.</p>
+              )}
+            </div>
+
+            {/* Nút submit xác nhận đổi mật khẩu */}
             <button
               type="submit"
-              disabled={isLoading || otpToken.length < 6 || newPassword.length < 10}
-              className="btn-pooled-cyan w-full py-3.5 font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isLoading || otpToken.length < 6 || newPassword.length < 10 || newPassword !== confirmPassword}
+              style={{ transform: 'translateZ(20px)' }}
+              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all mt-2"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
-                <span>Lưu Mật Khẩu Mới &amp; Hoàn Tất</span>
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Xác Nhận &amp; Đặt Lại Mật Khẩu</span>
+                </>
               )}
             </button>
 
-            <div className="text-center pt-2">
+            {/* Hàng điều hướng: Quay lại & Nút gửi lại mail sau 60s */}
+            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
               <button
                 type="button"
-                onClick={() => setMode('login')}
-                className="text-xs text-slate-400 hover:text-white transition-colors flex items-center justify-center gap-1 mx-auto"
+                onClick={() => setMode('forgot-password')}
+                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Hủy và quay lại đăng nhập</span>
+                <span>Quay lại</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResendResetOtp}
+                disabled={isLoading || countdown > 0}
+                className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 disabled:text-slate-500 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                title={countdown > 0 ? `Vui lòng đợi ${countdown} giây để gửi lại` : 'Gửi lại mã xác nhận qua email'}
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${countdown > 0 ? 'animate-spin' : ''}`} />
+                <span>{countdown > 0 ? `Gửi lại sau ${countdown}s` : 'Gửi lại mã qua email'}</span>
               </button>
             </div>
           </form>
         )}
-      </div>
+      </TiltCard>
     </div>
   );
 }
-

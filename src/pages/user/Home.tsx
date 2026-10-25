@@ -3,8 +3,7 @@ import HeroCreateSection from './components/HeroCreateSection';
 import ScrollStory from '../../components/ui/ScrollStory';
 import CommunitySection from './components/CommunitySection';
 
-const VIDEO_SRC =
-  'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260826_041744_63efcd78-bf7d-4039-99e2-2461e8a61903.mp4';
+const VIDEO_SRC = '/videos/hero_character.mp4';
 const SENSITIVITY = 0.8;
 
 export default function Home() {
@@ -84,7 +83,7 @@ export default function Home() {
         className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 pointer-events-none"
         style={{
           background:
-            'linear-gradient(90deg, #070a0f 0%, rgba(7, 10, 15, 0.95) 34%, rgba(7, 10, 15, 0.75) 55%, rgba(7, 10, 15, 0.3) 78%, rgba(7, 10, 15, 0.5) 100%)',
+            'linear-gradient(90deg, #070a0f 0%, rgba(7, 10, 15, 0.92) 32%, rgba(7, 10, 15, 0.5) 54%, transparent 75%)',
         }}
         aria-hidden="true"
       />
@@ -94,7 +93,7 @@ export default function Home() {
         className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(circle at 74% 45%, rgba(7, 10, 15, 0) 18%, rgba(7, 10, 15, 0.4) 52%, rgba(7, 10, 15, 0.92) 100%)',
+            'radial-gradient(circle at 74% 45%, rgba(7, 10, 15, 0) 25%, rgba(7, 10, 15, 0.2) 60%, rgba(7, 10, 15, 0.8) 100%)',
         }}
         aria-hidden="true"
       />
@@ -104,7 +103,7 @@ export default function Home() {
         className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 pointer-events-none"
         style={{
           background:
-            'linear-gradient(180deg, rgba(7, 10, 15, 0.6) 0%, transparent 16%, transparent 80%, #070a0f 100%)',
+            'linear-gradient(180deg, rgba(7, 10, 15, 0.5) 0%, transparent 16%, transparent 80%, #070a0f 100%)',
         }}
         aria-hidden="true"
       />
