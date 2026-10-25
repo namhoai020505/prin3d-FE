@@ -30,6 +30,9 @@ const OrderCheckoutReturn = lazy(() => import('./pages/user/OrderCheckoutReturn'
 
 // Admin pages
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
+const OrdersPage = lazy(() => import('./pages/admin/orders/OrdersPage'));
+const ReviewsPage = lazy(() => import('./pages/admin/reviews/ReviewsPage'));
+const AdminFulfillmentPage = lazy(() => import('./pages/admin/fulfillment/AdminFulfillmentPage'));
 
 // Fallback spinner while lazy chunks are loading - Cyberpunk Dark Obsidian & Neon Cyan
 const PageLoader = () => (
@@ -46,7 +49,14 @@ const RootLayout = () => {
   useIdleTimeout(10);
   useMultiTabSecurity();
   useSessionHeartbeat();
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <ConfirmDialogHost />
+      <LoginModal />
+      <AiConsentModal />
+    </>
+  );
 };
 
 const router = createBrowserRouter([
@@ -82,9 +92,15 @@ const router = createBrowserRouter([
             path: '/admin',
             element: <AdminLayout />,
             children: [
-              { index: true, element: <Navigate to="dashboard" replace /> },
+              { index: true, element: <Navigate to="orders" replace /> },
+              { path: 'orders', element: <OrdersPage /> },
+              { path: 'orders/:id', element: <OrdersPage /> },
+              { path: 'reviews', element: <ReviewsPage /> },
+              { path: 'reviews/:generationId', element: <ReviewsPage /> },
+              { path: 'fulfillment', element: <AdminFulfillmentPage /> },
+              { path: 'fulfillment/:orderId', element: <AdminFulfillmentPage /> },
               { path: 'dashboard', element: <Dashboard /> },
-              { path: '*', element: <Navigate to="dashboard" replace /> },
+              { path: '*', element: <Navigate to="orders" replace /> },
             ],
           },
         ],
@@ -94,7 +110,7 @@ const router = createBrowserRouter([
       { path: '/cinemas/*', element: <Navigate to="/" replace /> },
       { path: '/cinema-schedule', element: <Navigate to="/" replace /> },
       { path: '/booking/*', element: <Navigate to="/" replace /> },
-      { path: '/manager/*', element: <Navigate to="/admin/dashboard" replace /> },
+      { path: '/manager/*', element: <Navigate to="/admin/orders" replace /> },
       { path: '/staff/*', element: <Navigate to="/" replace /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
@@ -103,14 +119,9 @@ const router = createBrowserRouter([
 
 function App() {
   return (
-    <>
-      <Suspense fallback={<PageLoader />}>
-        <RouterProvider router={router} />
-      </Suspense>
-      <ConfirmDialogHost />
-      <LoginModal />
-      <AiConsentModal />
-    </>
+    <Suspense fallback={<PageLoader />}>
+      <RouterProvider router={router} />
+    </Suspense>
   );
 }
 

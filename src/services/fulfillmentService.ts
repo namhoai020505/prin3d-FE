@@ -1,6 +1,14 @@
 import api from '../lib/api';
 import type { DefectReportDto } from './defectService';
 
+export interface PartnerLabDto {
+  id: string;
+  name: string;
+  contactPhone: string;
+  address: string;
+  isActive: boolean;
+}
+
 export interface ProductionRunDto {
   id: string;
   assignmentId?: string;
@@ -81,6 +89,15 @@ const unwrap = <T>(res: unknown): T => {
 };
 
 /**
+ * 0. Lấy danh sách xưởng in đối tác đang hoạt động
+ */
+export const getPartnerLabs = async (): Promise<PartnerLabDto[]> => {
+  const raw: any = await api.get('/api/v2/partner-labs');
+  const unwrapped = unwrap<any>(raw);
+  return (Array.isArray(unwrapped) ? unwrapped : unwrapped?.data) || [];
+};
+
+/**
  * 1. Khách hàng & Staff tra cứu toàn bộ dòng thời gian sản xuất & giao hàng của đơn
  */
 export const getOrderTimeline = async (orderId: string): Promise<FulfillmentTimelineDto> => {
@@ -94,8 +111,10 @@ export const getOrderTimeline = async (orderId: string): Promise<FulfillmentTime
 export const assignPartner = async (
   orderId: string,
   payload: { partnerLabId: string; dueAtUtc?: string; decisionNote?: string; partnerCostSnapshotVnd?: number },
+  idempotencyKey?: string,
 ): Promise<PartnerAssignmentDto> => {
-  const raw = await api.post(`/api/v2/orders/${orderId}/assignments`, payload);
+  const headers = { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() };
+  const raw = await api.post(`/api/v2/orders/${orderId}/assignments`, payload, { headers });
   return unwrap<PartnerAssignmentDto>(raw);
 };
 
@@ -105,8 +124,10 @@ export const assignPartner = async (
 export const startProductionRun = async (
   assignmentId: string,
   payload?: { quantity?: number; actualCostVnd?: number },
+  idempotencyKey?: string,
 ): Promise<ProductionRunDto> => {
-  const raw = await api.post(`/api/v2/assignments/${assignmentId}/production-runs`, payload);
+  const headers = { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() };
+  const raw = await api.post(`/api/v2/assignments/${assignmentId}/production-runs`, payload, { headers });
   return unwrap<ProductionRunDto>(raw);
 };
 
@@ -116,8 +137,10 @@ export const startProductionRun = async (
 export const updateRunStatus = async (
   runId: string,
   status: 'PostProcessing' | 'QualityCheck',
+  idempotencyKey?: string,
 ): Promise<ProductionRunDto> => {
-  const raw = await api.post(`/api/v2/production-runs/${runId}/status`, { status });
+  const headers = { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() };
+  const raw = await api.post(`/api/v2/production-runs/${runId}/status`, { status }, { headers });
   return unwrap<ProductionRunDto>(raw);
 };
 
@@ -127,8 +150,10 @@ export const updateRunStatus = async (
 export const recordQc = async (
   runId: string,
   payload: { passed: boolean; qcNote?: string; qcEvidenceStorageKey?: string; triggerReprint?: boolean; actualCostVnd?: number },
+  idempotencyKey?: string,
 ): Promise<ProductionRunDto> => {
-  const raw = await api.post(`/api/v2/production-runs/${runId}/qc`, payload);
+  const headers = { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() };
+  const raw = await api.post(`/api/v2/production-runs/${runId}/qc`, payload, { headers });
   return unwrap<ProductionRunDto>(raw);
 };
 
@@ -138,8 +163,10 @@ export const recordQc = async (
 export const createShipment = async (
   orderId: string,
   payload: { carrier: string; trackingNumber: string; shippingActualVnd?: number },
+  idempotencyKey?: string,
 ): Promise<ShipmentDto> => {
-  const raw = await api.post(`/api/v2/orders/${orderId}/shipments`, payload);
+  const headers = { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() };
+  const raw = await api.post(`/api/v2/orders/${orderId}/shipments`, payload, { headers });
   return unwrap<ShipmentDto>(raw);
 };
 
@@ -149,8 +176,10 @@ export const createShipment = async (
 export const recordShipmentEvent = async (
   shipmentId: string,
   payload: { eventKey: string; status: string; note?: string; source?: string; occurredAtUtc?: string; deliveryEvidenceStorageKey?: string },
+  idempotencyKey?: string,
 ): Promise<ShipmentEventDto> => {
-  const raw = await api.post(`/api/v2/shipments/${shipmentId}/events`, payload);
+  const headers = { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() };
+  const raw = await api.post(`/api/v2/shipments/${shipmentId}/events`, payload, { headers });
   return unwrap<ShipmentEventDto>(raw);
 };
 
@@ -160,12 +189,15 @@ export const recordShipmentEvent = async (
 export const respondAssignment = async (
   assignmentId: string,
   payload: { accepted: boolean; decisionNote?: string },
+  idempotencyKey?: string,
 ): Promise<{ success: boolean; message: string }> => {
-  const raw = await api.post(`/api/v2/assignments/${assignmentId}/respond`, payload);
+  const headers = { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() };
+  const raw = await api.post(`/api/v2/assignments/${assignmentId}/respond`, payload, { headers });
   return unwrap<{ success: boolean; message: string }>(raw);
 };
 
 export const fulfillmentService = {
+  getPartnerLabs,
   getOrderTimeline,
   assignPartner,
   startProductionRun,

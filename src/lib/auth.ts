@@ -225,7 +225,7 @@ export const isCustomerRole = (role: string | null | undefined) => {
 
 export const getPostLoginRedirect = (role: string | null | undefined) => {
   if (isAdminRole(role) || isStaffRole(role) || isManagerRole(role)) {
-    return '/admin/dashboard';
+    return '/admin/orders';
   }
 
   return '/';

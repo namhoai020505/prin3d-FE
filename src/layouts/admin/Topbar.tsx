@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { FaBars, FaMoon, FaPowerOff, FaSun } from 'react-icons/fa';
 import { logout } from '../../services/authService';
 import NotificationBellV2 from '../../components/NotificationBellV2';
@@ -10,6 +10,37 @@ interface TopbarProps {
   onToggleTheme: () => void;
 }
 
+const getRouteHeader = (pathname: string) => {
+  if (pathname.startsWith('/admin/orders')) {
+    return {
+      title: 'Quản lý Đơn hàng',
+      subtitle: 'Danh sách đơn hàng, tiến độ vận hành, thanh toán và xử lý hủy đơn',
+    };
+  }
+  if (pathname.startsWith('/admin/reviews')) {
+    return {
+      title: 'Thẩm định Mẫu in 3D',
+      subtitle: 'Kiểm định hình học, độ kín nước và phê duyệt cấu hình sản xuất',
+    };
+  }
+  if (pathname.startsWith('/admin/fulfillment')) {
+    return {
+      title: 'Điều phối Sản xuất & Xưởng in',
+      subtitle: 'Bảng Kanban quy trình sản xuất 5 bước, phân bổ xưởng, kiểm định QC và vận chuyển',
+    };
+  }
+  if (pathname.startsWith('/admin/dashboard')) {
+    return {
+      title: 'Tổng quan Vận hành',
+      subtitle: 'Báo cáo chỉ số toàn sàn và giám sát tác vụ hệ thống',
+    };
+  }
+  return {
+    title: 'Trung tâm Quản trị',
+    subtitle: 'Nền tảng Quản trị & Điều phối Sản xuất In 3D THE BOYS',
+  };
+};
+
 const Topbar = ({
   sidebarCollapsed,
   isLightMode,
@@ -17,7 +48,9 @@ const Topbar = ({
   onToggleTheme,
 }: TopbarProps) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const fullName = localStorage.getItem('fullName') || 'Quản trị viên';
+  const { title, subtitle } = getRouteHeader(location.pathname);
 
   const handleLogout = async () => {
     await logout();
@@ -51,19 +84,19 @@ const Topbar = ({
 
       <div className="min-w-0">
         <strong className="block truncate text-base font-black text-white">
-          Trung Tâm Điều Hành &amp; Sản Xuất In 3D V2 — THE BOYS
+          {title}
         </strong>
         <span
           className={`mt-0.5 hidden truncate text-xs font-semibold sm:block ${
             isLightMode ? 'text-slate-500' : 'text-white/60'
           }`}
         >
-          Giám sát chuỗi cung ứng 2 trục, duyệt kỹ thuật in 3D, đối soát PayOS &amp; bảo hành 7 ngày
+          {subtitle}
         </span>
       </div>
 
       <div className="ml-auto flex items-center gap-3">
-        {/* In-App Notifications V2 Bell */}
+        {/* In-App Notifications Bell */}
         <NotificationBellV2 placement="topbar" />
 
         {/* Theme Toggle */}

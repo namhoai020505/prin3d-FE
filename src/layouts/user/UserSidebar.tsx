@@ -133,8 +133,8 @@ export default function UserSidebar() {
     ...(isManagementUser
       ? [
           {
-            label: 'Quản trị Admin',
-            path: '/admin/dashboard',
+            label: 'Trung tâm quản trị',
+            path: '/admin/orders',
             icon: LayoutDashboard,
             isActive: location.pathname.startsWith('/admin'),
           },
@@ -251,13 +251,13 @@ export default function UserSidebar() {
                     type="button"
                     onClick={() => {
                       setIsAccountMenuOpen(false);
-                      navigate('/admin/dashboard');
+                      navigate('/admin/orders');
                     }}
                     className="w-full px-3 py-2 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-left text-cyan-300 hover:text-cyan-100 border border-cyan-500/40 flex items-center justify-between cursor-pointer font-bold shadow-sm"
                   >
                     <div className="flex items-center gap-1.5">
                       <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>⚡ Trung tâm Quản trị V2</span>
+                      <span>Trung tâm quản trị</span>
                     </div>
                     <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
                   </button>

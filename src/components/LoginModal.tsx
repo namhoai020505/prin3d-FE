@@ -1,4 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   X,
   Mail,
@@ -24,6 +25,7 @@ import {
   forgotPassword,
   resetPassword,
 } from '../services/authService';
+import { getPostLoginRedirect, getRoleFromAccessToken, normalizeRole } from '../lib/auth';
 
 export type AuthModalMode = 'login' | 'signup' | 'verify-otp' | 'forgot-password' | 'reset-password';
 
@@ -40,6 +42,7 @@ export default function LoginModal({
   initialMode = 'login',
   onLoginSuccess,
 }: LoginModalProps) {
+  const navigate = useNavigate();
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
 
@@ -119,10 +122,17 @@ export default function LoginModal({
 
     setIsLoading(true);
     try {
-      await login({ email: cleanEmail, password: password.trim() });
+      const response = await login({ email: cleanEmail, password: password.trim() });
       toast.success('Đăng nhập thành công! Chào mừng trở lại.');
       handleClose();
       onLoginSuccess?.();
+
+      const role = response?.user?.role || getRoleFromAccessToken();
+      const normalizedRole = normalizeRole(role);
+      if (normalizedRole === 'admin' || normalizedRole === 'staff' || normalizedRole === 'manager') {
+        const targetUrl = getPostLoginRedirect(role);
+        navigate(targetUrl, { replace: true });
+      }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string; detail?: string } } };
       const msg = error.response?.data?.detail || error.response?.data?.message || 'Đăng nhập thất bại.';
