@@ -8,6 +8,7 @@ export interface PaymentAttemptDto {
   merchantReference: string; // VD: "TB-20261025-ABCD..."
   providerTransactionId?: string | null;
   checkoutUrl?: string | null; // URL thanh toán VietQR / PayOS trực tiếp
+  qrCode?: string | null; // Chuỗi EMVCo VietQR hoặc URL ảnh mã QR trực tiếp
   amountVnd: number;
   currency: string;
   status: 'Pending' | 'Succeeded' | 'Failed' | 'NeedsAttention' | 'Expired' | string;

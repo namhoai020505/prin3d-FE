@@ -3,54 +3,104 @@
 @config "../tailwind.config.js";
 
 /* ============================================================
-   CURTAINS / OVERLAY WIPE — Idea2Model Brand (Emerald / Cyan)
-   Phase 1 (380ms): old page dims + scales down micro
-   Phase 2 (380ms): new page scales in from 0.985 → 1
-   The pair background acts as the solid emerald curtain.
-   Native CSS View Transitions API — zero JS, GPU-accelerated.
+   PAGE VIEW TRANSITION — Idea2Model / THE BOYS
+   Seamless contiguous conveyor transition running from left to right.
+   Sidebar is completely isolated and stays strictly frozen in place.
    ============================================================ */
 
-/* PHASE 1: Old page dims out + scales micro while curtain covers */
-::view-transition-old(root) {
-  animation: 380ms cubic-bezier(0.76, 0, 0.24, 1) both vt-old-exit;
+/* 1. Sidebar is completely frozen and elevated above sliding pages */
+.app-sidebar {
+  view-transition-name: app-sidebar;
 }
 
-/* PHASE 2: New page scales in after curtain lifts (380ms delay) */
-::view-transition-new(root) {
-  animation: 380ms cubic-bezier(0.76, 0, 0.24, 1) 380ms both vt-new-enter;
+::view-transition-group(app-sidebar) {
+  z-index: 1000 !important;
+  animation: none !important;
 }
 
-/* Old page: dims and micro-scales, then is hidden behind curtain color */
-@keyframes vt-old-exit {
-  0%   { opacity: 1;   transform: scale(1);     }
-  60%  { opacity: 0.6; transform: scale(0.988); }
-  100% { opacity: 0;   transform: scale(0.975); }
+::view-transition-old(app-sidebar),
+::view-transition-new(app-sidebar) {
+  animation: none !important;
+  mix-blend-mode: normal !important;
 }
 
-/* New page: starts invisible (curtain on top), scales in to full size */
-@keyframes vt-new-enter {
-  0%   { opacity: 0;   transform: scale(0.975); }
-  40%  { opacity: 0.8; transform: scale(0.992); }
-  100% { opacity: 1;   transform: scale(1);     }
+/* 2. Main content transition: contiguous conveyor running from left to right */
+::view-transition {
+  overflow: hidden;
 }
 
-/* Emerald curtain color fills the gap between old-exit & new-enter */
-::view-transition-image-pair(root) {
-  background: linear-gradient(
-    160deg,
-    #041510 0%,
-    #062318 40%,
-    #052d1e 70%,
-    #04200f 100%
-  );
+::view-transition-group(root) {
+  animation: none !important;
 }
 
-/* Ensures snapshots composite correctly over the curtain background */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  mix-blend-mode: normal;
+  animation: none !important;
 }
 
+/* 3. Sliding main content area */
+.app-main-content {
+  view-transition-name: app-main-content;
+}
+
+::view-transition-group(app-main-content) {
+  overflow: hidden;
+  animation-duration: 520ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+::view-transition-image-pair(app-main-content) {
+  background: #070a0f;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+::view-transition-old(app-main-content) {
+  animation: 520ms cubic-bezier(0.16, 1, 0.3, 1) both vt-conveyor-exit-to-right;
+  mix-blend-mode: normal !important;
+  height: 100%;
+}
+
+::view-transition-new(app-main-content) {
+  animation: 520ms cubic-bezier(0.16, 1, 0.3, 1) both vt-conveyor-enter-from-left;
+  mix-blend-mode: normal !important;
+  height: 100%;
+}
+
+/* Old page slides out smoothly to the right (0% -> +100%) */
+@keyframes vt-conveyor-exit-to-right {
+  0% {
+    transform: translateX(0%);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0.25;
+  }
+}
+
+/* New page enters smoothly connected from the left (-100% -> 0%) */
+@keyframes vt-conveyor-enter-from-left {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0.25;
+  }
+  100% {
+    transform: translateX(0%);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-old(app-sidebar),
+  ::view-transition-new(app-sidebar),
+  ::view-transition-old(app-main-content),
+  ::view-transition-new(app-main-content) {
+    animation: none !important;
+  }
+}
 @layer components {
   .liquid-glass {
     background: rgba(255, 255, 255, 0.01);
@@ -1032,92 +1082,122 @@ body.g2c-light-mode .g2c-footer .hover\:text-white:hover {
 
 .Toastify__toast-container {
   z-index: 9999;
+  padding: 12px !important;
 }
 
-.g2c-toast {
+.Toastify__toast-container--top-right {
+  top: 16px !important;
+  right: 16px !important;
+  width: auto !important;
+  max-width: 420px !important;
+}
+
+.g2c-toast,
+.idea2model-toast {
   box-sizing: border-box !important;
   width: 100% !important;
-  max-width: 100% !important;
-  min-height: 38px !important;
-  min-width: 0 !important;
-  border-radius: 999px !important;
+  max-width: 400px !important;
+  min-height: 48px !important;
+  min-width: 280px !important;
+  border-radius: 14px !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  background: #0f172a !important;
-  color: #ffffff !important;
-  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.28) !important;
+  background: rgba(12, 16, 23, 0.94) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  color: #f1f5f9 !important;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 240, 255, 0.08) !important;
   overflow: hidden !important;
-  padding: 0 !important;
+  padding: 10px 14px !important;
+  margin-bottom: 10px !important;
 }
 
-.g2c-toast .Toastify__toast-body {
+.g2c-toast .Toastify__toast-body,
+.idea2model-toast .Toastify__toast-body {
   align-items: center !important;
-  gap: 0 !important;
+  gap: 10px !important;
   margin: 0 !important;
-  padding: 7px 12px !important;
+  padding: 0 !important;
   min-width: 0 !important;
   font-family: 'Plus Jakarta Sans', sans-serif !important;
-  font-size: 0.78rem !important;
-  font-weight: 700 !important;
-  line-height: 1.25 !important;
+  font-size: 0.8125rem !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
 }
 
-.g2c-toast .Toastify__toast-icon {
+.g2c-toast .Toastify__toast-icon,
+.idea2model-toast .Toastify__toast-icon {
   flex: 0 0 auto !important;
-  margin-inline-end: 8px !important;
+  margin-inline-end: 4px !important;
+  width: 20px !important;
 }
 
-.g2c-toast .Toastify__toast-body > div:last-child {
+.g2c-toast .Toastify__toast-body > div:last-child,
+.idea2model-toast .Toastify__toast-body > div:last-child {
   min-width: 0 !important;
   overflow-wrap: anywhere !important;
   word-break: break-word !important;
 }
 
-.g2c-toast-progress {
-  background: linear-gradient(90deg, #ffd166, #22d3ee) !important;
+.g2c-toast-progress,
+.idea2model-toast-progress {
+  background: linear-gradient(90deg, #00f0ff, #22d3ee) !important;
+  height: 3px !important;
 }
 
-.Toastify__toast--success.g2c-toast {
-  border-color: rgba(16, 185, 129, 0.34) !important;
+.Toastify__toast--success.g2c-toast,
+.Toastify__toast--success.idea2model-toast {
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  background: rgba(10, 24, 18, 0.95) !important;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.8), 0 0 24px rgba(16, 185, 129, 0.12) !important;
 }
 
-.Toastify__toast--error.g2c-toast {
-  border-color: rgba(244, 63, 94, 0.42) !important;
-  background: #1f1020 !important;
+.Toastify__toast--error.g2c-toast,
+.Toastify__toast--error.idea2model-toast {
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  background: rgba(28, 10, 14, 0.95) !important;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.8), 0 0 24px rgba(239, 68, 68, 0.12) !important;
 }
 
-.Toastify__toast--warning.g2c-toast {
-  border-color: rgba(251, 191, 36, 0.45) !important;
-  background: #1f1a10 !important;
+.Toastify__toast--warning.g2c-toast,
+.Toastify__toast--warning.idea2model-toast {
+  border-color: rgba(245, 158, 11, 0.5) !important;
+  background: rgba(28, 20, 10, 0.95) !important;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.8), 0 0 24px rgba(245, 158, 11, 0.14) !important;
 }
 
-.Toastify__toast--info.g2c-toast {
-  border-color: rgba(34, 211, 238, 0.32) !important;
+.Toastify__toast--info.g2c-toast,
+.Toastify__toast--info.idea2model-toast {
+  border-color: rgba(0, 240, 255, 0.4) !important;
+  background: rgba(8, 20, 28, 0.95) !important;
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.8), 0 0 24px rgba(0, 240, 255, 0.12) !important;
 }
 
 .Toastify__close-button {
-  color: #cbd5e1 !important;
-  opacity: 0.85 !important;
+  color: #94a3b8 !important;
+  opacity: 0.8 !important;
 }
 
 @media (max-width: 640px) {
+  .Toastify__toast-container--top-right,
   .Toastify__toast-container--top-center {
-    left: 50% !important;
-    right: auto !important;
+    left: 12px !important;
+    right: 12px !important;
     top: max(12px, env(safe-area-inset-top)) !important;
-    width: calc(100vw - 24px) !important;
-    max-width: 420px !important;
-    transform: translateX(-50%) !important;
+    width: auto !important;
+    max-width: calc(100vw - 24px) !important;
+    transform: none !important;
   }
 
-  .g2c-toast {
+  .g2c-toast,
+  .idea2model-toast {
     margin-left: 0 !important;
     margin-right: 0 !important;
     margin-bottom: 8px !important;
+    max-width: 100% !important;
   }
 }
-
 /* ==========================================================================
-   THE BOYS 7.1 — CINEMATIC 3D FRONTEND SYSTEM
+   THE BOYS 7.1 â€” CINEMATIC 3D FRONTEND SYSTEM
    Archetype D (3D Cylinder Ring + Pooled-Light Shaders)
    + Archetype B (3D Perspective Tilting Portal)
    + Archetype C (FLIP Lightbox Cards)
@@ -1248,7 +1328,7 @@ body.g2c-light-mode .g2c-footer .hover\:text-white:hover {
   will-change: transform, opacity;
 }
 
-/* 3. PIXEL CONTRACT A: THE "✨ Tạo nhanh" GLASS BADGE (.badge) */
+/* 3. PIXEL CONTRACT A: THE "âœ¨ Táº¡o nhanh" GLASS BADGE (.badge) */
 .badge {
   position: relative;
   display: inline-flex;
@@ -1358,7 +1438,7 @@ body.g2c-light-mode .g2c-footer .hover\:text-white:hover {
     #120e07 60%,
     #120e07 100%
   ) !important;
-  /* Tight outer shadow only — zero sloppy neon blur */
+  /* Tight outer shadow only â€” zero sloppy neon blur */
   box-shadow:
     0 0 8px rgba(245, 166, 35, 0.14),
     0 2px 5px -3px rgba(255, 209, 102, 0.5);
@@ -1544,7 +1624,7 @@ body.g2c-light-mode .g2c-footer .hover\:text-white:hover {
   opacity: 1;
 }
 
-/* 7. Fine-Pointer Custom Cursor (Clean Contextual Mode — only appears on interactive zones) */
+/* 7. Fine-Pointer Custom Cursor (Clean Contextual Mode â€” only appears on interactive zones) */
 @media (pointer: fine) {
   .theboys-cursor-layer {
     position: fixed;
@@ -1746,4 +1826,13 @@ body:not(.g2c-light-mode) .asme-footer-stage .bg-white * {
     rgba(0, 0, 0, 0.15) 18px, rgba(0, 0, 0, 0.09) 24px,
     rgba(0, 0, 0, 0.02) 30px, rgba(0, 0, 0, 0.02) 100%
   );
+}
+
+@keyframes qr-laser-scan {
+  0% { top: 2%; opacity: 0.6; }
+  50% { top: 96%; opacity: 1; }
+  100% { top: 2%; opacity: 0.6; }
+}
+.animate-qr-laser {
+  animation: qr-laser-scan 2.6s ease-in-out infinite alternate;
 }

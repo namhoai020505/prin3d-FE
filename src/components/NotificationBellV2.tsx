@@ -142,7 +142,7 @@ export const NotificationBellV2: React.FC<NotificationBellV2Props> = ({
 
   const popoverPositionClass =
     placement === 'sidebar'
-      ? 'absolute left-full ml-3 top-0'
+      ? 'fixed left-[76px] md:left-[84px] bottom-4'
       : 'absolute right-0 top-full mt-2';
 
   return (

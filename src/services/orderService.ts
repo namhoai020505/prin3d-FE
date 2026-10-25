@@ -134,6 +134,37 @@ const unwrap = <T>(res: unknown): T => {
 };
 
 // V1 API Implementations
+export const normalizeOrderV2 = (data: any): OrderV2Dto => {
+  if (!data) return data;
+  return {
+    ...data,
+    id: data.id || data.orderId || '',
+    orderCode: data.orderCode || '',
+    userId: data.userId || '',
+    quoteId: data.quoteId || '',
+    fulfillmentStatus: data.fulfillmentStatus || 'PendingPayment',
+    orderPaymentStatus: data.orderPaymentStatus || data.paymentStatus || 'Unpaid',
+    quantity: data.quantity ?? 1,
+    unitPriceSnapshot: data.unitPriceSnapshot ?? data.unitPriceVnd ?? 0,
+    subTotalVnd: data.subTotalVnd ?? data.subtotalVnd ?? 0,
+    finalShippingFee: data.finalShippingFee ?? data.shippingFeeVnd ?? 0,
+    totalAmount: data.totalAmount ?? data.totalVnd ?? 0,
+    currency: data.currency || 'VND',
+    address: data.address || {
+      receiverName: '',
+      receiverPhone: '',
+      streetAddress: '',
+      district: '',
+      city: '',
+    },
+    materialSnapshot: data.materialSnapshot || data.material || 'Resin',
+    heightMmSnapshot: data.heightMmSnapshot ?? data.heightMm ?? 100,
+    createdAtUtc: data.createdAtUtc || new Date().toISOString(),
+    items: data.items || [],
+    histories: data.histories || data.statusHistories || [],
+  };
+};
+
 export const createOrder = async (input: CreateOrderInput): Promise<OrderItem> => {
   const key = IdempotencyManager.getOrCreateKey('order:create');
   const response = await api.post('/api/orders', input, {
@@ -185,7 +216,7 @@ export const checkoutQuote = async (
     },
   );
   IdempotencyManager.clearKey(`order:checkout:${quoteId}`);
-  const order = unwrap<OrderV2Dto>(raw);
+  const order = normalizeOrderV2(unwrap<any>(raw));
   if (typeof window !== 'undefined' && order?.id) {
     sessionStorage.setItem('idea2model_last_order_id', order.id);
   }
@@ -197,7 +228,7 @@ export const checkoutQuote = async (
  */
 export const getOrderById = async (orderId: string): Promise<OrderV2Dto> => {
   const raw = await api.get(`/api/v2/orders/${orderId}`);
-  return unwrap<OrderV2Dto>(raw);
+  return normalizeOrderV2(unwrap<any>(raw));
 };
 
 /**

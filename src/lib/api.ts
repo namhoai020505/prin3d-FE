@@ -3,7 +3,6 @@ import { toast } from 'react-toastify';
 import {
   clearAuthSession,
   getAccessToken,
-  getRefreshToken,
   setAuthSession,
 } from './auth';
 import { API_BASE_URL } from './env';
@@ -34,6 +33,7 @@ const UPLOAD_TIMEOUT_MS = 60_000; // 60s for file uploads (models, images)
 const api = axios.create({
   baseURL: DEFAULT_API_BASE_URL,
   timeout: 15_000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -41,6 +41,7 @@ const api = axios.create({
 
 const refreshClient = axios.create({
   baseURL: DEFAULT_API_BASE_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -77,25 +78,15 @@ const handleRefreshFailure = (shouldOpenModal = true) => {
 let refreshAccessTokenPromise: Promise<string | null> | null = null;
 
 const requestFreshAccessToken = async (shouldOpenModal = true): Promise<string | null> => {
-  const currentRefreshToken = getRefreshToken();
-
-  if (!currentRefreshToken) {
-    handleRefreshFailure(shouldOpenModal);
-    return null;
-  }
-
   try {
     let response;
     try {
-      response = await refreshClient.post<RefreshTokenResponse>('/api/auth/refresh', {
-        refreshToken: currentRefreshToken,
-      });
+      // Refresh token được chuyển qua cookie HttpOnly với withCredentials: true
+      response = await refreshClient.post<RefreshTokenResponse>('/api/auth/refresh', {});
     } catch (err: unknown) {
       const axiosErr = err as AxiosError;
       if (axiosErr.response?.status === 404) {
-        response = await refreshClient.post<RefreshTokenResponse>('/api/auth/refresh-token', {
-          refreshToken: currentRefreshToken,
-        });
+        response = await refreshClient.post<RefreshTokenResponse>('/api/auth/refresh-token', {});
       } else {
         throw err;
       }
@@ -103,9 +94,10 @@ const requestFreshAccessToken = async (shouldOpenModal = true): Promise<string |
 
     const payload = response.data?.data || response.data;
     const nextAccessToken = payload?.accessToken || payload?.token;
-    const nextRefreshToken = payload?.refreshToken || currentRefreshToken;
     const nextFullName =
-      payload?.user?.fullName || payload?.fullName || localStorage.getItem('fullName');
+      payload?.user?.fullName ||
+      payload?.fullName ||
+      (typeof window !== 'undefined' ? sessionStorage.getItem('fullName') : null);
 
     if (!nextAccessToken) {
       throw new Error('Refresh response did not include an access token.');
@@ -113,7 +105,6 @@ const requestFreshAccessToken = async (shouldOpenModal = true): Promise<string |
 
     setAuthSession({
       accessToken: nextAccessToken,
-      refreshToken: nextRefreshToken,
       fullName: nextFullName,
     });
 
@@ -174,6 +165,17 @@ api.interceptors.response.use(
     const isLoginRequest = originalRequestUrl?.includes('/api/auth/login');
     const isRefreshRequest = originalRequestUrl?.includes('/api/auth/refresh');
 
+    // 429 Too Many Requests: KHÔNG retry dưới bất kỳ hình thức nào
+    if (errorStatus === 429) {
+      if (!originalRequest?.skipToast) {
+        toast.warn('Thao tác quá nhanh, vui lòng chờ trong giây lát.', {
+          toastId: 'err-429-ratelimit',
+        });
+      }
+      sanitizeErrorHeaders(error);
+      return Promise.reject(error);
+    }
+
     // 401 Unauthorized handling with Token Rotation & skipAuthRedirect respect
     if (
       errorStatus === 401 &&
@@ -233,11 +235,6 @@ api.interceptors.response.use(
         case 423:
           toast.error(`Tài khoản tạm khóa: ${errorMessage}`, {
             toastId: `err-423-${errorMessage}`,
-          });
-          break;
-        case 429:
-          toast.warn('Thao tác quá nhanh, vui lòng chờ trong giây lát.', {
-            toastId: 'err-429-ratelimit',
           });
           break;
         default:

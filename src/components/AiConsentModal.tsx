@@ -5,6 +5,9 @@ import { authService } from '../services/authService';
 import { AI_CONSENT_POLICY_VERSION, AI_CONSENT_PURPOSE } from '../lib/env';
 import { AUTH_SESSION_EVENT, getAccessToken } from '../lib/auth';
 
+// Module-level cache: Mỗi accessToken chỉ gọi thăm dò getConsent đúng 1 lần duy nhất
+const checkedConsentTokens = new Set<string>();
+
 export interface AiConsentModalProps {
   isOpen?: boolean;
   onClose?: () => void;
@@ -29,11 +32,12 @@ export default function AiConsentModal({
     return () => window.removeEventListener('idea2model:open-ai-consent-modal', handleOpen);
   }, []);
 
-  // 2. Tự động kiểm tra trạng thái Consent khi người dùng đăng nhập
+  // 2. Tự động kiểm tra trạng thái Consent khi người dùng đăng nhập (chỉ 1 lần/token)
   useEffect(() => {
     const checkConsent = async () => {
       const token = getAccessToken();
-      if (!token) return;
+      if (!token || checkedConsentTokens.has(token)) return;
+      checkedConsentTokens.add(token);
 
       try {
         const res = await authService.getConsent(AI_CONSENT_PURPOSE, AI_CONSENT_POLICY_VERSION);

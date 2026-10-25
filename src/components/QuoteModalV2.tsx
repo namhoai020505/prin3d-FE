@@ -17,7 +17,7 @@ import {
   ExternalLink,
   QrCode,
   ArrowLeft,
-  CreditCard,
+  CheckCircle2,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import logoBoy from '../assets/LOGOTheBoy.png';
@@ -52,6 +52,7 @@ import {
 import { AI_CONSENT_POLICY_VERSION } from '../lib/env';
 import { IdempotencyManager } from '../lib/idempotency';
 
+// Pure helper: Direct VietQR URL / EMVCo resolver
 export interface QuoteModalV2Props {
   isOpen: boolean;
   onClose: () => void;
@@ -104,6 +105,7 @@ export default function QuoteModalV2({
 
   // Step 3 / Payment View states
   const [isPaymentView, setIsPaymentView] = useState(false);
+  const [isPaidSuccess, setIsPaidSuccess] = useState(false);
   const [createdOrder, setCreatedOrder] = useState<OrderV2Dto | null>(null);
   const [paymentAttempt, setPaymentAttempt] = useState<PaymentAttemptDto | null>(null);
   const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
@@ -114,7 +116,7 @@ export default function QuoteModalV2({
   const isStaffOrAdmin = useMemo(() => {
     const role = getRoleFromAccessToken();
     return isAdminRole(role) || isManagerRole(role) || isStaffRole(role);
-  }, []);
+  }, [isOpen]);
 
   // Selected package details
   const currentPackage = useMemo(
@@ -219,6 +221,7 @@ export default function QuoteModalV2({
   const handleClose = useCallback(() => {
     setReviewRequiredError(false);
     setIsPaymentView(false);
+    setIsPaidSuccess(false);
     onClose();
   }, [onClose]);
 
@@ -417,6 +420,7 @@ export default function QuoteModalV2({
       );
       setPaymentAttempt(attempt);
       setIsPaymentView(true);
+      setIsPaidSuccess(false);
       toast.success(`Đã khởi tạo đơn hàng #${order.orderCode} và phiên thanh toán PayOS!`);
     } catch (err: unknown) {
       const errorObj = err as { response?: { data?: { detail?: string; message?: string } } };
@@ -454,9 +458,8 @@ export default function QuoteModalV2({
     setIsReconciling(true);
     try {
       await paymentService.reconcilePaymentAttempt(paymentAttempt.id);
-      toast.success('Đối soát thành công! Đơn hàng đã được xác nhận thanh toán.');
-      handleClose();
-      navigate(`/orders/${createdOrder.id}/checkout-return`);
+      setIsPaidSuccess(true);
+      toast.success('⚡ Đối soát thành công! Đơn hàng đã được xác nhận thanh toán.');
     } catch (err: unknown) {
       const errorObj = err as { response?: { data?: { detail?: string; message?: string } } };
       const msg = errorObj.response?.data?.detail || errorObj.response?.data?.message || 'Không thể đối soát giao dịch.';
@@ -466,18 +469,59 @@ export default function QuoteModalV2({
     }
   };
 
-  // Helper check if checkoutUrl is a QR image
-  const isQrImage = (url?: string | null) => {
-    if (!url) return false;
-    const lower = url.toLowerCase();
-    return (
-      lower.includes('vietqr') ||
-      lower.endsWith('.png') ||
-      lower.endsWith('.jpg') ||
-      lower.endsWith('.jpeg') ||
-      lower.includes('/img/')
-    );
-  };
+  
+  // QR image generator: Direct VietQR QR Code (EMVCo transfer directly into MBBank virtual account)
+  const qrImageUrl = useMemo(() => {
+    if (!paymentAttempt) return '';
+    // 1. Direct qrCode returned from backend
+    if (paymentAttempt.qrCode) {
+      const code = paymentAttempt.qrCode.trim();
+      if (
+        code.startsWith('http://') ||
+        code.startsWith('https://') ||
+        code.includes('vietqr') ||
+        code.endsWith('.png') ||
+        code.endsWith('.jpg')
+      ) {
+        return code;
+      }
+      // EMVCo QR String (e.g. 0002010102123857...)
+      return `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=8&data=${encodeURIComponent(code)}`;
+    }
+    // 2. Direct VietQR image URL fallback (MBBank BIN 970422, Virtual Account VQRQANBRX2530)
+    const amount = paymentAttempt.amountVnd || 0;
+    const ref = encodeURIComponent(paymentAttempt.merchantReference || '');
+    return `https://img.vietqr.io/image/970422-VQRQANBRX2530-compact2.png?amount=${amount}&addInfo=${ref}&accountName=VO%20DANG%20HOAI%20NAM`;
+  }, [paymentAttempt]);
+
+  // Real-time payment confirmation auto-polling (every 2.0s)
+  useEffect(() => {
+    if (!isPaymentView || !createdOrder || isPaidSuccess) return;
+
+    let isMounted = true;
+    const interval = setInterval(async () => {
+      if (!isMounted) return;
+      try {
+        const orderData = await orderService.getOrderById(createdOrder.id);
+        if (
+          orderData &&
+          (orderData.orderPaymentStatus === 'Paid' ||
+            (orderData as any).paymentStatus === 'Paid')
+        ) {
+          isMounted = false;
+          setIsPaidSuccess(true);
+          toast.success('🎉 Đã nhận được thanh toán! Đơn hàng đã được xác nhận.');
+        }
+      } catch {
+        // Soft fail on polling interval
+      }
+    }, 2000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [isPaymentView, createdOrder, isPaidSuccess]);
 
   if (!isOpen) return null;
 
@@ -512,7 +556,7 @@ export default function QuoteModalV2({
                 {createdOrder && (
                   <>
                     <span>•</span>
-                    <span className="text-cyan-400 font-bold">
+                    <span className="text-cyan-400 font-bold truncate max-w-[140px] sm:max-w-xs" title={`#${createdOrder.orderCode}`}>
                       Đơn #{createdOrder.orderCode}
                     </span>
                   </>
@@ -923,180 +967,327 @@ export default function QuoteModalV2({
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col gap-5 text-left animate-in fade-in duration-200">
             {createdOrder && paymentAttempt && (
               <>
-                {/* 1. Thông tin giao dịch & Mã đơn */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {/* Mã đơn hàng */}
-                  <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col justify-between">
-                    <span className="text-[11px] text-slate-400">Mã đơn hàng</span>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="font-mono text-sm font-bold text-white">
-                        #{createdOrder.orderCode}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(createdOrder.orderCode, 'orderCode')}
-                        className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-300 transition-colors"
-                        title="Sao chép mã đơn"
-                      >
-                        {copiedField === 'orderCode' ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Số tiền cần thanh toán */}
-                  <div className="p-3.5 rounded-xl bg-cyan-950/30 border border-cyan-400/40 flex flex-col justify-between shadow-[0_0_15px_rgba(0,240,255,0.1)]">
-                    <span className="text-[11px] text-cyan-200/80">Số tiền cần thanh toán</span>
-                    <div className="font-mono text-lg font-black text-cyan-300 mt-1">
-                      {paymentAttempt.amountVnd.toLocaleString('vi-VN')} đ
-                    </div>
-                  </div>
-
-                  {/* Mã tham chiếu PayOS & Cổng */}
-                  <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-slate-400">Tham chiếu PayOS</span>
-                      <span className="px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 text-[10px] font-mono">
-                        {paymentAttempt.gateway}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="font-mono text-xs font-semibold text-white/90 truncate max-w-[170px]">
-                        {paymentAttempt.merchantReference}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(paymentAttempt.merchantReference, 'ref')}
-                        className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-300 transition-colors"
-                        title="Sao chép mã tham chiếu"
-                      >
-                        {copiedField === 'ref' ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Khung Quét mã QR / Link Cổng Thanh Toán */}
-                <div className="p-5 rounded-2xl bg-white/[0.02] border border-cyan-500/30 flex flex-col items-center justify-center text-center gap-4">
-                  {/* Trạng thái lỗi nếu có */}
-                  {paymentAttempt.status === 'Failed' || paymentAttempt.status === 'NeedsAttention' ? (
-                    <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-400/30 text-rose-200 w-full space-y-2">
-                      <div className="flex items-center justify-center gap-2 text-rose-300 font-bold text-xs">
-                        <AlertTriangle className="w-4 h-4 text-rose-400" />
-                        <span>Phiên thanh toán gặp trục trặc</span>
+                {/* TRẠNG THÁI A: THANH TOÁN THÀNH CÔNG (HIỆN NGAY TRONG MODAL!) */}
+                {isPaidSuccess ? (
+                  <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-b from-[#081a14] via-[#09151c] to-[#070d14] border border-emerald-400/50 flex flex-col items-center justify-center text-center gap-5 shadow-[0_0_50px_rgba(16,185,129,0.25)] animate-in zoom-in-95 duration-300">
+                    <div className="relative flex items-center justify-center">
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-emerald-500/20 border border-emerald-400/60 flex items-center justify-center text-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.4)]">
+                        <CheckCircle2 className="w-10 h-10 stroke-[2.2]" />
                       </div>
-                      <p className="text-[11px] leading-relaxed">
-                        {paymentAttempt.failureReason || 'Cổng thanh toán không phản hồi hoặc đã bị gián đoạn.'}
+                      <Sparkles className="absolute -top-2 -right-2 w-6 h-6 text-emerald-300 animate-pulse" />
+                    </div>
+
+                    <div className="space-y-1.5 max-w-md">
+                      <h3 className="text-xl sm:text-2xl font-bold text-white tracking-wide">
+                        Thanh Toán Thành Công!
+                      </h3>
+                      <p className="text-xs sm:text-sm text-emerald-200/90 leading-relaxed font-sans">
+                        Hệ thống đã nhận được tiền và xác thực biên lai tự động. Đơn hàng <strong className="text-white font-mono">#{createdOrder.orderCode}</strong> đã được chuyển giao sang phân xưởng gia công 3D.
                       </p>
+                    </div>
+
+                    {/* Chi tiết biên lai tóm tắt */}
+                    <div className="w-full max-w-md p-4 rounded-xl bg-black/50 border border-emerald-500/30 text-xs font-mono space-y-2.5 text-left shadow-inner">
+                      <div className="flex justify-between items-center text-slate-300">
+                        <span className="font-sans text-[11px] text-slate-400">Mã đơn hàng:</span>
+                        <span className="text-white font-bold">#{createdOrder.orderCode}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-300">
+                        <span className="font-sans text-[11px] text-slate-400">Số tiền đã trả:</span>
+                        <span className="text-emerald-300 font-bold text-sm">
+                          {paymentAttempt.amountVnd.toLocaleString('vi-VN')} đ
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-300">
+                        <span className="font-sans text-[11px] text-slate-400">Phương thức:</span>
+                        <span className="text-cyan-300 font-semibold">{paymentAttempt.gateway || 'PayOS'} (VietQR)</span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-300">
+                        <span className="font-sans text-[11px] text-slate-400">Tiến độ sản xuất:</span>
+                        <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 text-[10px] font-bold">
+                          Chờ phân bổ xưởng in 3D
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Actions sau khi thành công */}
+                    <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-md pt-2">
                       <button
                         type="button"
-                        onClick={handleRetryPaymentAttempt}
-                        disabled={isProcessingCheckout}
-                        className="mt-2 py-1.5 px-4 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 font-bold text-xs transition-colors cursor-pointer"
+                        onClick={() => {
+                          handleClose();
+                          navigate('/my-bookings');
+                        }}
+                        className="btn-pooled-cyan w-full py-3 px-5 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_25px_rgba(0,240,255,0.3)]"
                       >
-                        Thử tạo lại phiên thanh toán mới
+                        <span>Xem Hành Trình Đơn Hàng</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClose}
+                        className="w-full py-2.5 px-4 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+                      >
+                        Đóng & Tiếp Tục Studio 3D
                       </button>
                     </div>
-                  ) : isQrImage(paymentAttempt.checkoutUrl) ? (
-                    /* Chế độ Ảnh VietQR */
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="p-3 bg-white rounded-2xl shadow-2xl border border-slate-200">
-                        <img
-                          src={paymentAttempt.checkoutUrl!}
-                          alt="Mã QR VietQR"
-                          className="w-56 h-56 object-contain"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-300">
-                          <QrCode className="w-4 h-4 text-emerald-400" />
-                          <span>Mở ứng dụng Ngân hàng bất kỳ để quét mã VietQR</span>
+                  </div>
+                ) : (
+                  /* TRẠNG THÁI B: ĐANG CHỜ QUÉT MÃ VIETQR */
+                  <>
+                    {/* 1. Thông tin giao dịch & Mã đơn (3 Thẻ ngang cân xứng, chống tràn chữ) */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {/* Mã đơn hàng */}
+                      <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 flex flex-col justify-between hover:border-cyan-500/30 transition-all min-w-0">
+                        <span className="text-[11px] font-medium text-slate-400">Mã đơn hàng</span>
+                        <div className="flex items-center justify-between gap-2 mt-1.5 min-w-0">
+                          <span
+                            className="font-mono text-xs sm:text-sm font-bold text-white truncate max-w-[200px]"
+                            title={`#${createdOrder.orderCode}`}
+                          >
+                            #{createdOrder.orderCode}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(createdOrder.orderCode, 'orderCode')}
+                            className="p-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 border border-white/5 hover:border-cyan-400/30 transition-all shrink-0 cursor-pointer"
+                            title="Sao chép mã đơn"
+                          >
+                            {copiedField === 'orderCode' ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
                         </div>
-                        <p className="text-[11px] text-slate-400 max-w-sm">
-                          Hệ thống sẽ tự động đối soát và chuyển trạng thái đơn hàng ngay khi tiền vào tài khoản.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Chế độ Web Link PayOS (pay.payos.vn) */
-                    <div className="flex flex-col items-center gap-3 py-4">
-                      <div className="w-14 h-14 rounded-2xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shadow-[0_0_25px_rgba(0,240,255,0.2)]">
-                        <CreditCard className="w-7 h-7" />
-                      </div>
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-bold text-white">
-                          Cổng Thanh Toán Trực Tuyến PayOS (VietQR)
-                        </h4>
-                        <p className="text-[11px] text-slate-400 max-w-sm">
-                          Nhấn nút bên dưới để mở giao diện thanh toán an toàn của PayOS trong tab mới.
-                        </p>
                       </div>
 
-                      {paymentAttempt.checkoutUrl && (
-                        <a
-                          href={paymentAttempt.checkoutUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn-pooled-cyan py-3 px-6 text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(0,240,255,0.25)]"
-                        >
-                          <span>Mở Trang Thanh Toán PayOS</span>
-                          <ExternalLink className="w-4 h-4" />
-                        </a>
+                      {/* Số tiền cần thanh toán */}
+                      <div className="p-3.5 rounded-xl bg-gradient-to-br from-cyan-950/50 to-slate-900/60 border border-cyan-400/40 flex flex-col justify-between shadow-[0_0_20px_rgba(0,240,255,0.12)] min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-medium text-cyan-200/90">Số tiền cần thanh toán</span>
+                          <span className="px-1.5 py-0.2 rounded bg-cyan-500/25 text-cyan-300 text-[10px] font-mono font-bold">VND</span>
+                        </div>
+                        <div className="font-mono text-xl sm:text-2xl font-black text-cyan-300 mt-1 tracking-tight flex items-baseline gap-1 truncate">
+                          <span>{paymentAttempt.amountVnd.toLocaleString('vi-VN')}</span>
+                          <span className="text-xs font-bold text-cyan-400/80">đ</span>
+                        </div>
+                      </div>
+
+                      {/* Mã tham chiếu PayOS & Cổng */}
+                      <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/10 flex flex-col justify-between hover:border-cyan-500/30 transition-all min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-medium text-slate-400">Tham chiếu PayOS</span>
+                          <span className="px-1.5 py-0.2 rounded bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 text-[10px] font-mono shrink-0">
+                            {paymentAttempt.gateway || 'PayOS'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-1.5 min-w-0">
+                          <span
+                            className="font-mono text-xs font-semibold text-white/90 truncate max-w-[200px]"
+                            title={paymentAttempt.merchantReference}
+                          >
+                            {paymentAttempt.merchantReference}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(paymentAttempt.merchantReference, 'ref')}
+                            className="p-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 border border-white/5 hover:border-cyan-400/30 transition-all shrink-0 cursor-pointer"
+                            title="Sao chép mã tham chiếu"
+                          >
+                            {copiedField === 'ref' ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 2. Khung Quét mã QR 3D Holographic Laser & Chi tiết chuyển khoản */}
+                    <div className="p-5 sm:p-6 rounded-2xl bg-[#070b13]/90 border border-cyan-500/30 backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_25px_rgba(0,240,255,0.1)] flex flex-col md:flex-row items-center gap-6">
+                      {paymentAttempt.status === 'Failed' || paymentAttempt.status === 'NeedsAttention' ? (
+                        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-400/30 text-rose-200 w-full space-y-2 text-center">
+                          <div className="flex items-center justify-center gap-2 text-rose-300 font-bold text-xs">
+                            <AlertTriangle className="w-4 h-4 text-rose-400" />
+                            <span>Phiên thanh toán gặp trục trặc</span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed font-sans">
+                            {paymentAttempt.failureReason || 'Cổng thanh toán không phản hồi hoặc đã bị gián đoạn.'}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleRetryPaymentAttempt}
+                            disabled={isProcessingCheckout}
+                            className="mt-2 py-1.5 px-4 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 font-bold text-xs transition-colors cursor-pointer"
+                          >
+                            Thử tạo lại phiên thanh toán mới
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          {/* CỘT TRÁI: KHUNG MÃ QR 3D VỚI LASER SCAN */}
+                          <div className="flex flex-col items-center gap-2.5 shrink-0">
+                            <div className="relative p-3 bg-white rounded-2xl shadow-[0_0_30px_rgba(0,240,255,0.25)] border-2 border-cyan-400/40 overflow-hidden group">
+                              <img
+                                src={qrImageUrl}
+                                alt="Mã QR VietQR PayOS"
+                                className="w-48 h-48 sm:w-56 sm:h-56 object-contain rounded-lg"
+                              />
+                              {/* Laser Scan Line lượn sóng 3D */}
+                              <div className="absolute left-0 right-0 h-[2.5px] bg-gradient-to-r from-transparent via-[#00f0ff] to-transparent shadow-[0_0_12px_#00f0ff,0_0_24px_#00f0ff] pointer-events-none animate-qr-laser" />
+                            </div>
+
+                            {/* Radar pulse lắng nghe giao dịch */}
+                            <div className="flex items-center gap-2 text-[11px] font-mono text-cyan-300 mt-1 bg-cyan-950/40 px-3 py-1 rounded-full border border-cyan-400/30">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400"></span>
+                              </span>
+                              <span>Đang tự động lắng nghe giao dịch...</span>
+                            </div>
+                          </div>
+
+                          {/* CỘT PHẢI: HƯỚNG DẪN & THÔNG TIN CHUYỂN KHOẢN */}
+                          <div className="flex-1 space-y-3.5 text-left w-full">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 text-cyan-300 text-xs sm:text-sm font-bold">
+                                <QrCode className="w-4 h-4 text-cyan-400" />
+                                <span>Quét Mã VietQR Bằng App Ngân Hàng</span>
+                              </div>
+                              <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                                Sử dụng ứng dụng Ngân hàng bất kỳ (MB, Vietcombank, Techcombank, VPBank,...) hoặc Camera điện thoại để quét mã QR thanh toán nhanh.
+                              </p>
+                            </div>
+
+                            {/* Bảng chi tiết chuyển khoản thủ công */}
+                            <div className="p-3.5 rounded-xl bg-black/50 border border-white/10 space-y-2 text-xs font-mono">
+                              <div className="flex justify-between items-center text-slate-300">
+                                <span className="text-[11px] text-slate-400 font-sans">Ngân hàng:</span>
+                                <span className="font-bold text-white">MBBank (Quân Đội)</span>
+                              </div>
+                              <div className="flex justify-between items-center text-slate-300 pt-1.5 border-t border-white/5">
+                                <span className="text-[11px] text-slate-400 font-sans">Số tài khoản:</span>
+                                <div className="flex items-center gap-1.5 font-bold text-cyan-300">
+                                  <span>VQRQANBRX2530</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy('VQRQANBRX2530', 'stk')}
+                                    className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-300 cursor-pointer"
+                                    title="Sao chép số tài khoản"
+                                  >
+                                    {copiedField === 'stk' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="flex justify-between items-center text-slate-300 pt-1.5 border-t border-white/5">
+                                <span className="text-[11px] text-slate-400 font-sans">Chủ tài khoản:</span>
+                                <span className="font-semibold text-white uppercase">VO DANG HOAI NAM</span>
+                              </div>
+                              <div className="flex justify-between items-center text-slate-300 pt-1.5 border-t border-white/5">
+                                <span className="text-[11px] text-slate-400 font-sans">Số tiền:</span>
+                                <div className="flex items-center gap-1.5 font-bold text-emerald-300">
+                                  <span>{paymentAttempt.amountVnd.toLocaleString('vi-VN')} đ</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(paymentAttempt.amountVnd.toString(), 'amount')}
+                                    className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-300 cursor-pointer"
+                                    title="Sao chép số tiền"
+                                  >
+                                    {copiedField === 'amount' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="flex justify-between items-center text-slate-300 pt-1.5 border-t border-white/5">
+                                <span className="text-[11px] text-slate-400 font-sans">Nội dung CK:</span>
+                                <div className="flex items-center gap-1.5 font-semibold text-white">
+                                  <span className="truncate max-w-[160px] sm:max-w-xs text-amber-300 font-bold">{paymentAttempt.merchantReference}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(paymentAttempt.merchantReference, 'refText')}
+                                    className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-300 cursor-pointer"
+                                    title="Sao chép nội dung"
+                                  >
+                                    {copiedField === 'refText' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Nút phụ mở PayOS trong tab mới */}
+                            {paymentAttempt.checkoutUrl && (
+                              <div className="pt-1">
+                                <a
+                                  href={paymentAttempt.checkoutUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-cyan-400/40 text-xs font-semibold text-slate-300 hover:text-white transition-all cursor-pointer"
+                                >
+                                  <span>Hoặc mở trang thanh toán PayOS trên trình duyệt</span>
+                                  <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
-                  )}
-                </div>
 
-                {/* 3. Action Buttons */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-white/8">
-                  <button
-                    type="button"
-                    onClick={() => setIsPaymentView(false)}
-                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Quay lại xem báo giá</span>
-                  </button>
-
-                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-                    {/* Nút đặc quyền Staff/Admin đối soát ngay trên localhost */}
-                    {isStaffOrAdmin && (
+                    {/* 3. Action Buttons */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-white/8">
                       <button
                         type="button"
-                        onClick={handleQuickReconcile}
-                        disabled={isReconciling}
-                        className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                        onClick={() => setIsPaymentView(false)}
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                       >
-                        {isReconciling ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Zap className="w-3.5 h-3.5 text-emerald-400" />
-                        )}
-                        <span>⚡ [Quyền Staff/Admin] Đối soát thanh toán ngay</span>
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>Quay lại xem báo giá</span>
                       </button>
-                    )}
 
-                    {/* Nút kiểm tra kết quả */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleClose();
-                        navigate(`/orders/${createdOrder.id}/checkout-return`);
-                      }}
-                      className="btn-pooled-cyan w-full sm:w-auto py-2.5 px-5 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(0,240,255,0.2)]"
-                    >
-                      <span>Tôi đã thanh toán ➔ Kiểm tra kết quả</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
+                      <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                        {/* Nút đặc quyền Staff/Admin đối soát ngay trên localhost */}
+                        {isStaffOrAdmin && (
+                          <button
+                            type="button"
+                            onClick={handleQuickReconcile}
+                            disabled={isReconciling}
+                            className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            {isReconciling ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                            )}
+                            <span>⚡ [Quyền Staff/Admin] Đối soát ngay</span>
+                          </button>
+                        )}
+
+                        {/* Nút kiểm tra kết quả ngay */}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const orderData = await orderService.getOrderById(createdOrder.id);
+                              if (orderData && orderData.orderPaymentStatus === 'Paid') {
+                                setIsPaidSuccess(true);
+                                toast.success('🎉 Đơn hàng đã được xác nhận thanh toán!');
+                              } else {
+                                toast.info('Đang chờ đối soát từ ngân hàng. Vui lòng thử lại sau vài giây.');
+                              }
+                            } catch {
+                              toast.info('Đang kiểm tra kết quả...');
+                            }
+                          }}
+                          className="btn-pooled-cyan w-full sm:w-auto py-2.5 px-5 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(0,240,255,0.2)]"
+                        >
+                          <span>Tôi đã thanh toán ➔ Xác nhận kết quả</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>

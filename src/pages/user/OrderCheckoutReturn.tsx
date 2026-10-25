@@ -217,6 +217,21 @@ export default function OrderCheckoutReturn() {
     );
   };
 
+  const formatDateSafe = (iso?: string | null) => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? '—' : d.toLocaleString('vi-VN');
+    } catch {
+      return '—';
+    }
+  };
+
+  const formatVndSafe = (val?: number | null) => {
+    if (typeof val !== 'number' || isNaN(val)) return '0';
+    return val.toLocaleString('vi-VN');
+  };
+
   // Loading state
   if (isLoading) {
     return (
@@ -271,7 +286,7 @@ export default function OrderCheckoutReturn() {
                 </span>
               </div>
               <span className="text-xs text-slate-400 font-mono">
-                Đơn hàng: #{order.orderCode} · Ngày tạo: {new Date(order.createdAtUtc).toLocaleString('vi-VN')}
+                Đơn hàng: #{order?.orderCode || ''} · Ngày tạo: {formatDateSafe(order?.createdAtUtc)}
               </span>
             </div>
           </div>
@@ -355,7 +370,7 @@ export default function OrderCheckoutReturn() {
               <div className="space-y-1">
                 <span className="text-[11px] text-slate-400 font-sans">Tổng tiền đã thanh toán:</span>
                 <div className="text-sm font-bold text-emerald-300">
-                  {order.totalAmount.toLocaleString('vi-VN')} đ
+                  {formatVndSafe(order?.totalAmount)} đ
                 </div>
               </div>
 
@@ -377,7 +392,7 @@ export default function OrderCheckoutReturn() {
               <div className="sm:col-span-2 pt-2 border-t border-white/5 space-y-1 font-sans">
                 <span className="text-[11px] text-slate-400">Địa chỉ giao hàng:</span>
                 <div className="text-slate-200 text-xs">
-                  <strong>{order.address.receiverName}</strong> ({order.address.receiverPhone}) — {order.address.streetAddress}, {order.address.district}, {order.address.city}
+                  <strong>{order?.address?.receiverName ?? (order as any)?.receiverName ?? 'Khách hàng'}</strong> ({order?.address?.receiverPhone ?? (order as any)?.receiverPhone ?? '—'}) — {order?.address?.streetAddress ?? (order as any)?.streetAddress ?? ''}, {order?.address?.district ?? (order as any)?.district ?? ''}, {order?.address?.city ?? (order as any)?.city ?? ''}
                 </div>
               </div>
             </div>
@@ -426,7 +441,7 @@ export default function OrderCheckoutReturn() {
               <div>
                 <span className="text-slate-400">Số tiền cần thanh toán:</span>
                 <span className="ml-2 font-bold text-cyan-300 text-sm">
-                  {order.totalAmount.toLocaleString('vi-VN')} đ
+                  {formatVndSafe(order?.totalAmount)} đ
                 </span>
               </div>
               <div>
@@ -489,7 +504,7 @@ export default function OrderCheckoutReturn() {
               </div>
               <div className="flex justify-between items-center text-slate-300">
                 <span>Số tiền đơn hàng:</span>
-                <span className="text-cyan-300 font-bold">{order.totalAmount.toLocaleString('vi-VN')} đ</span>
+                <span className="text-cyan-300 font-bold">{formatVndSafe(order?.totalAmount)} đ</span>
               </div>
               <div className="flex justify-between items-center text-slate-300">
                 <span>Trạng thái đơn:</span>

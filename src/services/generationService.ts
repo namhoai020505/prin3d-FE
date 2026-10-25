@@ -12,9 +12,16 @@ export type GenerationStatus =
   | 'expired'
   | 'needsAttention';
 
+export type LatestPrintReview = {
+  decision: 'Approved' | 'Rejected' | string;
+  configurationHash: string;
+  createdAtUtc: string;
+};
+
 export type GenerationTask = {
   id: string;
   versionId?: string | null;
+  latestPrintReview?: LatestPrintReview | null;
   userId?: string;
   modelName?: string | null;
   status: GenerationStatus;
@@ -79,12 +86,7 @@ const unwrap = <T>(res: unknown): T => {
 };
 
 const toTask = (value: unknown): GenerationTask => {
-  const unwrapped = unwrap<GenerationTask>(value);
-  // Đảm bảo versionId luôn có giá trị (fallback về id nếu versionId chưa gán)
-  if (!unwrapped.versionId && unwrapped.id) {
-    unwrapped.versionId = unwrapped.id;
-  }
-  return unwrapped;
+  return unwrap<GenerationTask>(value);
 };
 
 const keepStudioOpenOnAuthFailure: AxiosRequestConfig & { skipAuthRedirect: boolean } = {
@@ -135,13 +137,12 @@ export const getGeneration = async (id: string): Promise<GenerationTask> => {
   return toTask(raw);
 };
 
-export const listGenerations = async (page = 1): Promise<GenerationTask[]> => {
-  const raw = await api.get(`/api/generations?page=${page}`, keepStudioOpenOnAuthFailure);
-  const items = unwrap<GenerationTask[]>(raw);
-  return (items || []).map((item) => {
-    if (!item.versionId && item.id) item.versionId = item.id;
-    return item;
+export const listGenerations = async (page = 1, onlyMine = false): Promise<GenerationTask[]> => {
+  const raw = await api.get('/api/generations', {
+    params: { page, onlyMine: onlyMine ? 'true' : 'false' },
+    ...keepStudioOpenOnAuthFailure,
   });
+  return unwrap<GenerationTask[]>(raw) || [];
 };
 
 export const getPrintQuote = async (

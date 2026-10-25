@@ -1,9 +1,7 @@
-import { useState, useRef, useEffect, useCallback, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Sparkles,
-  BookOpen,
-  Info,
   ChevronDown,
   ChevronUp,
   Check,
@@ -47,13 +45,23 @@ import { IdempotencyManager } from '../../lib/idempotency';
 import { AI_CONSENT_POLICY_VERSION } from '../../lib/env';
 import QuoteModalV2 from '../../components/QuoteModalV2';
 import { createImageGeneration, downloadGenerationFile, getGeneration, listGenerations, type GenerationStatus, type GenerationTask } from '../../services/generationService';
-import { AUTH_SESSION_EVENT, getAccessToken, isAccessTokenExpired } from '../../lib/auth';
+import {
+  AUTH_SESSION_EVENT,
+  getAccessToken,
+  isAccessTokenExpired,
+  getRoleFromAccessToken,
+  isAdminRole,
+  isStaffRole,
+  isManagerRole,
+} from '../../lib/auth';
 import { AI_MODELS, FACE_COUNTS, type FaceCount } from '../../constants/models';
+import type { LatestPrintReview } from '../../services/generationService';
 import Studio3DViewport from './components/Studio3DViewport';
 
 interface GeneratedAsset {
   id: string;
-  versionId: string;
+  versionId?: string | null;
+  latestPrintReview?: LatestPrintReview | null;
   name: string;
   date: string;
   status: GenerationStatus;
@@ -75,9 +83,31 @@ interface ApprovedConfig {
   config: CanonicalPrintConfig;
 }
 
+const getFriendlyErrorMessage = (error?: string | null): string => {
+  if (!error) return "";
+  const lower = error.toLowerCase();
+  if (lower.includes("unauthorized") || lower.includes("cam policies") || lower.includes("access keys") || lower.includes("system policy")) {
+    return "Lỗi xác thực API nhà cung cấp AI 3D.";
+  }
+  if (lower.includes("cần kiểm tra kết quả") || lower.includes("staff có thể tiếp tục")) {
+    return "Đang chờ xử lý thêm từ nhà cung cấp AI.";
+  }
+  if (lower.includes("meshcheckfailed") || lower.includes("watertight") || lower.includes("độ kín nước")) {
+    return "Mẫu 3D chưa đạt chuẩn kín nước hoặc độ dày in.";
+  }
+  if (lower.includes("tasknotsucceeded")) {
+    return "Tác vụ tạo 3D chưa hoàn tất.";
+  }
+  if (error.length > 50) {
+    return error.slice(0, 48) + "...";
+  }
+  return error;
+};
+
 const toAsset = (task: GenerationTask): GeneratedAsset => ({
   id: task.id,
-  versionId: task.versionId || task.id,
+  versionId: task.versionId ?? null,
+  latestPrintReview: task.latestPrintReview ?? null,
   name: task.modelName?.trim() || '3D model',
   date: new Date(task.createdAtUtc).toLocaleString('vi-VN'),
   status: task.status,
@@ -132,9 +162,6 @@ export default function Create3DStudio() {
     faceCount?: FaceCount;
   } | null;
 
-  // Mode selection: 'text' | 'image'
-  const [generationMode, setGenerationMode] = useState<'text' | 'image'>('image');
-  const [promptText, setPromptText] = useState('');
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth > 900);
 
@@ -143,7 +170,7 @@ export default function Create3DStudio() {
     locationState?.modelName || AI_MODELS[0].name
   );
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
-  const [shouldTexture, setShouldTexture] = useState(false);
+  const shouldTexture = false;
   const [faceCount, setFaceCount] = useState<FaceCount>(() =>
     locationState?.faceCount && FACE_COUNTS.includes(locationState.faceCount)
       ? locationState.faceCount
@@ -166,7 +193,7 @@ export default function Create3DStudio() {
 
   // 3D Model Dimensions, Scale & Bounding Box Inspector States
   const [showBoundingBox, setShowBoundingBox] = useState(true);
-  const [isDimensionsPanelOpen, setIsDimensionsPanelOpen] = useState(true);
+  const [isDimensionsPanelOpen, setIsDimensionsPanelOpen] = useState(false);
   const [isUniformScale, setIsUniformScale] = useState(true);
   const [scalePercent, setScalePercent] = useState(100);
   const [baseDimensions, setBaseDimensions] = useState({ x: 85, y: 120, z: 85 });
@@ -309,7 +336,6 @@ export default function Create3DStudio() {
           if (file) {
             setUploadedFile(file);
             setUploadedImage(URL.createObjectURL(file));
-            setGenerationMode('image');
             setGenerationError('');
             break;
           }
@@ -455,10 +481,22 @@ export default function Create3DStudio() {
     }
   }, [approvedConfigMap]);
 
-  const activeApproved = activeModelMesh ? approvedConfigMap[activeModelMesh.versionId] : undefined;
+  const activeApproved = activeModelMesh?.versionId ? approvedConfigMap[activeModelMesh.versionId] : undefined;
 
   const handleCustomerApproval = async (autoOpenQuote = false) => {
     if (!activeModelMesh) return;
+    if (!activeModelMesh.versionId) {
+      toast.warn('Mô hình chưa có phiên bản sản xuất (ModelVersion). Vui lòng đợi hoàn tất kiểm định mesh!');
+      return;
+    }
+    const isApprovedByStaff =
+      activeModelMesh.latestPrintReview?.decision === 'Approved' ||
+      activeModelMesh.isApprovedForPrinting;
+    if (!isApprovedByStaff) {
+      toast.warn('Mô hình cần được kỹ thuật viên phê duyệt trước khi chốt mẫu in.');
+      return;
+    }
+
     const token = getAccessToken();
     if (!token || isAccessTokenExpired(token)) {
       window.dispatchEvent(
@@ -484,7 +522,7 @@ export default function Create3DStudio() {
 
       setApprovedConfigMap((prev) => ({
         ...prev,
-        [activeModelMesh.versionId]: {
+        [activeModelMesh.versionId!]: {
           approvalDto,
           config: canonicalConfig,
         },
@@ -506,8 +544,71 @@ export default function Create3DStudio() {
     }
   };
 
+  const isStaffOrAdmin = useMemo(() => {
+    const role = getRoleFromAccessToken();
+    return isAdminRole(role) || isStaffRole(role) || isManagerRole(role);
+  }, []);
+
+  const [isStaffReviewing, setIsStaffReviewing] = useState(false);
+  const handleQuickStaffApprove = async () => {
+    if (!activeModelMesh?.versionId) return;
+    setIsStaffReviewing(true);
+    try {
+      const canonicalConfig = buildCanonicalPrintConfig({
+        material: printMaterial,
+        heightMm: Math.min(120, Math.max(100, Math.round(dimensions.y || 100))),
+        scale: scalePercent / 100,
+      });
+      const reviewResult = await approvalAndReviewService.createPrintReview({
+        versionId: activeModelMesh.versionId,
+        configuration: canonicalConfig,
+        decision: 'Approved',
+        checklist: {
+          orientation: 'Default Z-Up',
+          supportConfirmation: true,
+          material: printMaterial,
+          printHeightMm: Math.min(120, Math.max(100, Math.round(dimensions.y || 100))),
+          buildVolumeConfirmation: true,
+        },
+        note: 'Staff / Admin duyệt in trực tiếp từ Studio 3D',
+      });
+      toast.success('⚡ Đã duyệt in thành công! Bạn có thể chốt mẫu và lấy báo giá ngay.');
+      setActiveModelMesh((prev) =>
+        prev
+          ? {
+              ...prev,
+              latestPrintReview: {
+                decision: 'Approved',
+                configurationHash: reviewResult.configurationHash,
+                createdAtUtc: new Date().toISOString(),
+              },
+              isApprovedForPrinting: true,
+            }
+          : null,
+      );
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { detail?: string; message?: string } } };
+      const msg = errorObj.response?.data?.detail || errorObj.response?.data?.message || 'Không thể duyệt in.';
+      toast.error(msg);
+    } finally {
+      setIsStaffReviewing(false);
+    }
+  };
+
   const handleOpenQuoteModal = async () => {
     if (!activeModelMesh) return;
+    if (!activeModelMesh.versionId) {
+      toast.warn('Mô hình chưa có phiên bản sản xuất (ModelVersion).');
+      return;
+    }
+    const isApprovedByStaff =
+      activeModelMesh.latestPrintReview?.decision === 'Approved' ||
+      activeModelMesh.isApprovedForPrinting;
+    if (!isApprovedByStaff) {
+      toast.warn('Mô hình cần được kỹ thuật viên phê duyệt trước khi lấy báo giá.');
+      return;
+    }
+
     const token = getAccessToken();
     if (!token || isAccessTokenExpired(token)) {
       window.dispatchEvent(
@@ -627,7 +728,7 @@ export default function Create3DStudio() {
 
       const task = await createImageGeneration({
         image: fileToUpload,
-        modelName: promptText.trim().slice(0, 200) || selectedModel,
+        modelName: selectedModel,
         shouldTexture,
         heightMm: Math.min(120, Math.max(100, Math.round(dimensions.y || 100))),
       });
@@ -686,7 +787,7 @@ export default function Create3DStudio() {
       return;
     }
 
-    void listGenerations()
+    void listGenerations(1, true)
       .then((tasks) => {
         const loadedAssets = tasks.map(toAsset);
         setAssets(loadedAssets);
@@ -750,7 +851,7 @@ export default function Create3DStudio() {
         {isLeftPanelOpen ? (
           <div
             ref={leftPanelRef}
-            className="w-full shrink-0 max-h-[44vh] overflow-y-auto no-scrollbar bg-[#0a0d13]/90 backdrop-blur-2xl border border-white/12 rounded-2xl p-4 shadow-2xl shadow-black/90 text-white flex flex-col gap-3.5"
+            className="w-full shrink-0 bg-[#0a0d13]/95 backdrop-blur-2xl border border-white/12 rounded-2xl p-3 shadow-2xl shadow-black/90 text-white flex flex-col gap-2"
           >
             {/* Header */}
             <div className="flex items-center justify-between pb-1 border-b border-white/8">
@@ -774,154 +875,111 @@ export default function Create3DStudio() {
               </button>
             </div>
 
-            {/* Mode Switcher Tabs */}
-            <div className="bg-black/45 p-1 rounded-xl flex gap-1 border border-white/10">
-              <button
-                type="button"
-                disabled
-                className="flex-1 py-1.5 px-2.5 rounded-lg text-xs font-medium text-neutral-500 cursor-not-allowed opacity-60 text-center"
-              >
-                Text-to-3D <span className="text-[9px] opacity-70">(sớm)</span>
-              </button>
-              <button
-                onClick={() => setGenerationMode('image')}
-                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all text-center cursor-pointer ${generationMode === 'image'
-                    ? 'bg-white/15 text-white shadow-sm border border-white/20'
-                    : 'text-neutral-400 hover:text-white'
-                  }`}
-              >
-                Image-to-3D
-              </button>
-            </div>
-
-            {/* Content Area */}
-            {generationMode === 'text' ? (
-              <div className="bg-black/35 border border-white/10 rounded-xl p-3 flex flex-col justify-between min-h-[145px] focus-within:border-cyan-400/50 transition-colors">
-                <textarea
-                  value={promptText}
-                  onChange={(e) => setPromptText(e.target.value.slice(0, 500))}
-                  placeholder="Nhập mô tả chi tiết mô hình 3D bạn muốn tạo. Ví dụ: Tượng mèo may mắn mạ vàng phong cách stylized..."
-                  className="w-full h-24 bg-transparent resize-none outline-none text-xs text-white placeholder:text-neutral-500 leading-relaxed"
-                />
-                <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-cyan-300 transition-colors cursor-pointer"
-                  >
-                    <BookOpen className="w-3 h-3 text-cyan-400" />
-                    <span>Hướng dẫn</span>
-                  </button>
-                  <span className="text-[10px] text-neutral-500 font-mono">
-                    {promptText.length}/500
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setIsDraggingFile(true);
-                  }}
-                  onDragLeave={() => setIsDraggingFile(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDraggingFile(false);
-                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                      const file = e.dataTransfer.files[0];
-                      if (uploadedImage && uploadedImage.startsWith('blob:')) {
-                        URL.revokeObjectURL(uploadedImage);
-                      }
-                      setUploadedFile(file);
-                      setUploadedImage(URL.createObjectURL(file));
-                      setGenerationError('');
+            {/* Content Area: Image-to-3D Dropzone */}
+            <div className="flex flex-col gap-2">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDraggingFile(true);
+                }}
+                onDragLeave={() => setIsDraggingFile(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingFile(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    const file = e.dataTransfer.files[0];
+                    if (uploadedImage && uploadedImage.startsWith('blob:')) {
+                      URL.revokeObjectURL(uploadedImage);
                     }
-                  }}
-                  className={`bg-black/40 border border-dashed rounded-xl p-3 flex flex-col items-center justify-center min-h-[135px] transition-all ${isDraggingFile
-                      ? 'border-cyan-400 bg-cyan-950/20'
-                      : 'border-white/15 hover:border-cyan-400/50 hover:bg-black/55'
-                    }`}
-                >
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    accept="image/*"
-                    className="hidden"
-                  />
-                  {uploadedImage ? (
-                    <div className="relative w-full h-28 rounded-lg overflow-hidden group">
-                      <img src={uploadedImage} alt="Input" className="w-full h-full object-contain bg-black/50" />
-                      <button
-                        onClick={() => {
-                          if (uploadedImage.startsWith('blob:')) {
-                            URL.revokeObjectURL(uploadedImage);
-                          }
-                          setUploadedImage(null);
-                          setUploadedFile(null);
-                          if (fileInputRef.current) fileInputRef.current.value = '';
-                        }}
-                        className="absolute top-1 right-1 p-1 bg-black/85 rounded-full hover:bg-rose-600 text-white cursor-pointer transition-colors"
-                        title="Xóa ảnh"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex flex-col items-center gap-1.5 text-neutral-400 hover:text-cyan-300 cursor-pointer p-3 text-center transition-colors w-full"
+                    setUploadedFile(file);
+                    setUploadedImage(URL.createObjectURL(file));
+                    setGenerationError('');
+                  }
+                }}
+                className={`bg-black/40 border border-dashed rounded-xl p-2.5 flex flex-col items-center justify-center min-h-[72px] transition-all ${
+                  isDraggingFile
+                    ? 'border-cyan-400 bg-cyan-950/20'
+                    : 'border-white/15 hover:border-cyan-400/50 hover:bg-black/55'
+                }`}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  className="hidden"
+                />
+                {uploadedImage ? (
+                  <div className="relative w-full h-24 rounded-lg overflow-hidden group">
+                    <img src={uploadedImage} alt="Input" className="w-full h-full object-contain bg-black/50" />
+                    <button
+                      onClick={() => {
+                        if (uploadedImage.startsWith('blob:')) {
+                          URL.revokeObjectURL(uploadedImage);
+                        }
+                        setUploadedImage(null);
+                        setUploadedFile(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                      className="absolute top-1 right-1 p-1 bg-black/85 rounded-full hover:bg-rose-600 text-white cursor-pointer transition-colors"
+                      title="Xóa ảnh"
                     >
-                      <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 group-hover:text-cyan-300 group-hover:border-cyan-400/40 transition-colors">
-                        <Upload className="w-4 h-4 stroke-[1.75]" />
-                      </div>
-                      <span className="text-xs font-medium text-white/90">Kéo thả ảnh hoặc nhấp để tải</span>
-                      <span className="text-[10px] text-neutral-500">Hỗ trợ PNG, JPG, WEBP · Dán Ctrl+V</span>
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex flex-col items-center gap-1 text-neutral-400 hover:text-cyan-300 cursor-pointer p-1.5 text-center transition-colors w-full"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 group-hover:text-cyan-300 group-hover:border-cyan-400/40 transition-colors">
+                      <Upload className="w-3.5 h-3.5 stroke-[1.75]" />
                     </div>
-                  )}
-                </div>
-
-                {/* Quick Preset Chips */}
-                {!uploadedImage && (
-                  <div className="flex items-center gap-1.5 pt-0.5 overflow-x-auto no-scrollbar">
-                    <span className="text-[10px] text-neutral-500 whitespace-nowrap">Thử mẫu:</span>
-                    {QUICK_PRESETS.map((preset) => (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => {
-                          IdempotencyManager.refreshKey('generation:image');
-                          setUploadedImage(preset.url);
-                          setUploadedFile(null);
-                          setGenerationError('');
-                        }}
-                        className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/12 border border-white/10 hover:border-cyan-400/40 text-[10px] text-zinc-300 hover:text-white transition-all whitespace-nowrap cursor-pointer"
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
+                    <span className="text-[11px] font-medium text-white/90">Kéo thả ảnh hoặc nhấp để tải</span>
+                    <span className="text-[9.5px] text-neutral-500">PNG, JPG, WEBP · Dán Ctrl+V</span>
                   </div>
                 )}
               </div>
-            )}
 
-            {/* Model Selection Dropdown */}
-            <div className="relative flex flex-col gap-1.5 pt-0.5">
-              <div className="flex items-center justify-between text-[11px] text-neutral-300 font-medium">
-                <span>Mô hình AI</span>
-                <Info className="w-3 h-3 text-neutral-500" />
+              {/* Quick Preset Chips */}
+              {!uploadedImage && (
+                <div className="flex items-center gap-1 pt-0.5 overflow-x-auto no-scrollbar">
+                  <span className="text-[9.5px] text-neutral-500 whitespace-nowrap">Thử mẫu:</span>
+                  {QUICK_PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        IdempotencyManager.refreshKey('generation:image');
+                        setUploadedImage(preset.url);
+                        setUploadedFile(null);
+                        setGenerationError('');
+                      }}
+                      className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/12 border border-white/10 hover:border-cyan-400/40 text-[9.5px] text-zinc-300 hover:text-white transition-all whitespace-nowrap cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* AI Model & Quality Row */}
+            <div className="flex flex-col gap-1.5 pt-1 border-t border-white/8">
+              <div className="flex items-center justify-between">
+                <span className="text-[10.5px] text-neutral-300 font-medium">Mô hình AI:</span>
+                <button
+                  type="button"
+                  onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                  className="px-2 py-1 bg-black/40 border border-white/10 rounded-lg text-[10.5px] text-cyan-300 font-semibold flex items-center gap-1.5 hover:border-cyan-400/40 transition-colors cursor-pointer"
+                >
+                  <span className="truncate max-w-[170px]">{selectedModel}</span>
+                  <ChevronDown className={`w-3 h-3 text-neutral-400 transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                className="w-full px-3 py-2 bg-black/40 border border-white/12 rounded-xl text-xs text-white flex items-center justify-between hover:border-cyan-400/45 transition-colors cursor-pointer"
-              >
-                <span className="font-medium truncate">{selectedModel}</span>
-                <ChevronDown className={`w-3.5 h-3.5 text-neutral-400 transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
 
               {isModelDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#0e121a]/95 border border-white/15 rounded-xl shadow-2xl py-1 z-30 max-h-56 overflow-y-auto no-scrollbar backdrop-blur-xl">
+                <div className="bg-[#0e121a]/95 border border-white/15 rounded-xl shadow-2xl py-1 z-30 max-h-48 overflow-y-auto no-scrollbar backdrop-blur-xl">
                   {AI_MODELS.map((model) => (
                     <button
                       key={model.id}
@@ -929,80 +987,55 @@ export default function Create3DStudio() {
                         setSelectedModel(model.name);
                         setIsModelDropdownOpen(false);
                       }}
-                      className="w-full text-left px-3 py-2 text-xs text-neutral-300 hover:text-cyan-300 hover:bg-cyan-500/10 flex flex-col gap-0.5 cursor-pointer border-b border-white/5 last:border-b-0"
+                      className="w-full text-left px-3 py-1.5 text-xs text-neutral-300 hover:text-cyan-300 hover:bg-cyan-500/10 flex items-center justify-between cursor-pointer border-b border-white/5 last:border-b-0"
                     >
-                      <div className="flex items-center justify-between w-full">
-                        <span className="font-semibold">{model.name}</span>
-                        {selectedModel === model.name && <Check className="w-3.5 h-3.5 text-cyan-400" />}
-                      </div>
-                      <span className="text-[10px] text-neutral-500 line-clamp-1">{model.description}</span>
+                      <span className="font-semibold text-[11px]">{model.name}</span>
+                      {selectedModel === model.name && <Check className="w-3 h-3 text-cyan-400" />}
                     </button>
                   ))}
                 </div>
               )}
-            </div>
 
-            {/* Texture Switch */}
-            <div className="flex items-center justify-between pt-0.5">
-              <div className="flex items-center gap-1 text-[11px] text-neutral-300 font-medium">
-                <span>Tạo Texture màu sắc</span>
-                <Info className="w-3 h-3 text-neutral-500" />
-              </div>
-              <button
-                type="button"
-                onClick={() => setShouldTexture(!shouldTexture)}
-                className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${shouldTexture ? 'bg-gradient-to-r from-emerald-400 to-cyan-400' : 'bg-neutral-800'
-                  }`}
-              >
-                <span
-                  className={`inline-block h-3 w-3 transform rounded-full bg-black transition-transform ${shouldTexture ? 'translate-x-4' : 'translate-x-0.5'
-                    }`}
-                />
-              </button>
-            </div>
-
-            {/* Model Face Count */}
-            <div className="flex flex-col gap-1.5 pt-0.5">
-              <span className="text-[11px] text-neutral-300 font-medium">Độ phân giải lưới (Face Count)</span>
-              <div className="bg-black/40 border border-white/10 rounded-xl p-1 flex items-center justify-between text-xs">
-                {FACE_COUNTS.map((count, idx) => (
-                  <div key={count} className="flex items-center flex-1 justify-center">
+              {/* Face Count Segmented Control */}
+              <div className="flex items-center justify-between pt-0.5">
+                <span className="text-[10.5px] text-neutral-400">Độ phân giải:</span>
+                <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-lg p-0.5 text-[10px]">
+                  {FACE_COUNTS.map((count) => (
                     <button
+                      key={count}
                       type="button"
                       onClick={() => setFaceCount(count)}
-                      className={`w-full py-1 text-center rounded-lg text-xs font-semibold transition-all cursor-pointer ${faceCount === count
-                          ? 'border border-cyan-400/70 text-cyan-300 bg-cyan-500/15 shadow-[0_0_12px_rgba(6,182,212,0.3)]'
+                      className={`px-2 py-0.5 rounded text-center transition-all cursor-pointer font-mono font-semibold ${
+                        faceCount === count
+                          ? 'bg-cyan-500/25 border border-cyan-400/60 text-cyan-300 shadow-sm'
                           : 'text-neutral-400 hover:text-white'
-                        }`}
+                      }`}
                     >
                       {count}
                     </button>
-                    {idx < 3 && <span className="text-neutral-800 select-none px-0.5">|</span>}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
 
-            <p className="text-[10px] leading-relaxed text-neutral-500">
-              Hệ thống tối ưu lưới đa giác chuẩn in 3D SLA/FDM. Bật texture nếu bạn cần xuất file màu cho game/VR.
-            </p>
-
             {generationError && (
-              <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 text-[11px] leading-relaxed text-rose-200">
+              <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[10.5px] leading-relaxed text-rose-200">
                 {generationError}
               </p>
             )}
 
-            {/* Generate Now Button (Cyan-Emerald Glow) */}
-            <button
-              type="button"
-              disabled={isGenerating}
-              onClick={handleGenerate}
-              className="w-full mt-1.5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 text-[#041014] bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 hover:brightness-110 active:scale-[0.98] transition-all shadow-[0_0_24px_rgba(6,182,212,0.35)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 fill-[#041014]" />
-              <span>{isGenerating ? `Đang tạo (${generationProgress}%)...` : 'Tạo model từ ảnh'}</span>
-            </button>
+            {/* Generate Now Button (Directly visible, no scroll required) */}
+            <div className="pt-1.5 shrink-0">
+              <button
+                type="button"
+                disabled={isGenerating}
+                onClick={handleGenerate}
+                className="w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 text-[#041014] bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 hover:brightness-110 active:scale-[0.98] transition-all shadow-[0_0_20px_rgba(6,182,212,0.35)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 fill-[#041014]" />
+                <span>{isGenerating ? `Đang tạo (${generationProgress}%)...` : 'Tạo mô hình 3D'}</span>
+              </button>
+            </div>
           </div>
         ) : (
           <button
@@ -1417,10 +1450,13 @@ export default function Create3DStudio() {
                         </span>
                       </div>
                       <span className="text-[10px] text-neutral-400 block mt-1">
-                        {asset.status === 'succeeded' ? 'Hoàn tất' : `${asset.stage} · ${asset.progress}%`} · {asset.date}
+                        {asset.date} · {asset.status === 'succeeded' ? 'Hoàn tất' : `${asset.progress}%`}
                       </span>
                       {asset.errorMessage && (
-                        <span className="text-[10px] text-rose-300 block mt-1 leading-relaxed">{asset.errorMessage}</span>
+                        <div className="mt-1.5 px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[10px] flex items-center gap-1.5" title={asset.errorMessage}>
+                          <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
+                          <span className="truncate">{getFriendlyErrorMessage(asset.errorMessage)}</span>
+                        </div>
                       )}
 
                       {/* Badge Trạng thái Duyệt In (PrintReview Badge) */}
@@ -1443,7 +1479,7 @@ export default function Create3DStudio() {
                             </span>
                           )}
 
-                          {approvedConfigMap[asset.versionId] && (
+                          {asset.versionId && approvedConfigMap[asset.versionId] && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono">
                               <Check className="w-3 h-3" />
                               Đã chốt: #{approvedConfigMap[asset.versionId].approvalDto.configurationHash.slice(0, 6)}
@@ -2189,12 +2225,58 @@ export default function Create3DStudio() {
                 </button>
               </div>
 
+              {/* Staff Print Review Status Banner */}
+              {activeModelMesh && (
+                <div className="mb-2">
+                  {!activeModelMesh.versionId ? (
+                    <div className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>Đang nạp phiên bản mô hình...</span>
+                    </div>
+                  ) : activeModelMesh.latestPrintReview?.decision === 'Approved' || activeModelMesh.isApprovedForPrinting ? (
+                    <div className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="truncate">Kỹ thuật viên đã duyệt in</span>
+                      </div>
+                      <span className="font-mono text-[10px] text-emerald-400/80 shrink-0">
+                        #{activeModelMesh.latestPrintReview?.configurationHash ? activeModelMesh.latestPrintReview.configurationHash.slice(0, 6) : 'VERIFIED'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="px-2.5 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>Chờ kỹ thuật viên duyệt in</span>
+                        </div>
+                        {isStaffOrAdmin && (
+                          <button
+                            type="button"
+                            disabled={isStaffReviewing}
+                            onClick={handleQuickStaffApprove}
+                            className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-300 text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                          >
+                            {isStaffReviewing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3 text-emerald-400" />}
+                            <span>⚡ Duyệt in ngay (Staff)</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Nút 1: Xác nhận chốt mẫu in */}
               <button
                 type="button"
                 onClick={() => void handleCustomerApproval(false)}
-                disabled={isApprovingPrint}
-                className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${
+                disabled={
+                  isApprovingPrint ||
+                  !activeModelMesh?.versionId ||
+                  !(activeModelMesh?.latestPrintReview?.decision === 'Approved' || activeModelMesh?.isApprovedForPrinting)
+                }
+                className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                   activeApproved
                     ? 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
                     : 'bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/25 shadow-[0_0_15px_rgba(0,240,255,0.1)]'
@@ -2209,7 +2291,7 @@ export default function Create3DStudio() {
                 )}
                 <span className="truncate">
                   {activeApproved
-                    ? `✓ Đã chốt in (#${activeApproved.approvalDto.configurationHash.slice(0, 8)})`
+                    ? '✓ Đã chốt cấu hình in 3D'
                     : '1. Xác nhận chốt mẫu in 3D'}
                 </span>
               </button>
@@ -2218,7 +2300,11 @@ export default function Create3DStudio() {
               <button
                 type="button"
                 onClick={() => void handleOpenQuoteModal()}
-                className="btn-pooled-cyan w-full py-2.5 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(0,240,255,0.2)]"
+                disabled={
+                  !activeModelMesh?.versionId ||
+                  !(activeModelMesh?.latestPrintReview?.decision === 'Approved' || activeModelMesh?.isApprovedForPrinting)
+                }
+                className="btn-pooled-cyan w-full py-2.5 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(0,240,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Zap className="w-3.5 h-3.5 text-cyan-200" />
                 <span>2. Lấy Báo Giá & Đặt In 3D</span>
@@ -2236,7 +2322,7 @@ export default function Create3DStudio() {
         </button>
       )}
       {/* Modal Báo Giá Sản Xuất V2 */}
-      {activeModelMesh && (
+      {activeModelMesh && activeModelMesh.versionId && (
         <QuoteModalV2
           isOpen={isQuoteModalOpen}
           onClose={() => setIsQuoteModalOpen(false)}

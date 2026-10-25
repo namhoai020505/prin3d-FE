@@ -14,7 +14,7 @@ createRoot(document.getElementById('root')!).render(
       <App />
       <ToastContainer
         theme="dark"
-        position="top-center"
+        position="top-right"
         autoClose={3500}
         closeButton={false}
         hideProgressBar
@@ -23,7 +23,7 @@ createRoot(document.getElementById('root')!).render(
         pauseOnFocusLoss={false}
         pauseOnHover={false}
         draggable={false}
-        limit={1}
+        limit={3}
         toastClassName="g2c-toast"
         progressClassName="g2c-toast-progress"
       />

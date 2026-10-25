@@ -26,6 +26,7 @@ import {
   type ModelPreset,
 } from '../../../constants/models';
 import { getAccessToken } from '../../../lib/auth';
+import { useParallax } from '../../../hooks/useParallax';
 
 interface DetailOption {
   label: string;
@@ -87,6 +88,8 @@ const PILL_ACTIONS = [
 
 export default function HeroCreateSection() {
   const navigate = useNavigate();
+  const layer1Offset = useParallax({ speed: -0.1, maxOffset: 40 });
+  const layer2Offset = useParallax({ speed: 0.05, maxOffset: 25 });
   const isLoggedIn = Boolean(getAccessToken());
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -248,13 +251,13 @@ export default function HeroCreateSection() {
           </span>
         </div>
 
-        {/* Desktop nav links (center, hidden below md) */}
-        <nav className="hidden md:flex items-center text-[16px] lg:text-[18px] font-medium text-white">
+        {/* Desktop nav links: 3 links cleanly spaced with whitespace-nowrap */}
+        <nav className="hidden md:flex items-center text-[15px] lg:text-[17px] font-medium text-white whitespace-nowrap">
           {[
             { label: 'Studio 3D', onClick: handleStartGeneration },
-            { label: 'In 3D SLA/FDM', onClick: handleStartGeneration },
+
             { label: 'Thư viện mẫu', onClick: scrollToCommunity },
-            { label: 'Đơn hàng', onClick: () => navigate('/my-bookings') },
+            { label: 'Bảng giá in', onClick: () => navigate('/ticket-prices') },
           ].map((item, idx, arr) => (
             <span key={item.label} className="inline-flex items-center">
               <button
@@ -368,21 +371,28 @@ export default function HeroCreateSection() {
           Positioned on the left column so the 3D character on the right (70% center) is 100% unobstructed */}
       <div className="relative z-10 w-full max-w-[1440px] mx-auto my-auto py-4">
         <div className="w-full max-w-[656px] mr-auto flex flex-col items-start gap-5">
-          {/* 1. Blurred Project Intro + Typewriter Block */}
+          {/* Layer 1 & 2: Parallax Ambient Flare + Bold Display Headline */}
+          <div
+            style={{ transform: `translateY(${layer1Offset}px)` }}
+            className="pointer-events-none absolute -left-20 -top-10 w-96 h-96 rounded-full bg-cyan-500/10 blur-3xl -z-10"
+            aria-hidden="true"
+          />
           <div className="w-full">
             <div
-              className="pointer-events-none select-none mb-2.5"
+              className="pointer-events-none select-none mb-2.5 transition-transform duration-150"
               style={{
-                fontSize: 'clamp(15px, 2vw, 20px)',
-                lineHeight: 1.35,
-                fontWeight: 500,
+                fontSize: 'clamp(32px, 4.5vw, 56px)',
+
+                fontWeight: 900,
+                lineHeight: 1.1,
+                transform: `translateY(${layer2Offset}px)`,
                 color: '#fff',
-                filter: 'blur(3px)',
+
               }}
             >
-              THE BOYS 7.1 · AI Spatial Mesh &amp; 3D Printing Studio
-              <br />
-              Hệ thống khởi tạo lưới đa giác 3D từ ảnh 2D &amp; Đặt in SLA/FDM
+              <span className="text-cyan-400 font-mono tracking-widest text-xs uppercase block font-semibold mb-2">01 // AI SPATIAL MESH &amp; 3D PRINTING STUDIO</span>Biến Ảnh 2D Thành <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-teal-200">Mô Hình 3D</span>
+
+
             </div>
 
             <p
@@ -395,7 +405,7 @@ export default function HeroCreateSection() {
             >
               {displayed}
               {!done && (
-                <span className="inline-block w-[2px] h-[1.1em] bg-white align-middle ml-[2px] animate-cursor-blink" />
+                <span className="inline-block w-[2px] h-[1.1em] bg-cyan-400 align-middle ml-[2px] animate-cursor-blink" />
               )}
             </p>
           </div>
@@ -679,7 +689,7 @@ export default function HeroCreateSection() {
             <button
               type="button"
               onClick={handleCopyEmail}
-              className="inline-flex items-center justify-center gap-2 text-white bg-[#2a0408]/40 backdrop-blur-md border border-white/75 rounded-full text-[12.5px] sm:text-[13.5px] px-4 py-[0.35em] mb-2 whitespace-nowrap hover:bg-white hover:text-[#240307] transition-colors duration-200 cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 text-cyan-200 bg-cyan-950/40 backdrop-blur-md border border-cyan-400/40 rounded-full text-[12.5px] sm:text-[13.5px] px-4 py-[0.35em] mb-2 whitespace-nowrap hover:bg-cyan-500/20 hover:text-white transition-colors duration-200 cursor-pointer"
             >
               <span>
                 {copiedEmail ? (

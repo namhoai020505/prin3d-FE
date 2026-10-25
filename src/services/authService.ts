@@ -1,5 +1,6 @@
+import { useState, useEffect } from 'react';
 import api from '../lib/api';
-import { clearAuthSession, getRefreshToken, isAdminRole, isStaffRole, setAuthSession } from '../lib/auth';
+import { AUTH_SESSION_EVENT, clearAuthSession, getAccessToken, isAdminRole, isStaffRole, setAuthSession } from '../lib/auth';
 import { AI_CONSENT_POLICY_VERSION, AI_CONSENT_PURPOSE } from '../lib/env';
 
 export type CurrentUserDto = {
@@ -17,7 +18,7 @@ export type CurrentUserDto = {
 
 export type AuthResponse = {
   accessToken: string;
-  refreshToken: string;
+  refreshToken?: string;
   expiresAtUtc?: string;
   accessExpires?: string;
   user: {
@@ -81,14 +82,25 @@ const unwrap = <T>(res: unknown): T => {
   return res as T;
 };
 
+// In-memory cache for getMe() with deduplicated in-flight promise and 60s TTL
+let cachedMe: CurrentUserDto | null = null;
+let cachedMeTime = 0;
+let getMePromise: Promise<CurrentUserDto> | null = null;
+
+export const invalidateCurrentUserCache = () => {
+  cachedMe = null;
+  cachedMeTime = 0;
+  getMePromise = null;
+};
+
 // 1. Đăng nhập
 export const login = async (input: LoginInput): Promise<AuthResponse> => {
+  invalidateCurrentUserCache();
   const raw = await api.post('/api/auth/login', input);
   const response = unwrap<AuthResponse>(raw);
   if (response?.accessToken) {
     setAuthSession({
       accessToken: response.accessToken,
-      refreshToken: response.refreshToken,
       fullName: response.user?.fullName || input.email.split('@')[0],
     });
   }
@@ -99,12 +111,12 @@ export const login = async (input: LoginInput): Promise<AuthResponse> => {
 export const register = async (
   input: RegisterInput,
 ): Promise<{ message: string; userId?: string; email?: string; accessToken?: string; refreshToken?: string }> => {
+  invalidateCurrentUserCache();
   const raw = await api.post('/api/auth/register', input);
   const response = unwrap<{ message: string; userId?: string; email?: string; accessToken?: string; refreshToken?: string }>(raw);
   if (response?.accessToken) {
     setAuthSession({
       accessToken: response.accessToken,
-      refreshToken: response.refreshToken,
       fullName: input.fullName,
     });
   }
@@ -125,15 +137,13 @@ export const resendVerificationOtp = async (
   return unwrap<{ message: string }>(raw);
 };
 
-// 5. Cấp mới token (Refresh Token Rotation)
-export const refreshToken = async (refreshTokenParam?: string): Promise<AuthResponse> => {
-  const tokenToUse = refreshTokenParam || getRefreshToken();
-  const raw = await api.post('/api/auth/refresh', { refreshToken: tokenToUse });
+// 5. Cấp mới token (Refresh Token Rotation qua HttpOnly cookie)
+export const refreshToken = async (): Promise<AuthResponse> => {
+  const raw = await api.post('/api/auth/refresh', {});
   const response = unwrap<AuthResponse>(raw);
   if (response?.accessToken) {
     setAuthSession({
       accessToken: response.accessToken,
-      refreshToken: response.refreshToken || tokenToUse,
       fullName: response.user?.fullName,
     });
   }
@@ -142,6 +152,7 @@ export const refreshToken = async (refreshTokenParam?: string): Promise<AuthResp
 
 // 6. Đăng xuất phiên hiện tại (không truyền body)
 export const logout = async (): Promise<{ message?: string }> => {
+  invalidateCurrentUserCache();
   try {
     await api.post('/api/auth/logout');
   } catch {
@@ -154,6 +165,7 @@ export const logout = async (): Promise<{ message?: string }> => {
 
 // 7. Thu hồi toàn bộ phiên đăng nhập (Revoke all active sessions)
 export const revokeAllSessions = async (): Promise<{ message: string }> => {
+  invalidateCurrentUserCache();
   const raw = await api.post('/api/auth/revoke-all');
   clearAuthSession();
   return unwrap<{ message: string }>(raw);
@@ -171,6 +183,7 @@ export const forgotPassword = async (
 export const resetPassword = async (
   payload: ResetPasswordPayload,
 ): Promise<{ message: string }> => {
+  invalidateCurrentUserCache();
   const raw = await api.post('/api/auth/reset-password', {
     token: payload.token.trim(),
     newPassword: payload.newPassword,
@@ -195,25 +208,96 @@ export const updateConsent = async (
   return unwrap<{ message: string; purpose: string; policyVersion: string; granted: boolean }>(raw);
 };
 
-// 12. Lấy thông tin cá nhân hiện tại
-export const getMe = async (): Promise<CurrentUserDto> => {
-  const raw = await api.get('/api/auth/me');
-  const response = unwrap<Record<string, unknown>>(raw);
+// 12. Lấy thông tin cá nhân hiện tại (Cached 60s TTL + In-flight Deduplication)
+export const getMe = async (forceRefresh = false): Promise<CurrentUserDto> => {
+  const now = Date.now();
+  if (!forceRefresh && cachedMe && now - cachedMeTime < 60_000) {
+    return cachedMe;
+  }
 
-  // Chuẩn hóa DTO để khớp cả hai trường hợp Backend trả về
-  const user = (response.user as Record<string, unknown>) || response;
-  return {
-    id: (user.id || response.id) as string,
-    email: (user.email || response.email) as string,
-    fullName: (user.fullName || response.fullName) as string,
-    role: (response.role || user.role || 'cus') as 'cus' | 'staff' | 'admin' | 'disabled',
-    freeTrialRemaining: Number(response.freeTrialRemaining ?? user.freeTrialRemaining ?? 0),
-    purchasedRemaining: Number(response.purchasedRemaining ?? user.purchasedRemaining ?? 0),
-    totalUsed: Number(response.totalUsed ?? user.totalUsed ?? 0),
-    accountStatus: (response.accountStatus || user.accountStatus) as string | undefined,
-    emailVerified: Boolean(response.emailVerified ?? user.emailVerified),
-    totalBalance: Number(response.totalBalance ?? 0),
-  };
+  if (!getMePromise || forceRefresh) {
+    getMePromise = (async () => {
+      try {
+        const raw = await api.get('/api/auth/me');
+        const response = unwrap<Record<string, unknown>>(raw);
+
+        // Chuẩn hóa DTO để khớp cả hai trường hợp Backend trả về
+        const user = (response.user as Record<string, unknown>) || response;
+        const result: CurrentUserDto = {
+          id: (user.id || response.id) as string,
+          email: (user.email || response.email) as string,
+          fullName: (user.fullName || response.fullName) as string,
+          role: (response.role || user.role || 'cus') as 'cus' | 'staff' | 'admin' | 'disabled',
+          freeTrialRemaining: Number(response.freeTrialRemaining ?? user.freeTrialRemaining ?? 0),
+          purchasedRemaining: Number(response.purchasedRemaining ?? user.purchasedRemaining ?? 0),
+          totalUsed: Number(response.totalUsed ?? user.totalUsed ?? 0),
+          accountStatus: (response.accountStatus || user.accountStatus) as string | undefined,
+          emailVerified: Boolean(response.emailVerified ?? user.emailVerified),
+          totalBalance: Number(response.totalBalance ?? 0),
+        };
+        cachedMe = result;
+        cachedMeTime = Date.now();
+        return result;
+      } finally {
+        getMePromise = null;
+      }
+    })();
+  }
+
+  return getMePromise;
+};
+
+// Shared custom hook for accessing current authenticated user profile
+export const useCurrentUser = () => {
+  const [user, setUser] = useState<CurrentUserDto | null>(cachedMe);
+  const [loading, setLoading] = useState<boolean>(!cachedMe && !!getAccessToken());
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchUser = async (force = false) => {
+      const token = getAccessToken();
+      if (!token) {
+        if (mounted) {
+          setUser(null);
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        setLoading(true);
+        const data = await getMe(force);
+        if (mounted) {
+          setUser(data);
+          setError(null);
+        }
+      } catch (err: unknown) {
+        if (mounted) {
+          setError(err as Error);
+          setUser(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void fetchUser();
+
+    const handleSessionChange = () => {
+      invalidateCurrentUserCache();
+      void fetchUser(true);
+    };
+
+    window.addEventListener(AUTH_SESSION_EVENT, handleSessionChange);
+    return () => {
+      mounted = false;
+      window.removeEventListener(AUTH_SESSION_EVENT, handleSessionChange);
+    };
+  }, []);
+
+  return { user, loading, error, refresh: () => getMe(true) };
 };
 
 export const verifyAdminSession = async (): Promise<void> => {
@@ -237,6 +321,8 @@ export const authService = {
   getConsent,
   updateConsent,
   getMe,
+  invalidateCurrentUserCache,
+  useCurrentUser,
   verifyAdminSession,
 };
 

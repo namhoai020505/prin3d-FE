@@ -13,8 +13,11 @@ export default function UserLayout() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen relative pl-[64px] md:pl-[72px]">
-        {/* Page Content */}
-        <main className={`flex-1 w-full ${isStudioPage ? 'h-screen overflow-hidden' : ''}`}>
+        {/* Page Content with View Transition Name for smooth continuous conveyor slide */}
+        <main
+          style={{ viewTransitionName: 'app-main-content' }}
+          className={`app-main-content flex-1 w-full ${isStudioPage ? 'h-screen overflow-hidden' : ''}`}
+        >
           <Outlet />
         </main>
 
