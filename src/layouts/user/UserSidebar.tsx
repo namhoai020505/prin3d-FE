@@ -14,7 +14,15 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import logoTheBoy from '../../assets/images/LOGOTheBoy.png';
-import { AUTH_SESSION_EVENT, getAccessToken, getAuthFullName, isAdminRole, isStaffRole } from '../../lib/auth';
+import {
+  AUTH_SESSION_EVENT,
+  getAccessToken,
+  getAuthFullName,
+  getRoleFromAccessToken,
+  isAdminRole,
+  isManagerRole,
+  isStaffRole,
+} from '../../lib/auth';
 import { getMe, logout, revokeAllSessions, type CurrentUserDto } from '../../services/authService';
 import NotificationBellV2 from '../../components/NotificationBellV2';
 
@@ -70,8 +78,10 @@ export default function UserSidebar() {
   }, [isAccountMenuOpen]);
 
   const isLoggedIn = Boolean(token);
+  const roleFromToken = getRoleFromAccessToken(token);
   const isManagementUser = Boolean(
-    currentUser && (isAdminRole(currentUser.role) || isStaffRole(currentUser.role) || currentUser.role === 'admin' || currentUser.role === 'staff')
+    (currentUser && (isAdminRole(currentUser.role) || isStaffRole(currentUser.role) || isManagerRole(currentUser.role))) ||
+    (roleFromToken && (isAdminRole(roleFromToken) || isStaffRole(roleFromToken) || isManagerRole(roleFromToken)))
   );
 
   const handleProfileClick = () => {
