@@ -93,6 +93,10 @@ const requestFreshAccessToken = async (shouldOpenModal = true): Promise<string |
       }
     }
 
+    if (response.data.success === false) {
+      throw new Error('Refresh token request failed.');
+    }
+
     const payload = response.data?.data || response.data;
     const nextAccessToken = payload?.accessToken || payload?.token;
     const nextFullName =
@@ -134,8 +138,8 @@ api.interceptors.request.use(
     const requestUrl = config.url || '';
 
     if (token && !isPublicAuthEndpoint(requestUrl) && config.headers) {
-      if (typeof (config.headers as any).set === 'function') {
-        (config.headers as any).set('Authorization', `Bearer ${token}`);
+      if (typeof config.headers.set === 'function') {
+        config.headers.set('Authorization', `Bearer ${token}`);
       } else {
         config.headers.Authorization = `Bearer ${token}`;
       }

@@ -1,5 +1,5 @@
-import { useState, useEffect, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   X,
   Mail,
@@ -44,6 +44,7 @@ export default function LoginModal({
   onLoginSuccess,
 }: LoginModalProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
 
@@ -63,6 +64,27 @@ export default function LoginModal({
 
   const [isLoading, setIsLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
+
+  const handleClose = useCallback(() => {
+    if (controlledOnClose) {
+      controlledOnClose();
+    } else {
+      setInternalIsOpen(false);
+    }
+  }, [controlledOnClose]);
+
+  // Navigation state survives lazy loading, unlike an event sent before mount.
+  useEffect(() => {
+    if (!location.state?.openLoginModal) return;
+    void Promise.resolve().then(() => {
+      setMode('login');
+      setInternalIsOpen(true);
+      navigate(`${location.pathname}${location.search}${location.hash}`, {
+        replace: true,
+        state: { ...location.state, openLoginModal: false },
+      });
+    });
+  }, [location, navigate]);
 
   // Lắng nghe sự kiện toàn cục mở LoginModal khi phiên hết hạn
   useEffect(() => {
@@ -100,15 +122,7 @@ export default function LoginModal({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen]);
-
-  const handleClose = () => {
-    if (controlledOnClose) {
-      controlledOnClose();
-    } else {
-      setInternalIsOpen(false);
-    }
-  };
+  }, [isOpen, handleClose]);
 
   const startResendCountdown = () => setCountdown(60);
 

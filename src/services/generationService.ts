@@ -175,11 +175,7 @@ export const createImageGeneration = async (
     }
   }
 
-  const finalKey =
-    key ||
-    (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : IdempotencyManager.getOrCreateKey('generation:image'));
+  const finalKey = key || IdempotencyManager.getOrCreateKey('generation:image');
 
   const response = await api.post('/api/generations/image', form, {
     ...keepStudioOpenOnAuthFailure,
@@ -244,12 +240,15 @@ export const getGenerationModelBlobUrl = async (
   kind: 'glb' | 'stl' | 'image' = 'glb',
   signal?: AbortSignal
 ): Promise<string> => {
-  const res: any = await api.get(`/api/generations/${taskId}/files/${kind}`, {
+  const res = await api.get(`/api/generations/${taskId}/files/${kind}`, {
     ...keepStudioOpenOnAuthFailure,
     responseType: 'blob',
     signal,
   });
-  const blob = res instanceof Blob ? res : (res?.data instanceof Blob ? res.data : new Blob([res]));
+  const blob = unwrap<Blob>(res);
+  if (!(blob instanceof Blob)) {
+    throw new Error('Backend không trả về file model hợp lệ.');
+  }
   return URL.createObjectURL(blob);
 };
 

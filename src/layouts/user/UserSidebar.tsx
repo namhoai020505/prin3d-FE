@@ -114,6 +114,8 @@ export default function UserSidebar() {
     );
   };
 
+  const managementPath = isStaffRole(currentUser?.role || roleFromToken) ? '/staff/reviews' : '/admin/orders';
+
   const navItems = [
     {
       label: 'Trang chủ',
@@ -143,9 +145,9 @@ export default function UserSidebar() {
       ? [
           {
             label: 'Trung tâm quản trị',
-            path: '/admin/orders',
+            path: managementPath,
             icon: LayoutDashboard,
-            isActive: location.pathname.startsWith('/admin'),
+            isActive: location.pathname.startsWith('/admin') || location.pathname.startsWith('/staff'),
           },
         ]
       : []),
@@ -259,7 +261,7 @@ export default function UserSidebar() {
                     type="button"
                     onClick={() => {
                       setIsAccountMenuOpen(false);
-                      navigate('/admin/orders');
+                      navigate(managementPath);
                     }}
                     className="w-full px-3 py-2 rounded-lg bg-[#FDF2F0] hover:bg-[#fce9e6] text-left text-[#B83B2A] border border-[#B83B2A]/30 flex items-center justify-between cursor-pointer font-bold shadow-sm transition-colors"
                   >

@@ -41,10 +41,19 @@ import { AI_MODELS, FACE_COUNTS, type FaceCount } from '../../constants/models';
 import Studio3DViewport, { type ModelMetrics } from './components/Studio3DViewport';
 import PrintOrderModal from './components/PrintOrderModal';
 import CreditTopUpModal from './components/CreditTopUpModal';
+import { toast } from 'react-toastify';
+import { Loader2, ShieldCheck } from 'lucide-react';
+import { approvalAndReviewService, buildCanonicalPrintConfig, type CanonicalPrintConfig, type CustomerApprovalDto } from '../../services/approvalAndReviewService';
+import { IdempotencyManager } from '../../lib/idempotency';
+import { AI_CONSENT_POLICY_VERSION } from '../../lib/env';
+import QuoteModalV2 from '../../components/QuoteModalV2';
+import { getRoleFromAccessToken, isAdminRole, isStaffRole, isManagerRole } from '../../lib/auth';
+import type { LatestPrintReview } from '../../services/generationService';
 
 interface GeneratedAsset {
   id: string;
   versionId?: string | null;
+  latestPrintReview?: LatestPrintReview | null;
   name: string;
   date: string;
   status: GenerationStatus;
@@ -53,16 +62,26 @@ interface GeneratedAsset {
   errorMessage?: string | null;
   glbUrl?: string | null;
   stlUrl?: string | null;
+  isApprovedForPrinting?: boolean;
+  reviewStatus?: string;
+  reviewNote?: string | null;
+  isWatertight?: boolean;
+  printabilityStatus?: string;
+  requestedHeightMm?: number;
   fileType?: 'glb' | 'gltf' | 'fbx' | 'obj';
   localFiles?: File[] | null;
   customFaces?: string;
-  isApprovedForPrinting?: boolean;
-  reviewStatus?: string;
+}
+
+interface ApprovedConfig {
+  approvalDto: CustomerApprovalDto;
+  config: CanonicalPrintConfig;
 }
 
 const toAsset = (task: GenerationTask): GeneratedAsset => ({
   id: task.id,
   versionId: task.versionId ?? null,
+  latestPrintReview: task.latestPrintReview ?? null,
   name: task.modelName?.trim() || '3D model',
   date: new Date(task.createdAtUtc).toLocaleString('vi-VN'),
   status: task.status,
@@ -71,9 +90,13 @@ const toAsset = (task: GenerationTask): GeneratedAsset => ({
   errorMessage: task.errorMessage,
   glbUrl: task.glbUrl,
   stlUrl: task.stlUrl,
-  fileType: 'glb',
   isApprovedForPrinting: task.isApprovedForPrinting || task.latestPrintReview?.decision === 'Approved',
   reviewStatus: task.reviewStatus || task.latestPrintReview?.decision,
+  reviewNote: task.reviewNote,
+  isWatertight: task.isWatertight,
+  printabilityStatus: task.printabilityStatus,
+  requestedHeightMm: task.requestedHeightMm,
+  fileType: 'glb',
 });
 
 const isTerminalStatus = (status: GenerationStatus) =>
@@ -117,6 +140,8 @@ export default function Create3DStudio() {
   // Mode selection: 'image' | 'text' | 'file'
   const [generationMode, setGenerationMode] = useState<'image' | 'text' | 'file'>('image');
   const [promptText, setPromptText] = useState('');
+  const [generationError, setGenerationError] = useState('');
+  const [nsfwError, setNsfwError] = useState<string | null>(null);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
 
@@ -193,7 +218,7 @@ export default function Create3DStudio() {
   }, []);
 
   useEffect(() => {
-    void fetchUserCredit();
+    void Promise.resolve().then(fetchUserCredit);
   }, [fetchUserCredit]);
 
   useEffect(() => {
@@ -477,7 +502,7 @@ export default function Create3DStudio() {
 
   useEffect(() => {
     if (!activeModelMesh?.id || activeModelMesh.id.startsWith('local-') || activeModelMesh.id.startsWith('sample-') || activeModelMesh.id === 'active-viewport-mesh') {
-      setActiveModelBlobUrl(null);
+      void Promise.resolve().then(() => setActiveModelBlobUrl(null));
       return;
     }
 
@@ -502,7 +527,7 @@ export default function Create3DStudio() {
         abortController.abort();
       };
     } else {
-      setActiveModelBlobUrl(null);
+      void Promise.resolve().then(() => setActiveModelBlobUrl(null));
     }
   }, [activeModelMesh?.id, activeModelMesh?.glbUrl]);
 
@@ -514,11 +539,181 @@ export default function Create3DStudio() {
     }
     return list;
   }, [assets, activeModelMesh]);
-  const [generationError, setGenerationError] = useState('');
-  const [nsfwError, setNsfwError] = useState<string | null>(null);
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
   const [authSessionRevision, setAuthSessionRevision] = useState(0);
   const pollTimers = useRef<number[]>([]);
+
+  // Customer Approval & Quote Modal states
+  const [approvedConfigMap, setApprovedConfigMap] = useState<Record<string, ApprovedConfig>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = sessionStorage.getItem('idea2model_approved_configs');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const printMaterial = selectedMaterial === 'Resin SLA' ? 'Resin' : selectedMaterial;
+  const [isApprovingPrint, setIsApprovingPrint] = useState(false);
+  const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('idea2model_approved_configs', JSON.stringify(approvedConfigMap));
+    } catch {
+      // Ignore sessionStorage errors
+    }
+  }, [approvedConfigMap]);
+
+  const currentPrintConfig = buildCanonicalPrintConfig({
+    material: printMaterial,
+    heightMm: dimensions.y || 100,
+    scale: scalePercent / 100,
+  });
+  const savedApproval = activeModelMesh?.versionId ? approvedConfigMap[activeModelMesh.versionId] : undefined;
+  const activeApproved = savedApproval && JSON.stringify(savedApproval.config) === JSON.stringify(currentPrintConfig)
+    ? savedApproval
+    : undefined;
+
+  const handleCustomerApproval = async (autoOpenQuote = false) => {
+    if (!activeModelMesh) return;
+    if (!activeModelMesh.versionId) {
+      toast.warn('Mô hình chưa có phiên bản sản xuất (ModelVersion). Vui lòng đợi hoàn tất kiểm định mesh!');
+      return;
+    }
+    const isApprovedByStaff =
+      activeModelMesh.latestPrintReview?.decision === 'Approved' ||
+      activeModelMesh.isApprovedForPrinting;
+    if (!isApprovedByStaff) {
+      toast.warn('Mô hình cần được kỹ thuật viên phê duyệt trước khi chốt mẫu in.');
+      return;
+    }
+
+    const token = getAccessToken();
+    if (!token || isAccessTokenExpired(token)) {
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
+      return;
+    }
+
+    const heightMm = Math.min(120, Math.max(100, Math.round(dimensions.y || 100)));
+    const canonicalConfig = buildCanonicalPrintConfig({
+      material: printMaterial,
+      heightMm,
+      scale: scalePercent / 100,
+    });
+
+    setIsApprovingPrint(true);
+    try {
+      const approvalDto = await approvalAndReviewService.createCustomerApproval({
+        versionId: activeModelMesh.versionId,
+        configuration: canonicalConfig,
+        policyVersion: AI_CONSENT_POLICY_VERSION,
+      });
+
+      setApprovedConfigMap((prev) => ({
+        ...prev,
+        [activeModelMesh.versionId!]: {
+          approvalDto,
+          config: canonicalConfig,
+        },
+      }));
+
+      toast.success(
+        `Đã chốt cấu hình mẫu in 3D! Mã Hash: #${approvalDto.configurationHash.slice(0, 8)}`,
+      );
+
+      if (autoOpenQuote) {
+        setIsQuoteModalOpen(true);
+      }
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { detail?: string; message?: string } } };
+      const msg = errorObj.response?.data?.detail || errorObj.response?.data?.message || 'Không thể chốt mẫu in.';
+      toast.error(msg);
+    } finally {
+      setIsApprovingPrint(false);
+    }
+  };
+
+  const currentRole = getRoleFromAccessToken();
+  const isStaffOrAdmin = isAdminRole(currentRole) || isStaffRole(currentRole) || isManagerRole(currentRole);
+
+  const [isStaffReviewing, setIsStaffReviewing] = useState(false);
+  const handleQuickStaffApprove = async () => {
+    if (!activeModelMesh?.versionId) return;
+    setIsStaffReviewing(true);
+    try {
+      const canonicalConfig = buildCanonicalPrintConfig({
+        material: printMaterial,
+        heightMm: Math.min(120, Math.max(100, Math.round(dimensions.y || 100))),
+        scale: scalePercent / 100,
+      });
+      const reviewResult = await approvalAndReviewService.createPrintReview({
+        versionId: activeModelMesh.versionId,
+        configuration: canonicalConfig,
+        decision: 'Approved',
+        checklist: {
+          orientation: 'Default Z-Up',
+          supportConfirmation: true,
+          material: printMaterial,
+          printHeightMm: Math.min(120, Math.max(100, Math.round(dimensions.y || 100))),
+          buildVolumeConfirmation: true,
+        },
+        note: 'Staff / Admin duyệt in trực tiếp từ Studio 3D',
+      });
+      toast.success('⚡ Đã duyệt in thành công! Bạn có thể chốt mẫu và lấy báo giá ngay.');
+      setActiveModelMesh((prev) =>
+        prev
+          ? {
+              ...prev,
+              latestPrintReview: {
+                decision: 'Approved',
+                configurationHash: reviewResult.configurationHash,
+                createdAtUtc: new Date().toISOString(),
+              },
+              isApprovedForPrinting: true,
+            }
+          : null,
+      );
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { detail?: string; message?: string } } };
+      const msg = errorObj.response?.data?.detail || errorObj.response?.data?.message || 'Không thể duyệt in.';
+      toast.error(msg);
+    } finally {
+      setIsStaffReviewing(false);
+    }
+  };
+
+  const handleOpenQuoteModal = async () => {
+    if (!activeModelMesh) return;
+    if (!activeModelMesh.versionId) {
+      toast.warn('Mô hình chưa có phiên bản sản xuất (ModelVersion).');
+      return;
+    }
+    const isApprovedByStaff =
+      activeModelMesh.latestPrintReview?.decision === 'Approved' ||
+      activeModelMesh.isApprovedForPrinting;
+    if (!isApprovedByStaff) {
+      toast.warn('Mô hình cần được kỹ thuật viên phê duyệt trước khi lấy báo giá.');
+      return;
+    }
+
+    const token = getAccessToken();
+    if (!token || isAccessTokenExpired(token)) {
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
+      return;
+    }
+
+    if (activeApproved) {
+      setIsQuoteModalOpen(true);
+      return;
+    }
+
+    await handleCustomerApproval(true);
+  };
 
   // If a file was passed via location.state, create object URL
   useEffect(() => {
@@ -550,6 +745,7 @@ export default function Create3DStudio() {
       if (uploadedImage && uploadedImage.startsWith('blob:')) {
         URL.revokeObjectURL(uploadedImage);
       }
+      IdempotencyManager.refreshKey('generation:image');
       setUploadedFile(file);
       setUploadedImage(URL.createObjectURL(file));
       setGenerationError('');
@@ -790,6 +986,9 @@ export default function Create3DStudio() {
         setGenerationError(parsed.message);
         setNsfwError(null);
       }
+      if (/consent|aimodelprocessing/i.test(parsed.message)) {
+        window.dispatchEvent(new CustomEvent('idea2model:open-ai-consent-modal'));
+      }
       setIsGenerating(false);
     }
   };
@@ -911,7 +1110,7 @@ export default function Create3DStudio() {
       />
 
       {/* Left Column Stack */}
-      <div className="absolute top-5 left-4 z-20 flex flex-col gap-2.5 w-[330px] max-w-[calc(100vw-4rem)] max-h-[calc(100vh-2.5rem)] overflow-y-auto no-scrollbar pointer-events-auto pb-8 pt-1">
+      <div className="absolute top-5 left-4 z-20 flex flex-col gap-2.5 w-[330px] max-w-[calc(100%-2rem)] max-h-[calc(100vh-2.5rem)] overflow-y-auto no-scrollbar pointer-events-auto pb-8 pt-1">
         {/* Panel 1: Tạo hình mô hình 3D (Thu gọn, không scroll cuộn) */}
         {isLeftPanelOpen ? (
           <div
@@ -1191,6 +1390,7 @@ export default function Create3DStudio() {
                   </div>
                 )}
               </div>
+
             )}
 
             {/* NSFW Terracotta Alert Banner */}
@@ -1897,6 +2097,32 @@ export default function Create3DStudio() {
             )}
           </div>
 
+          {activeModelMesh?.status === 'succeeded' && activeModelMesh.versionId && (
+            <div className="p-3 border-t border-[#E2D9D0] bg-white space-y-2 text-xs text-[#231F1E]">
+              <p className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                {activeModelMesh.latestPrintReview?.decision === 'Approved' || activeModelMesh.isApprovedForPrinting
+                  ? 'Kỹ thuật viên đã duyệt in'
+                  : 'Chờ kỹ thuật viên duyệt in'}
+              </p>
+              {isStaffOrAdmin && (
+                <button type="button" onClick={() => void handleQuickStaffApprove()} disabled={isStaffReviewing}
+                  className="w-full rounded-lg border border-[#E2D9D0] px-3 py-2 disabled:opacity-50">
+                  {isStaffReviewing ? 'Đang duyệt...' : 'Duyệt in ngay (Staff)'}
+                </button>
+              )}
+              <button type="button" onClick={() => void handleCustomerApproval(false)}
+                disabled={isApprovingPrint || !(activeModelMesh.latestPrintReview?.decision === 'Approved' || activeModelMesh.isApprovedForPrinting)}
+                className="w-full rounded-lg border border-[#E2D9D0] px-3 py-2 disabled:opacity-50">
+                {isApprovingPrint ? <Loader2 className="mx-auto w-4 h-4 animate-spin" /> : activeApproved ? 'Đã chốt cấu hình in 3D' : 'Xác nhận chốt mẫu in 3D'}
+              </button>
+              <button type="button" onClick={() => void handleOpenQuoteModal()}
+                disabled={isApprovingPrint || !(activeModelMesh.latestPrintReview?.decision === 'Approved' || activeModelMesh.isApprovedForPrinting)}
+                className="w-full rounded-lg border border-[#B83B2A] px-3 py-2 text-[#B83B2A] disabled:opacity-50">
+                Lấy báo giá V2
+              </button>
+            </div>
+          )}
           {/* Sticky Checkout CTA (Chốt đơn in 3D) */}
           <div className="p-3 bg-[#FFFFFF] border-t border-[#E2D9D0] shrink-0 flex flex-col gap-2 shadow-sm">
             <div className="flex items-center justify-between text-xs font-mono tabular-nums">
@@ -1934,6 +2160,19 @@ export default function Create3DStudio() {
         >
           <PanelRight className="w-4 h-4 text-[#B83B2A]" />
         </button>
+      )}
+      {/* Modal Báo Giá Sản Xuất V2 */}
+      {activeModelMesh && activeModelMesh.versionId && (
+        <QuoteModalV2
+          isOpen={isQuoteModalOpen}
+          onClose={() => setIsQuoteModalOpen(false)}
+          versionId={activeModelMesh.versionId}
+          modelName={activeModelMesh.name}
+          initialHeightMm={Math.min(120, Math.max(100, Math.round(dimensions.y || 100)))}
+          initialMaterial={printMaterial}
+          initialScale={scalePercent / 100}
+          approvedConfigHash={activeApproved?.approvalDto.configurationHash || ''}
+        />
       )}
 
       {/* 3D Print Order & PayOS VietQR Modal */}

@@ -36,6 +36,13 @@ const FinancePage = lazy(() => import('./pages/admin/finance/FinancePage'));
 const WarrantyPage = lazy(() => import('./pages/admin/warranty/WarrantyPage'));
 const SystemAdminPage = lazy(() => import('./pages/admin/system/SystemAdminPage'));
 
+// Staff pages
+const StaffLayout = lazy(() => import('./components/staff/StaffLayout'));
+const StaffReviewsPage = lazy(() => import('./pages/staff/StaffReviewsPage'));
+const StaffFulfillmentKanbanPage = lazy(() => import('./pages/staff/StaffFulfillmentKanbanPage'));
+const StaffOrdersPage = lazy(() => import('./pages/staff/StaffOrdersPage'));
+const StaffDefectsPage = lazy(() => import('./pages/staff/StaffDefectsPage'));
+
 // Fallback spinner while lazy chunks are loading - Light Wabi-Sabi & Vermilion Red
 const PageLoader = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#F6F3EE' }}>
@@ -46,6 +53,7 @@ const PageLoader = () => (
 
 const customerRoles = ['customer', 'cus', 'staff', 'admin'];
 const adminRoles = ['admin', 'staff'];
+const staffRoles = ['staff', 'admin'];
 
 const RootLayout = () => {
   useIdleTimeout(10);
@@ -116,13 +124,30 @@ const router = createBrowserRouter([
           },
         ],
       },
+      {
+        element: <RequireAuth allowedRoles={staffRoles} verifyAdmin />,
+        children: [
+          {
+            path: '/staff',
+            element: <StaffLayout />,
+            children: [
+              { index: true, element: <Navigate to="reviews" replace /> },
+              { path: 'reviews', element: <StaffReviewsPage /> },
+              { path: 'fulfillment', element: <StaffFulfillmentKanbanPage /> },
+              { path: 'fulfillment/:orderId', element: <StaffFulfillmentKanbanPage /> },
+              { path: 'orders', element: <StaffOrdersPage /> },
+              { path: 'defects', element: <StaffDefectsPage /> },
+              { path: '*', element: <Navigate to="reviews" replace /> },
+            ],
+          },
+        ],
+      },
       // Redirect legacy paths
       { path: '/movies/*', element: <Navigate to="/" replace /> },
       { path: '/cinemas/*', element: <Navigate to="/" replace /> },
       { path: '/cinema-schedule', element: <Navigate to="/" replace /> },
       { path: '/booking/*', element: <Navigate to="/" replace /> },
       { path: '/manager/*', element: <Navigate to="/admin/orders" replace /> },
-      { path: '/staff/*', element: <Navigate to="/" replace /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
