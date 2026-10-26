@@ -63,6 +63,9 @@ const loginAsCustomer = async (page: any) => {
   const loginRes = await page.request.post('http://localhost:5133/api/auth/login', {
     data: { email: 'customer@123', password: 'Admin@123456' },
   });
+  if (!loginRes.ok()) {
+    console.error('loginAsCustomer FAILED:', loginRes.status(), await loginRes.text());
+  }
   expect(loginRes.ok()).toBeTruthy();
   const loginData = await loginRes.json();
   const token = loginData.accessToken;

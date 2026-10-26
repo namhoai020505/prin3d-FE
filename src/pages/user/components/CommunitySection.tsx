@@ -477,25 +477,20 @@ export default function CommunitySection() {
   return (
     <section
       id="community-showcase"
-      className="relative z-20 -ml-[64px] md:-ml-[72px] pl-[64px] md:pl-[72px] w-[calc(100%+64px)] md:w-[calc(100%+72px)] select-none"
+      className="relative z-20 -ml-[64px] md:-ml-[72px] pl-[64px] md:pl-[72px] w-[calc(100%+64px)] md:w-[calc(100%+72px)] select-none bg-[#F6F3EE]"
     >
-      {/* Dải chuyển màu mượt mà từ video chuyển dần thành màu đen than chì sâu, không có đường viền cắt ngang */}
+      {/* Seamless transition */}
       <div
-        className="w-full h-44 sm:h-64 pointer-events-none"
+        className="w-full h-16 pointer-events-none"
         style={{
           background:
-            'linear-gradient(to bottom, transparent 0%, rgba(9, 9, 11, 0.25) 20%, rgba(9, 9, 11, 0.65) 50%, rgba(9, 9, 11, 0.92) 80%, #09090b 100%)',
+            'linear-gradient(to bottom, transparent 0%, #F6F3EE 100%)',
         }}
         aria-hidden="true"
       />
 
-      {/* Phần nội dung Cộng đồng trên nền than chì đặc, che chắn hoàn toàn video phía sau */}
-      <div
-        className="w-full pt-4 pb-16"
-        style={{
-          background: '#09090b',
-        }}
-      >
+      {/* Community Section content */}
+      <div className="w-full pt-2 pb-16 bg-[#F6F3EE]">
         <motion.div
           initial={{ opacity: 0, y: 40 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -506,15 +501,15 @@ export default function CommunitySection() {
         {/* Header & Filter Bar */}
         <div
           data-choreo="filter-bar"
-          className="flex items-center justify-between gap-4 pb-3.5 border-b border-white/18 flex-wrap"
+          className="flex items-center justify-between gap-4 pb-3.5 border-b border-[#E2D9D0] flex-wrap"
         >
           {/* Left: Section Title & Animated Sliding Underline Category Tabs */}
           <div className="flex items-center gap-6 flex-wrap">
-            <h2 className="text-xl md:text-[22px] font-bold text-white tracking-tight flex items-center gap-2.5">
+            <h2 className="text-xl md:text-[22px] font-bold text-[#231F1E] tracking-tight flex items-center gap-2.5">
               <span>Cộng đồng sáng tạo 3D</span>
             </h2>
 
-            {/* Desktop Category Tabs with Sliding White Underline & Soft Glass Pill Indicator */}
+            {/* Desktop Category Tabs with Sliding Underline & Soft Pill Indicator */}
             <div
               ref={tabsContainerRef}
               className="hidden lg:flex items-center gap-5 text-xs font-medium relative py-1"
@@ -531,14 +526,14 @@ export default function CommunitySection() {
                     onClick={() => setActiveFilter(filter)}
                     className={`relative px-2.5 py-1.5 rounded-full transition-colors duration-300 cursor-pointer whitespace-nowrap z-10 ${
                       isActive
-                        ? 'text-white font-bold'
-                        : 'text-slate-300 hover:text-white'
+                        ? 'text-[#B83B2A] font-bold'
+                        : 'text-[#7A706C] hover:text-[#231F1E]'
                     }`}
                   >
                     {isActive && (
                       <motion.span
                         layoutId="desktop-community-tab-glow"
-                        className="absolute inset-0 rounded-full bg-white/10 border border-white/15 -z-10"
+                        className="absolute inset-0 rounded-full bg-[#FDF2F0] border border-[#B83B2A]/25 -z-10"
                         transition={{
                           type: 'spring',
                           stiffness: 380,
@@ -551,10 +546,10 @@ export default function CommunitySection() {
                 );
               })}
 
-              {/* Animated Sliding White/Rose Underline Indicator */}
+              {/* Animated Sliding Underline Indicator */}
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute bottom-0 h-[2px] rounded-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.75)]"
+                className="pointer-events-none absolute bottom-0 h-[2px] rounded-full bg-[#B83B2A]"
                 style={{
                   width: `${underlineStyle.width}px`,
                   transform: `translate3d(${underlineStyle.left}px, 0, 0)`,
@@ -565,22 +560,22 @@ export default function CommunitySection() {
             </div>
           </div>
 
-          {/* Right: Search Pill + Crisp White Button "+ Đăng mô hình" */}
+          {/* Right: Search Pill + Vermilion Button "+ Đăng mô hình" */}
           <div className="flex items-center gap-3 ml-auto">
             <div className="relative flex items-center">
-              <Search className="w-3.5 h-3.5 text-slate-300 absolute left-3 pointer-events-none" />
+              <Search className="w-3.5 h-3.5 text-[#7A706C] absolute left-3 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Tìm mẫu, tác giả..."
-                className="pl-8 pr-3.5 py-1.5 h-[36px] bg-[#0c1017]/65 hover:bg-[#111622]/80 focus:bg-[#111622]/90 border border-white/22 focus:border-white/65 rounded-full text-xs text-white placeholder:text-slate-400 outline-none w-36 sm:w-44 focus:w-56 transition-all duration-300"
+                className="pl-8 pr-3.5 py-1.5 h-[36px] bg-[#FFFFFF] hover:bg-[#EFEAE2] focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] rounded-full text-xs text-[#231F1E] placeholder:text-[#7A706C] outline-none w-36 sm:w-44 focus:w-56 transition-all duration-300 shadow-xs"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 text-slate-300 hover:text-white cursor-pointer"
+                  className="absolute right-2.5 text-[#7A706C] hover:text-[#231F1E] cursor-pointer"
                   title="Xóa tìm kiếm"
                 >
                   <X className="w-3 h-3" />
@@ -591,16 +586,16 @@ export default function CommunitySection() {
             <button
               type="button"
               onClick={() => navigate('/create')}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 h-[36px] rounded-full bg-white hover:bg-cyan-50 text-[#041014] font-bold text-xs shadow-[0_6px_20px_rgba(255,255,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all whitespace-nowrap cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 h-[36px] rounded-full bg-[#B83B2A] hover:bg-[#9E2F20] text-white font-bold text-xs shadow-xs hover:scale-[1.02] active:scale-[0.98] transition-all whitespace-nowrap cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5 text-[#041014] stroke-[2.8]" />
+              <Plus className="w-3.5 h-3.5 text-white stroke-[2.8]" />
               <span>Đăng mô hình</span>
             </button>
           </div>
         </div>
 
-        {/* Mobile / Tablet Filter Bar with Smooth Sliding Pill */}
-        <div className="flex lg:hidden items-center gap-2 py-3 overflow-x-auto text-xs border-b border-white/15 no-scrollbar">
+        {/* Mobile / Tablet Filter Bar */}
+        <div className="flex lg:hidden items-center gap-2 py-3 overflow-x-auto text-xs border-b border-[#E2D9D0] no-scrollbar">
           {COMMUNITY_FILTERS.map((filter) => {
             const isActive = activeFilter === filter;
             return (
@@ -610,14 +605,14 @@ export default function CommunitySection() {
                 onClick={() => setActiveFilter(filter)}
                 className={`relative whitespace-nowrap px-3.5 py-1.5 rounded-full transition-colors duration-300 cursor-pointer z-10 ${
                   isActive
-                    ? 'text-[#041014] font-semibold'
-                    : 'text-slate-400 hover:text-white bg-white/10 border border-white/18'
+                    ? 'text-[#B83B2A] font-semibold'
+                    : 'text-[#7A706C] hover:text-[#231F1E] bg-[#FFFFFF] border border-[#E2D9D0]'
                 }`}
               >
                 {isActive && (
                   <motion.span
                     layoutId="mobile-community-tab-pill"
-                    className="absolute inset-0 rounded-full bg-white shadow-sm -z-10"
+                    className="absolute inset-0 rounded-full bg-[#FDF2F0] border border-[#B83B2A]/25 shadow-xs -z-10"
                     transition={{
                       type: 'spring',
                       stiffness: 380,
@@ -711,28 +706,28 @@ export default function CommunitySection() {
                     {/* Dynamic Pointer-Tracking Specular Sheen */}
                     <div className="showcase-card-sheen" aria-hidden="true" />
 
-                    {/* Bottom Deep Dark Obsidian Gradient Scrim */}
+                    {/* Bottom Gradient Scrim */}
                     <div
-                      className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#070a0f] via-[#070a0f]/45 to-transparent"
+                      className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#231F1E]/85 via-[#231F1E]/40 to-transparent"
                       aria-hidden="true"
                     />
 
                     {/* Top Row: Category Glass Pill (Left) & Monospace Polycount Badge (Right) */}
                     <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between gap-1.5 text-[10px]">
-                      <span className="px-2.5 py-0.5 rounded-full bg-[#0a0e17]/75 backdrop-blur-md border border-white/20 group-hover:border-white/50 font-medium text-white/95 transition-colors truncate">
+                      <span className="px-2.5 py-0.5 rounded-full bg-[#FFFFFF]/90 backdrop-blur-md border border-[#E2D9D0] group-hover:border-[#B83B2A]/40 font-medium text-[#231F1E] transition-colors truncate">
                         {item.tag}
                       </span>
-                      <span className="px-2 py-0.5 rounded-md bg-[#0a0e17]/80 backdrop-blur-md border border-white/20 font-mono-mesh font-semibold text-white shrink-0">
+                      <span className="px-2 py-0.5 rounded-md bg-[#FFFFFF]/90 backdrop-blur-md border border-[#E2D9D0] font-mono-mesh font-semibold text-[#231F1E] shrink-0">
                         {item.faceCount}
                       </span>
                     </div>
 
                     {/* Bottom Content Footer: Title + Author */}
                     <div className="relative z-10 flex flex-col gap-0.5 pt-8">
-                      <h3 className="text-xs sm:text-[13.5px] font-bold text-white group-hover:text-cyan-200 transition-colors truncate">
+                      <h3 className="text-xs sm:text-[13.5px] font-bold text-white group-hover:text-[#FDF2F0] transition-colors truncate">
                         {item.title}
                       </h3>
-                      <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <div className="flex items-center justify-between text-[11px] text-zinc-200">
                         <span className="truncate">bởi @{item.author}</span>
                         <span className="inline-flex items-center gap-1 text-[10px] text-white opacity-0 group-hover:opacity-100 transition-opacity font-mono-mesh">
                           <Eye className="w-3 h-3" />
@@ -754,7 +749,7 @@ export default function CommunitySection() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
-              className="w-full py-16 flex flex-col items-center justify-center text-center text-slate-400"
+              className="w-full py-16 flex flex-col items-center justify-center text-center text-[#7A706C]"
             >
               <p className="text-sm">
                 Không tìm thấy mô hình 3D phù hợp với từ khóa &quot;{searchQuery}&quot;.
@@ -765,7 +760,7 @@ export default function CommunitySection() {
                   setSearchQuery('');
                   setActiveFilter('Đề xuất');
                 }}
-                className="mt-3 px-4 py-1.5 bg-white text-[#041014] rounded-full text-xs font-semibold hover:bg-cyan-50 transition-colors cursor-pointer"
+                className="mt-3 px-4 py-1.5 bg-[#B83B2A] text-white rounded-full text-xs font-semibold hover:bg-[#9E2F20] transition-colors cursor-pointer"
               >
                 Xem tất cả mô hình
               </button>
@@ -775,21 +770,21 @@ export default function CommunitySection() {
         </motion.div>
       </div>
 
-      {/* FLIP BOUNDING-RECT LIGHTBOX (Archetype C) */}
+      {/* FLIP BOUNDING-RECT LIGHTBOX */}
       {selectedItem && (
         <div
           ref={lightboxBackdropRef}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-[#03060a]/85 backdrop-blur-xl"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-[#231F1E]/60 backdrop-blur-md"
           onClick={handleCloseLightbox}
         >
           <div
             ref={lightboxModalRef}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-3xl rounded-[20px] bg-[#0a0e17]/95 backdrop-blur-2xl border border-white/25 shadow-[0_32px_90px_rgba(10,1,2,0.92),inset_0_0_0_1px_rgba(255,255,255,0.12)] text-white overflow-hidden grid grid-cols-1 md:grid-cols-12"
+            className="relative w-full max-w-3xl rounded-[20px] bg-[#FFFFFF] border border-[#E2D9D0] shadow-2xl text-[#231F1E] overflow-hidden grid grid-cols-1 md:grid-cols-12"
             style={{ transformOrigin: 'center center' }}
           >
             {/* Left Column: 3D Viewport Preview & Wireframe Inspection */}
-            <div className="relative md:col-span-6 min-h-[280px] md:min-h-[420px] bg-[#03060a] overflow-hidden flex flex-col justify-between p-4 border-b md:border-b-0 md:border-r border-white/15">
+            <div className="relative md:col-span-6 min-h-[280px] md:min-h-[420px] bg-[#EFEAE2] overflow-hidden flex flex-col justify-between p-4 border-b md:border-b-0 md:border-r border-[#E2D9D0]">
               <img
                 src={selectedItem.imageUrl}
                 alt={selectedItem.title}
@@ -800,36 +795,36 @@ export default function CommunitySection() {
               {showWireframeOverlay && (
                 <svg
                   viewBox="0 0 400 460"
-                  className="pointer-events-none absolute inset-0 w-full h-full opacity-55 mix-blend-screen"
+                  className="pointer-events-none absolute inset-0 w-full h-full opacity-55 mix-blend-multiply"
                   fill="none"
                 >
                   <defs>
                     <radialGradient id="lightbox-wf-glow" cx="50%" cy="50%" r="55%">
-                      <stop offset="0%" stopColor="#ffffff" stopOpacity="0.6" />
-                      <stop offset="70%" stopColor="#00F0FF" stopOpacity="0.22" />
-                      <stop offset="100%" stopColor="#03060a" stopOpacity="0" />
+                      <stop offset="0%" stopColor="#B83B2A" stopOpacity="0.6" />
+                      <stop offset="70%" stopColor="#B83B2A" stopOpacity="0.22" />
+                      <stop offset="100%" stopColor="#EFEAE2" stopOpacity="0" />
                     </radialGradient>
                   </defs>
                   <circle cx="200" cy="230" r="145" stroke="url(#lightbox-wf-glow)" strokeWidth="1" />
-                  <ellipse cx="200" cy="230" rx="145" ry="52" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="0.9" strokeDasharray="3 3" />
-                  <ellipse cx="200" cy="230" rx="62" ry="145" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="0.9" strokeDasharray="3 3" />
+                  <ellipse cx="200" cy="230" rx="145" ry="52" stroke="#B83B2A" strokeOpacity="0.35" strokeWidth="0.9" strokeDasharray="3 3" />
+                  <ellipse cx="200" cy="230" rx="62" ry="145" stroke="#B83B2A" strokeOpacity="0.35" strokeWidth="0.9" strokeDasharray="3 3" />
                   <polygon
                     points="200,70 330,155 330,305 200,390 70,305 70,155"
-                    stroke="#ffffff"
+                    stroke="#B83B2A"
                     strokeOpacity="0.4"
                     strokeWidth="0.9"
                   />
-                  <line x1="70" y1="155" x2="330" y2="305" stroke="#ffffff" strokeOpacity="0.26" strokeWidth="0.75" />
-                  <line x1="330" y1="155" x2="70" y2="305" stroke="#ffffff" strokeOpacity="0.26" strokeWidth="0.75" />
-                  <line x1="200" y1="70" x2="200" y2="390" stroke="#ffffff" strokeOpacity="0.3" strokeWidth="0.75" />
+                  <line x1="70" y1="155" x2="330" y2="305" stroke="#B83B2A" strokeOpacity="0.26" strokeWidth="0.75" />
+                  <line x1="330" y1="155" x2="70" y2="305" stroke="#B83B2A" strokeOpacity="0.26" strokeWidth="0.75" />
+                  <line x1="200" y1="70" x2="200" y2="390" stroke="#B83B2A" strokeOpacity="0.3" strokeWidth="0.75" />
                 </svg>
               )}
 
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#03060a] via-transparent to-[#03060a]/50" />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#231F1E]/60 via-transparent to-[#231F1E]/20" />
 
               {/* Top Overlay Badges */}
               <div className="relative z-10 flex items-center justify-between gap-2">
-                <span className="px-2.5 py-1 rounded-full bg-[#0a0e17]/85 backdrop-blur-md border border-white/25 text-[11px] font-semibold text-white">
+                <span className="px-2.5 py-1 rounded-full bg-[#FFFFFF]/90 backdrop-blur-md border border-[#E2D9D0] text-[11px] font-semibold text-[#231F1E]">
                   {selectedItem.tag}
                 </span>
 
@@ -838,8 +833,8 @@ export default function CommunitySection() {
                   onClick={() => setShowWireframeOverlay((v) => !v)}
                   className={`px-2.5 py-1 rounded-full text-[10.5px] font-mono-mesh border backdrop-blur-md transition-colors cursor-pointer ${
                     showWireframeOverlay
-                      ? 'bg-white text-[#041014] border-white font-semibold'
-                      : 'bg-[#0a0e17]/75 border-white/20 text-slate-300 hover:text-white'
+                      ? 'bg-[#B83B2A] text-white border-[#B83B2A] font-semibold'
+                      : 'bg-[#FFFFFF]/90 border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E]'
                   }`}
                 >
                   {showWireframeOverlay ? 'WIREFRAME: ON' : 'WIREFRAME: OFF'}
@@ -847,15 +842,15 @@ export default function CommunitySection() {
               </div>
 
               {/* Bottom Telemetry Strip */}
-              <div className="relative z-10 flex items-center justify-between text-[11px] bg-[#0a0e17]/85 backdrop-blur-md border border-white/20 rounded-xl px-3 py-2">
+              <div className="relative z-10 flex items-center justify-between text-[11px] bg-[#FFFFFF]/95 backdrop-blur-md border border-[#E2D9D0] rounded-xl px-3 py-2">
                 <div className="flex items-center gap-2">
-                  <Box className="w-3.5 h-3.5 text-white" />
-                  <span className="text-slate-400">Face Count:</span>
-                  <span className="font-mono-mesh font-bold text-white">
+                  <Box className="w-3.5 h-3.5 text-[#231F1E]" />
+                  <span className="text-[#7A706C]">Face Count:</span>
+                  <span className="font-mono-mesh font-bold text-[#231F1E]">
                     {selectedItem.faceCount}
                   </span>
                 </div>
-                <span className="font-mono-mesh text-[10.5px] text-slate-300">
+                <span className="font-mono-mesh text-[10.5px] text-[#7A706C]">
                   {selectedItem.fileFormats}
                 </span>
               </div>
@@ -867,104 +862,104 @@ export default function CommunitySection() {
                 {/* Header */}
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-1.5 text-[10.5px] font-mono-mesh uppercase tracking-wider text-cyan-300 mb-1">
+                    <div className="flex items-center gap-1.5 text-[10.5px] font-mono-mesh uppercase tracking-wider text-[#B83B2A] mb-1 font-bold">
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>THE BOYS 7.1 · INSPECT MESH</span>
+                      <span>THE BOYS · MÔ HÌNH 3D</span>
                     </div>
-                    <h3 className="text-lg sm:text-xl font-extrabold text-white leading-snug">
+                    <h3 className="text-lg sm:text-xl font-extrabold text-[#231F1E] leading-snug">
                       {selectedItem.title}
                     </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      bởi <span className="text-white font-semibold">@{selectedItem.author}</span> · {selectedItem.likes} lượt thích
+                    <p className="text-xs text-[#7A706C] mt-0.5">
+                      bởi <span className="text-[#231F1E] font-semibold">@{selectedItem.author}</span> · {selectedItem.likes} lượt thích
                     </p>
                   </div>
 
                   <button
                     type="button"
                     onClick={handleCloseLightbox}
-                    className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    className="p-1.5 rounded-xl bg-[#EFEAE2] hover:bg-[#E2D9D0] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] transition-colors cursor-pointer"
                     title="Đóng (ESC)"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
-                <p className="text-xs text-slate-300 mt-3 leading-relaxed">
+                <p className="text-xs text-[#7A706C] mt-3 leading-relaxed">
                   {selectedItem.subtitle}
                 </p>
 
                 {/* 3D Topology & Mesh Specs Grid */}
                 <div className="grid grid-cols-2 gap-2.5 mt-4">
-                  <div className="p-2.5 rounded-xl bg-white/10 border border-white/20">
-                    <span className="text-[10px] text-slate-400 uppercase font-mono-mesh flex items-center gap-1">
-                      <Layers className="w-3 h-3 text-white" />
+                  <div className="p-2.5 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0]">
+                    <span className="text-[10px] text-[#7A706C] uppercase font-mono-mesh flex items-center gap-1">
+                      <Layers className="w-3 h-3 text-[#231F1E]" />
                       Face Count
                     </span>
-                    <p className="text-sm font-bold text-white font-mono-mesh mt-0.5">
-                      {selectedItem.faceCount} Faces
+                    <p className="text-sm font-bold text-[#231F1E] font-mono-mesh mt-0.5">
+                      {selectedItem.faceCount}
                     </p>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-white/10 border border-white/20">
-                    <span className="text-[10px] text-slate-400 uppercase font-mono-mesh flex items-center gap-1">
-                      <Cpu className="w-3 h-3 text-white" />
+                  <div className="p-2.5 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0]">
+                    <span className="text-[10px] text-[#7A706C] uppercase font-mono-mesh flex items-center gap-1">
+                      <Cpu className="w-3 h-3 text-[#231F1E]" />
                       Vertices
                     </span>
-                    <p className="text-sm font-bold text-white font-mono-mesh mt-0.5">
+                    <p className="text-sm font-bold text-[#231F1E] font-mono-mesh mt-0.5">
                       {selectedItem.vertexCount}
                     </p>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-white/10 border border-white/15">
-                    <span className="text-[10px] text-slate-400 uppercase font-mono-mesh">
+                  <div className="p-2.5 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0]">
+                    <span className="text-[10px] text-[#7A706C] uppercase font-mono-mesh">
                       Cấu trúc Topology
                     </span>
-                    <p className="text-xs font-semibold text-white mt-0.5 truncate">
+                    <p className="text-xs font-semibold text-[#231F1E] mt-0.5 truncate">
                       {selectedItem.topology}
                     </p>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-white/10 border border-white/15">
-                    <span className="text-[10px] text-slate-400 uppercase font-mono-mesh flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-300" />
+                  <div className="p-2.5 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0]">
+                    <span className="text-[10px] text-[#7A706C] uppercase font-mono-mesh flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-700" />
                       Chuẩn In 3D
                     </span>
-                    <p className="text-xs font-semibold text-white mt-0.5 truncate">
+                    <p className="text-xs font-semibold text-[#231F1E] mt-0.5 truncate">
                       {selectedItem.printSpec}
                     </p>
                   </div>
                 </div>
 
                 {/* Prompt Box */}
-                <div className="mt-3.5 p-3 rounded-xl bg-[#141418]/80 border border-white/15 text-[11px] text-zinc-300 font-mono-mesh leading-relaxed">
-                  <span className="text-[10px] uppercase text-white block mb-0.5 font-sans font-bold">
+                <div className="mt-3.5 p-3 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0] text-[11px] text-[#231F1E] font-mono-mesh leading-relaxed">
+                  <span className="text-[10px] uppercase text-[#7A706C] block mb-0.5 font-sans font-bold">
                     Spatial Prompt:
                   </span>
                   &quot;{selectedItem.prompt}&quot;
                 </div>
 
                 {downloadNotice && (
-                  <div className="mt-2.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-medium">
+                  <div className="mt-2.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 text-[11px] font-medium">
                     {downloadNotice}
                   </div>
                 )}
               </div>
 
               {/* Action Bar: "Mở trong Studio 3D" / "Tải file STL/OBJ" */}
-              <div className="pt-3 border-t border-white/15 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              <div className="pt-3 border-t border-[#E2D9D0] flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => handleOpenInStudio(selectedItem)}
-                  className="flex-1 py-2.5 px-4 h-[40px] rounded-xl bg-white hover:bg-zinc-100 text-[#09090b] font-bold text-xs flex items-center justify-center gap-2 shadow-[0_6px_20px_rgba(255,255,255,0.2)] transition-all cursor-pointer"
+                  className="flex-1 py-2.5 px-4 h-[40px] rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer"
                 >
-                  <Sparkles className="w-4 h-4 text-[#09090b]" />
+                  <Sparkles className="w-4 h-4 text-white" />
                   <span>Mở trong Studio 3D</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => handleDownloadMesh(selectedItem)}
-                  className="py-2.5 px-4 h-[40px] rounded-xl bg-white/10 hover:bg-white/20 border border-white/25 hover:border-white/50 text-xs font-semibold text-white flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  className="py-2.5 px-4 h-[40px] rounded-xl bg-[#FFFFFF] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-xs font-semibold text-[#231F1E] flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Tải file STL/OBJ</span>

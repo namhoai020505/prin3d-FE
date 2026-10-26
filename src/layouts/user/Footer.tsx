@@ -102,7 +102,16 @@ export default function Footer() {
   }, []);
 
   return (
-    <footer className="asme-footer-stage relative z-10 -ml-[64px] md:-ml-[72px] pl-[64px] md:pl-[72px] w-[calc(100%+64px)] md:w-[calc(100%+72px)] bg-[#030d0b] text-white select-none">
+    <footer className="asme-footer-stage relative z-10 -ml-[64px] md:-ml-[72px] pl-[64px] md:pl-[72px] w-[calc(100%+64px)] md:w-[calc(100%+72px)] bg-[#0A0A0A] text-white select-none">
+      {/* Vùng chuyển sắc mượt mà (Smooth Gradient Fade) từ nền sáng (#F6F3EE) xuống Footer đen (#0A0A0A) */}
+      <div
+        className="w-full h-44 md:h-56 pointer-events-none -mb-px relative z-20"
+        style={{
+          background:
+            'linear-gradient(180deg, #F6F3EE 0%, rgba(246, 243, 238, 0.95) 15%, rgba(140, 133, 123, 0.4) 50%, rgba(20, 20, 20, 0.85) 82%, #0A0A0A 100%)',
+        }}
+        aria-hidden="true"
+      />
       {/* SECTION 2 -- ABOUT SECTION */}
       <div id="footer-about">
         <AboutSection />

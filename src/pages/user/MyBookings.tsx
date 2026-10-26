@@ -35,7 +35,6 @@ import {
 } from '../../services/fulfillmentService';
 import { DefectReportModal } from '../../components/DefectReportModal';
 import logoTheBoy from '../../assets/LOGOTheBoy.png';
-import TiltCard from '../../components/ui/TiltCard';
 
 type FilterTab = 'ALL' | 'UNPAID' | 'PRODUCTION' | 'SHIPPING_DELIVERED' | 'CANCELLED_REFUND';
 
@@ -82,7 +81,6 @@ export default function MyBookings() {
       const data = await listOrders();
       setOrders(data);
 
-      // Parallel fetch V2 details for all orders
       const v2Results = await Promise.allSettled(
         data.map((o) => getOrderById(o.id))
       );
@@ -158,10 +156,10 @@ export default function MyBookings() {
     if (!timelinesMap[orderId] && !loadingTimelineIds.has(orderId)) {
       setLoadingTimelineIds((prev) => new Set(prev).add(orderId));
       try {
-        const timeline = await fulfillmentService.getOrderTimeline(orderId);
-        setTimelinesMap((prev) => ({ ...prev, [orderId]: timeline }));
-      } catch (err) {
-        console.warn('Không thể tải timeline chi tiết cho đơn', orderId, err);
+        const tl = await fulfillmentService.getOrderTimeline(orderId);
+        setTimelinesMap((prev) => ({ ...prev, [orderId]: tl }));
+      } catch {
+        // Fallback silently if timeline has no events yet
       } finally {
         setLoadingTimelineIds((prev) => {
           const next = new Set(prev);
@@ -172,17 +170,17 @@ export default function MyBookings() {
     }
   };
 
-  // 2-Phase Cancellation Handlers
   const handleOpenCancelModal = (order: OrderItem) => {
-    setCancellationTarget({ order, v2: v2DetailsMap[order.id] });
+    const v2 = v2DetailsMap[order.id];
+    setCancellationTarget({ order, v2 });
     setCancellationReason('');
     setCancellationError(null);
   };
 
   const handleConfirmCancel = async () => {
     if (!cancellationTarget) return;
-    if (cancellationReason.trim().length < 5) {
-      setCancellationError('Vui lòng nhập lý do hủy đơn ít nhất 5 ký tự.');
+    if (!cancellationReason.trim() || cancellationReason.trim().length < 5) {
+      setCancellationError('Vui lòng nhập lý do hủy đơn (tối thiểu 5 ký tự).');
       return;
     }
 
@@ -195,89 +193,83 @@ export default function MyBookings() {
         cancellationReason.trim()
       );
 
-      if (res.cancellationStatus === 'CancelledDirectly') {
+      setCancellationTarget(null);
+
+      if (res.cancellationStatus === 'CancelledDirectly' || res.fulfillmentStatus === 'Cancelled') {
         setActionNotice({
           type: 'success',
-          message: `Đơn hàng #${res.orderCode} chưa thanh toán đã được hủy tức thì thành công.`,
-        });
-      } else if (res.cancellationStatus === 'PendingReview') {
-        setActionNotice({
-          type: 'warning',
-          message: `Yêu cầu hủy đơn hàng #${res.orderCode} đã được ghi nhận và gửi đến Quản trị viên để xét duyệt hoàn tiền.`,
+          message: `Đơn hàng #${cancellationTarget.order.orderCode} đã được hủy thành công.`,
         });
       } else {
         setActionNotice({
           type: 'info',
-          message: `Đã cập nhật trạng thái hủy đơn hàng #${res.orderCode}.`,
+          message: `Yêu cầu hủy đơn #${cancellationTarget.order.orderCode} đã được gửi và đang chờ Ban Quản trị phê duyệt hoàn tiền.`,
         });
       }
 
-      setCancellationTarget(null);
-      setTimeout(() => setActionNotice(null), 6000);
       await fetchOrders();
+      setTimeout(() => setActionNotice(null), 6000);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Không thể thực hiện hủy đơn lúc này.';
-      setCancellationError(msg);
+      const errorMsg =
+        err instanceof Error ? err.message : 'Không thể thực hiện hủy đơn lúc này.';
+      setCancellationError(errorMsg);
     } finally {
       setIsCancelling(false);
     }
   };
 
-  const formatVnd = (amount: number) => amount.toLocaleString('vi-VN') + ' đ';
+  const formatVnd = (amount: number) =>
+    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 
-  const formatDateTime = (iso?: string | null) => {
-    if (!iso) return '—';
+  const formatDateTime = (dateStr?: string | null) => {
+    if (!dateStr) return '—';
     try {
-      return new Date(iso).toLocaleString('vi-VN', {
-        dateStyle: 'short',
-        timeStyle: 'short',
+      return new Date(dateStr).toLocaleString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
       });
     } catch {
-      return iso;
+      return dateStr;
     }
   };
 
-  // Badges & helpers
+  // Badges & helpers in Light Wabi-Sabi palette
   const getPaymentBadge = (paymentStatus?: string) => {
     const norm = (paymentStatus || 'Unpaid').toLowerCase();
     if (norm === 'paid') {
       return {
         label: 'Đã thanh toán',
-        color: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+        color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         icon: CheckCircle2,
       };
     }
     if (norm === 'refundpending') {
       return {
         label: 'Chờ hoàn tiền',
-        color: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
+        color: 'bg-purple-50 text-purple-700 border-purple-200',
         icon: RotateCcw,
       };
     }
-    if (norm === 'refunded') {
+    if (norm === 'refunded' || norm === 'partiallyrefunded') {
       return {
-        label: 'Đã hoàn tiền',
-        color: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30',
-        icon: CheckCircle2,
-      };
-    }
-    if (norm === 'partiallyrefunded') {
-      return {
-        label: 'Hoàn tiền 1 phần',
-        color: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30',
+        label: norm === 'refunded' ? 'Đã hoàn tiền' : 'Hoàn tiền 1 phần',
+        color: 'bg-blue-50 text-blue-700 border-blue-200',
         icon: CheckCircle2,
       };
     }
     if (norm === 'needsattention') {
       return {
         label: 'Cần chú ý',
-        color: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
+        color: 'bg-rose-50 text-rose-700 border-rose-200',
         icon: AlertCircle,
       };
     }
     return {
       label: 'Chờ thanh toán',
-      color: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+      color: 'bg-amber-50 text-amber-700 border-amber-200',
       icon: Clock,
     };
   };
@@ -286,30 +278,30 @@ export default function MyBookings() {
     const s = status || 'PendingPayment';
     switch (s) {
       case 'PendingPayment':
-        return { label: 'Chờ thanh toán', color: 'bg-amber-500/10 text-amber-300 border-amber-500/30', icon: Clock };
+        return { label: 'Chờ thanh toán', color: 'bg-amber-50 text-amber-700 border-amber-200', icon: Clock };
       case 'AwaitingAssignment':
-        return { label: 'Chờ gán xưởng in', color: 'bg-blue-500/10 text-blue-300 border-blue-500/30', icon: Clock };
+        return { label: 'Chờ gán xưởng in', color: 'bg-blue-50 text-blue-700 border-blue-200', icon: Clock };
       case 'Assigned':
-        return { label: 'Đã nhận lệnh in', color: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30', icon: Box };
+        return { label: 'Đã nhận lệnh in', color: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: Box };
       case 'Printing':
       case 'PrintingStarted':
-        return { label: 'Đang in 3D', color: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30 animate-pulse', icon: Printer };
+        return { label: 'Đang in 3D', color: 'bg-[#FDF2F0] text-[#B83B2A] border-[#B83B2A]/30', icon: Printer };
       case 'PostProcessing':
-        return { label: 'Hậu kỳ & Xử lý bề mặt', color: 'bg-teal-500/10 text-teal-300 border-teal-500/30', icon: Layers };
+        return { label: 'Hậu kỳ & Xử lý bề mặt', color: 'bg-[#FDF2F0] text-[#B83B2A] border-[#B83B2A]/30', icon: Layers };
       case 'QualityCheck':
-        return { label: 'Kiểm định QC', color: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30', icon: ShieldAlert };
+        return { label: 'Kiểm định QC', color: 'bg-amber-50 text-amber-700 border-amber-200', icon: ShieldAlert };
       case 'Packaged':
-        return { label: 'Đã đóng gói', color: 'bg-purple-500/10 text-purple-300 border-purple-500/30', icon: Package };
+        return { label: 'Đã đóng gói', color: 'bg-purple-50 text-purple-700 border-purple-200', icon: Package };
       case 'InTransit':
       case 'Shipping':
       case 'Shipped':
-        return { label: 'Đang vận chuyển', color: 'bg-sky-500/10 text-sky-300 border-sky-500/30', icon: Truck };
+        return { label: 'Đang vận chuyển', color: 'bg-sky-50 text-sky-700 border-sky-200', icon: Truck };
       case 'Delivered':
-        return { label: 'Đã giao thành công', color: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', icon: CheckCircle2 };
+        return { label: 'Đã giao thành công', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 };
       case 'Cancelled':
-        return { label: 'Đã hủy đơn', color: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30', icon: XCircle };
+        return { label: 'Đã hủy đơn', color: 'bg-stone-100 text-stone-600 border-stone-200', icon: XCircle };
       default:
-        return { label: s, color: 'bg-white/10 text-white/80 border-white/20', icon: Clock };
+        return { label: s, color: 'bg-[#EFEAE2] text-[#231F1E] border-[#E2D9D0]', icon: Clock };
     }
   };
 
@@ -355,41 +347,42 @@ export default function MyBookings() {
     });
   }, [orders, v2DetailsMap, activeTab]);
 
+  const FILTER_TABS = [
+    { id: 'ALL', label: 'Tất cả' },
+    { id: 'UNPAID', label: 'Chờ thanh toán' },
+    { id: 'PRODUCTION', label: 'Đang in' },
+    { id: 'SHIPPING_DELIVERED', label: 'Giao hàng' },
+    { id: 'CANCELLED_REFUND', label: 'Đã hủy' },
+  ] as const;
+
   return (
-    <div className="min-h-screen bg-[#090D14] text-white selection:bg-cyan-500/30">
+    <div className="min-h-screen bg-[#F6F3EE] text-[#231F1E]">
       {/* Top Banner Header */}
-      <section className="relative overflow-hidden pt-10 pb-8 px-4 sm:px-6 lg:px-8 border-b border-white/10 bg-[#0B0F17]/80 backdrop-blur-md">
+      <section className="relative overflow-hidden pt-10 pb-8 px-4 sm:px-6 lg:px-8 border-b border-[#E2D9D0] bg-[#FFFFFF]">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold">
-              <Printer className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Theo Dõi Đơn Hàng & Vận Hành V2</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-white flex items-center gap-3">
-              <img src={logoTheBoy} alt="Idea2Model Logo" className="w-8 h-8 object-contain drop-shadow" />
+          <div className="space-y-1">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#231F1E] flex items-center gap-3">
+              <img src={logoTheBoy} alt="Idea2Model Logo" className="w-8 h-8 object-contain" />
               <span>Đơn Hàng In 3D Của Tôi</span>
             </h1>
-            <p className="text-xs sm:text-sm text-white/60 max-w-2xl">
-              Giám sát 2 trục trạng thái Thanh toán & Sản xuất, lịch sử xưởng in đối tác, vận đơn theo thời gian thực và khiếu nại bảo hành trong 7 ngày.
-            </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={fetchOrders}
               disabled={isLoading}
-              className="p-2.5 rounded-xl bg-white/[0.05] hover:bg-white/10 border border-white/10 text-white/80 hover:text-white transition-all cursor-pointer"
+              className="p-2.5 rounded-xl bg-[#FFFFFF] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] transition-colors cursor-pointer"
               title="Làm mới danh sách"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-cyan-400' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#B83B2A]' : ''}`} />
             </button>
             <button
               type="button"
               onClick={() => navigate('/create')}
-              className="btn-pooled-cyan px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider text-black flex items-center gap-2 cursor-pointer shadow-lg transition-all"
+              className="px-5 py-2.5 rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 text-black" />
+              <Sparkles className="w-4 h-4" />
               <span>Tạo mô hình mới</span>
             </button>
           </div>
@@ -403,47 +396,39 @@ export default function MyBookings() {
           <div
             className={`p-4 rounded-xl border text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in ${
               actionNotice.type === 'success'
-                ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-200'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                 : actionNotice.type === 'warning'
-                ? 'bg-amber-950/40 border-amber-500/30 text-amber-200'
-                : 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200'
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                : 'bg-blue-50 border-blue-200 text-blue-800'
             }`}
           >
             <div className="flex items-center gap-2.5">
-              {actionNotice.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
-              {actionNotice.type === 'warning' && <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />}
-              {actionNotice.type === 'info' && <Clock className="w-4 h-4 text-cyan-400 shrink-0" />}
+              {actionNotice.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+              {actionNotice.type === 'warning' && <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />}
+              {actionNotice.type === 'info' && <Clock className="w-4 h-4 text-blue-600 shrink-0" />}
               <span>{actionNotice.message}</span>
             </div>
             <button
               type="button"
               onClick={() => setActionNotice(null)}
-              className="p-1 text-white/50 hover:text-white rounded"
+              className="p-1 text-[#7A706C] hover:text-[#231F1E] rounded cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
-        {/* 5 Filter Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar border-b border-white/10">
-          {(
-            [
-              { id: 'ALL', label: 'Tất cả đơn' },
-              { id: 'UNPAID', label: 'Chờ thanh toán' },
-              { id: 'PRODUCTION', label: 'Đang sản xuất' },
-              { id: 'SHIPPING_DELIVERED', label: 'Vận chuyển & Đã giao' },
-              { id: 'CANCELLED_REFUND', label: 'Đã hủy & Hoàn tiền' },
-            ] as const
-          ).map((tab) => (
+        {/* 5 Filter Tabs with Vermilion Red Pill */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar border-b border-[#E2D9D0]">
+          {FILTER_TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`px-4 py-2 rounded-xl text-xs transition-all whitespace-nowrap cursor-pointer ${
                 activeTab === tab.id
-                  ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-950/50'
-                  : 'bg-white/[0.04] hover:bg-white/10 text-white/70 hover:text-white border border-white/5'
+                  ? 'bg-[#B83B2A] text-white shadow-sm font-bold'
+                  : 'bg-[#FFFFFF] hover:bg-[#EFEAE2] text-[#7A706C] hover:text-[#231F1E] border border-[#E2D9D0] font-semibold'
               }`}
             >
               {tab.label}
@@ -454,40 +439,40 @@ export default function MyBookings() {
         {/* Orders State Views */}
         {isLoading && orders.length === 0 ? (
           <div className="py-24 flex flex-col items-center justify-center gap-3">
-            <div className="w-10 h-10 border-3 border-cyan-500/20 border-t-cyan-400 rounded-full animate-spin" />
-            <p className="text-sm text-cyan-100/70 font-medium">Đang tải dữ liệu đơn hàng và trục vận hành...</p>
+            <Loader2 className="w-8 h-8 animate-spin text-[#B83B2A]" />
+            <p className="text-xs text-[#7A706C] font-medium">Đang tải danh sách đơn hàng...</p>
           </div>
         ) : error ? (
-          <div className="p-8 rounded-2xl bg-[#0c1017] border border-rose-500/30 text-center space-y-3">
-            <AlertCircle className="w-8 h-8 text-rose-400 mx-auto" />
-            <p className="text-sm text-white font-medium">{error}</p>
+          <div className="p-8 rounded-2xl bg-[#FFFFFF] border border-rose-200 text-center space-y-3">
+            <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
+            <p className="text-xs text-rose-700 font-medium">{error}</p>
             <button
               type="button"
               onClick={fetchOrders}
-              className="px-4 py-1.5 text-xs font-semibold bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors"
+              className="px-4 py-1.5 text-xs font-semibold bg-[#F6F3EE] hover:bg-[#EFEAE2] text-[#231F1E] rounded-xl border border-[#E2D9D0] transition-colors"
             >
               Thử lại
             </button>
           </div>
         ) : filteredOrders.length === 0 ? (
-          <div className="py-20 rounded-3xl bg-[#0c1017]/90 border border-white/10 text-center space-y-4 p-8">
-            <Box className="w-14 h-14 text-cyan-400/40 mx-auto" />
+          <div className="py-20 rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] text-center space-y-4 p-8 shadow-sm">
+            <Box className="w-12 h-12 text-[#7A706C]/40 mx-auto" />
             <div className="space-y-1">
-              <h3 className="font-bold text-base text-white">Không có đơn hàng nào trong mục này</h3>
-              <p className="text-xs text-white/50 max-w-sm mx-auto">
-                Hiện không có đơn hàng nào khớp với bộ lọc đã chọn. Hãy tạo một mẫu in 3D mới cùng AI Studio!
+              <h3 className="font-bold text-sm text-[#231F1E]">Không có đơn hàng nào trong mục này</h3>
+              <p className="text-xs text-[#7A706C] max-w-sm mx-auto">
+                Hiện không có đơn hàng nào khớp với bộ lọc đã chọn. Hãy tạo mẫu in 3D mới cùng AI Studio!
               </p>
             </div>
             <button
               type="button"
               onClick={() => navigate('/create')}
-              className="btn-pooled-cyan px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider text-black transition-all cursor-pointer"
+              className="px-5 py-2 rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] text-white font-bold text-xs transition-colors cursor-pointer shadow-sm"
             >
               Bắt đầu tạo mô hình
             </button>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {filteredOrders.map((order) => {
               const v2 = v2DetailsMap[order.id];
               const pStatus = v2?.orderPaymentStatus || (order.status === 'Created' ? 'Unpaid' : 'Paid');
@@ -509,34 +494,31 @@ export default function MyBookings() {
               const canDefect = ['Delivered', 'Shipped', 'InTransit', 'Shipping'].includes(fStatus) && fStatus !== 'Cancelled';
 
               return (
-                <TiltCard
+                <div
                   key={order.id}
-                  maxTilt={2.5}
-                  perspective={1200}
-                  scale={1.008}
-                  className="rounded-2xl bg-gradient-to-b from-[#0d1422]/90 via-[#0a0f1a]/92 to-[#070a13]/96 border border-white/10 hover:border-cyan-500/40 p-5 sm:p-6 backdrop-blur-2xl space-y-5 transition-all shadow-[0_16px_45px_rgba(0,0,0,0.75),0_0_25px_rgba(0,240,255,0.06),inset_0_1px_1px_rgba(255,255,255,0.12)]"
+                  className="rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] p-5 sm:p-6 shadow-sm space-y-5 text-[#231F1E] transition-all hover:border-[#B83B2A]/40"
                 >
                   {/* Top Bar: Code, Date & Dual-Axis Badges */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-xs font-bold text-white/50 uppercase tracking-wider">Mã đơn:</span>
-                        <span className="text-base font-black text-cyan-400 font-mono tracking-wide">
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#E2D9D0]">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[#7A706C]">Mã đơn:</span>
+                        <span className="text-base font-extrabold text-[#B83B2A] font-mono">
                           #{order.orderCode}
                         </span>
                         {v2?.quoteId && (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-white/5 border border-white/10 text-white/40 font-mono">
-                            Quote: {v2.quoteId.slice(0, 8)}...
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-[#F6F3EE] border border-[#E2D9D0] text-[#7A706C] font-mono">
+                            Báo giá: {v2.quoteId.slice(0, 8)}...
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-white/50">
+                      <p className="text-[11px] text-[#7A706C]">
                         Thời gian tạo: {formatDateTime(order.createdAtUtc)}
                       </p>
                     </div>
 
                     {/* Dual-Axis Badges */}
-                    <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="flex flex-wrap items-center gap-2">
                       {/* Payment Axis Badge */}
                       <div
                         className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-bold ${paymentBadge.color}`}
@@ -555,10 +537,10 @@ export default function MyBookings() {
                         <span>Vận hành: {fulfillmentBadge.label}</span>
                       </div>
 
-                      {/* Tracking Number pill if available */}
+                      {/* Tracking Number pill */}
                       {(order.trackingNumber || timeline?.trackingNumber) && (
-                        <div className="px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-mono font-semibold flex items-center gap-1.5">
-                          <Truck className="w-3.5 h-3.5 text-cyan-400" />
+                        <div className="px-2.5 py-1 rounded-lg bg-[#F6F3EE] border border-[#E2D9D0] text-[#231F1E] text-xs font-mono font-semibold flex items-center gap-1.5">
+                          <Truck className="w-3.5 h-3.5 text-[#B83B2A]" />
                           <span>Vận đơn: {order.trackingNumber || timeline?.trackingNumber}</span>
                         </div>
                       )}
@@ -566,18 +548,18 @@ export default function MyBookings() {
                   </div>
 
                   {/* 6-Step Visual Stepper */}
-                  <div className="bg-black/25 rounded-xl p-4 border border-white/5 space-y-3">
-                    <div className="flex items-center justify-between text-xs font-bold text-white/70">
-                      <span className="flex items-center gap-1.5 text-cyan-400">
+                  <div className="bg-[#F6F3EE] rounded-xl p-4 border border-[#E2D9D0] space-y-3">
+                    <div className="flex items-center justify-between text-xs font-bold text-[#231F1E]">
+                      <span className="flex items-center gap-1.5 text-[#B83B2A]">
                         <Layers className="w-3.5 h-3.5" />
                         <span>Tiến trình hoàn thiện đơn hàng:</span>
                       </span>
                       {currentStep === -1 ? (
-                        <span className="text-xs font-bold text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-500/30">
+                        <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
                           Đơn hàng đã hủy
                         </span>
                       ) : (
-                        <span className="text-xs text-white/50">
+                        <span className="text-xs text-[#7A706C]">
                           Bước {currentStep}/6
                         </span>
                       )}
@@ -589,13 +571,13 @@ export default function MyBookings() {
                         const isCurrent = currentStep === st.step;
                         const isCancelled = currentStep === -1;
 
-                        let stageColor = 'border-white/10 bg-white/[0.02] text-white/40';
+                        let stageColor = 'border-[#E2D9D0] bg-[#FFFFFF] text-[#7A706C]';
                         if (isCancelled) {
-                          stageColor = 'border-white/5 bg-white/[0.01] text-white/20';
+                          stageColor = 'border-[#E2D9D0] bg-[#EFEAE2]/50 text-[#7A706C]/50';
                         } else if (isPast) {
-                          stageColor = 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300';
+                          stageColor = 'border-emerald-200 bg-emerald-50 text-emerald-800';
                         } else if (isCurrent) {
-                          stageColor = 'border-cyan-400 bg-cyan-950/50 text-cyan-300 shadow-md shadow-cyan-950/50';
+                          stageColor = 'border-[#B83B2A] bg-[#FDF2F0] text-[#B83B2A] ring-1 ring-[#B83B2A]/30 font-bold';
                         }
 
                         return (
@@ -605,11 +587,11 @@ export default function MyBookings() {
                           >
                             <div className="flex items-center gap-1.5 mb-1">
                               {isPast ? (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                               ) : isCurrent ? (
-                                <div className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                                <div className="w-2 h-2 rounded-full bg-[#B83B2A]" />
                               ) : (
-                                <div className="w-2 h-2 rounded-full bg-white/20" />
+                                <div className="w-2 h-2 rounded-full bg-[#E2D9D0]" />
                               )}
                               <span className="text-[11px] font-mono font-bold">#{st.step}</span>
                             </div>
@@ -623,34 +605,34 @@ export default function MyBookings() {
                   </div>
 
                   {/* Order Details Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {/* Specs / Items Snapshot */}
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                        <Box className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Mẫu in & Thông số kỹ thuật</span>
+                    <div className="space-y-1.5">
+                      <h4 className="text-xs font-bold text-[#231F1E] flex items-center gap-1.5">
+                        <Box className="w-3.5 h-3.5 text-[#B83B2A]" />
+                        <span>Mẫu in &amp; Thông số</span>
                       </h4>
-                      <div className="text-xs text-white/80 space-y-1.5 bg-black/30 p-3.5 rounded-xl border border-white/5">
+                      <div className="text-xs text-[#231F1E] space-y-1.5 bg-[#F6F3EE] p-3.5 rounded-xl border border-[#E2D9D0]">
                         <div className="flex justify-between">
-                          <span className="text-white/50">Vật liệu:</span>
-                          <strong className="text-white font-mono">{order.material}</strong>
+                          <span className="text-[#7A706C]">Vật liệu:</span>
+                          <strong className="font-mono">{order.material}</strong>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-white/50">Kích thước:</span>
-                          <strong className="text-white font-mono">
-                            {order.dimensions?.widthMm ?? 0} x {order.dimensions?.depthMm ?? 0} x {order.dimensions?.heightMm ?? 0} mm
+                          <span className="text-[#7A706C]">Kích thước:</span>
+                          <strong className="font-mono">
+                            {order.dimensions?.widthMm ?? 0}×{order.dimensions?.depthMm ?? 0}×{order.dimensions?.heightMm ?? 0} mm
                           </strong>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-white/50">Số lượng:</span>
-                          <strong className="text-cyan-300 font-mono">{order.quantity} cái</strong>
+                          <span className="text-[#7A706C]">Số lượng:</span>
+                          <strong className="text-[#B83B2A] font-mono">{order.quantity} cái</strong>
                         </div>
                         {v2?.items && v2.items.length > 0 && (
-                          <div className="pt-1.5 border-t border-white/5 text-[11px] text-white/60">
+                          <div className="pt-1.5 border-t border-[#E2D9D0] text-[11px] text-[#7A706C]">
                             {v2.items.map((item, idx) => (
                               <div key={idx} className="flex justify-between py-0.5">
                                 <span>Phiên bản: #{item.lineNumber}</span>
-                                <span className="font-mono text-white/80">{item.heightMm}mm</span>
+                                <span className="font-mono text-[#231F1E]">{item.heightMm}mm</span>
                               </div>
                             ))}
                           </div>
@@ -659,22 +641,22 @@ export default function MyBookings() {
                     </div>
 
                     {/* Delivery Address */}
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Thông tin giao nhận</span>
+                    <div className="space-y-1.5">
+                      <h4 className="text-xs font-bold text-[#231F1E] flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-[#B83B2A]" />
+                        <span>Địa chỉ giao hàng</span>
                       </h4>
-                      <div className="text-xs text-white/80 space-y-1.5 bg-black/30 p-3.5 rounded-xl border border-white/5">
-                        <p className="font-bold text-white flex items-center gap-1.5">
+                      <div className="text-xs text-[#231F1E] space-y-1.5 bg-[#F6F3EE] p-3.5 rounded-xl border border-[#E2D9D0]">
+                        <p className="font-bold text-[#231F1E] flex items-center gap-1.5">
                           <span>{order.receiverName}</span>
-                          <span className="text-white/40">•</span>
-                          <span className="font-mono text-cyan-300">{order.receiverPhone}</span>
+                          <span className="text-[#7A706C]">•</span>
+                          <span className="font-mono text-[#B83B2A]">{order.receiverPhone}</span>
                         </p>
-                        <p className="text-white/70 line-clamp-2 leading-relaxed">
+                        <p className="text-[#7A706C] line-clamp-2 leading-relaxed">
                           {order.streetAddress}, {order.district}, {order.city}
                         </p>
                         {order.customerNote && (
-                          <p className="text-[11px] text-amber-300/90 italic pt-1 border-t border-white/5">
+                          <p className="text-[11px] text-amber-800 italic pt-1 border-t border-[#E2D9D0]">
                             Ghi chú: {order.customerNote}
                           </p>
                         )}
@@ -682,26 +664,26 @@ export default function MyBookings() {
                     </div>
 
                     {/* Price & Summary */}
-                    <div className="space-y-2 flex flex-col justify-between">
+                    <div className="space-y-1.5 flex flex-col justify-between">
                       <div>
-                        <h4 className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                        <h4 className="text-xs font-bold text-[#231F1E] flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-[#B83B2A]" />
                           <span>Chi phí thanh toán</span>
                         </h4>
-                        <div className="text-xs text-white/80 space-y-1.5 bg-black/30 p-3.5 rounded-xl border border-white/5">
+                        <div className="text-xs text-[#231F1E] space-y-1.5 bg-[#F6F3EE] p-3.5 rounded-xl border border-[#E2D9D0]">
                           <div className="flex justify-between">
-                            <span className="text-white/50">Đơn giá in:</span>
-                            <span className="text-white font-mono">{formatVnd(order.unitPriceVnd)}</span>
+                            <span className="text-[#7A706C]">Đơn giá in:</span>
+                            <span className="font-mono">{formatVnd(order.unitPriceVnd)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-white/50">Phí vận chuyển:</span>
-                            <span className="text-emerald-400 font-mono">
+                            <span className="text-[#7A706C]">Phí giao hàng:</span>
+                            <span className="text-emerald-700 font-mono">
                               {order.shippingFeeVnd === 0 ? 'Miễn phí' : formatVnd(order.shippingFeeVnd)}
                             </span>
                           </div>
-                          <div className="flex justify-between font-bold text-sm text-white pt-1.5 border-t border-white/10">
+                          <div className="flex justify-between font-bold text-sm text-[#231F1E] pt-1.5 border-t border-[#E2D9D0]">
                             <span>Tổng cộng:</span>
-                            <span className="text-cyan-400 font-mono text-base">{formatVnd(order.totalVnd)}</span>
+                            <span className="text-[#B83B2A] font-mono text-base">{formatVnd(order.totalVnd)}</span>
                           </div>
                         </div>
                       </div>
@@ -710,46 +692,46 @@ export default function MyBookings() {
 
                   {/* Expandable Timeline Section */}
                   {isExpanded && (
-                    <div className="pt-4 border-t border-white/10 space-y-4 animate-in fade-in">
+                    <div className="pt-4 border-t border-[#E2D9D0] space-y-4 animate-in fade-in">
                       <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-white/90 uppercase tracking-wider flex items-center gap-2">
-                          <Printer className="w-4 h-4 text-cyan-400" />
-                          <span>Dòng thời gian sản xuất & Vận chuyển chi tiết (Timeline V2)</span>
+                        <h4 className="text-xs font-bold text-[#231F1E] uppercase tracking-wider flex items-center gap-2">
+                          <Printer className="w-4 h-4 text-[#B83B2A]" />
+                          <span>Nhật ký xưởng &amp; Vận chuyển chi tiết</span>
                         </h4>
                         {isLoadingTimeline && (
-                          <div className="flex items-center gap-2 text-xs text-cyan-400">
+                          <div className="flex items-center gap-2 text-xs text-[#B83B2A]">
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Đang đồng bộ dữ liệu xưởng...</span>
+                            <span>Đang tải tiến trình...</span>
                           </div>
                         )}
                       </div>
 
                       {timeline ? (
-                        <div className="space-y-4 text-xs">
+                        <div className="space-y-3 text-xs">
                           {/* Partner Lab Assignment */}
-                          <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-2">
-                            <div className="flex items-center justify-between font-semibold text-white">
-                              <span className="text-cyan-300 flex items-center gap-1.5">
-                                <Box className="w-3.5 h-3.5 text-cyan-400" />
+                          <div className="p-3.5 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0] space-y-2">
+                            <div className="flex items-center justify-between font-semibold text-[#231F1E]">
+                              <span className="text-[#B83B2A] flex items-center gap-1.5">
+                                <Box className="w-3.5 h-3.5" />
                                 <span>Xưởng in gia công tiếp nhận:</span>
                               </span>
-                              <span className="font-mono text-white/80">
+                              <span className="font-mono text-[#231F1E]">
                                 {timeline.assignments?.[0]?.labName || timeline.assignments?.[0]?.partnerLabName || 'The Boys Smart 3D Hub'}
                               </span>
                             </div>
                             {timeline.assignments?.[0] && (
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-white/60 pt-1">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-[#7A706C] pt-1">
                                 <div>
-                                  <span>Trạng thái xưởng: </span>
-                                  <strong className="text-white">{timeline.assignments[0].status}</strong>
+                                  <span>Trạng thái: </span>
+                                  <strong className="text-[#231F1E]">{timeline.assignments[0].status}</strong>
                                 </div>
                                 <div>
                                   <span>Ngày giao việc: </span>
-                                  <strong className="text-white">{formatDateTime(timeline.assignments[0].assignedAtUtc || timeline.assignments[0].createdAtUtc)}</strong>
+                                  <strong className="text-[#231F1E]">{formatDateTime(timeline.assignments[0].assignedAtUtc || timeline.assignments[0].createdAtUtc)}</strong>
                                 </div>
                                 <div>
                                   <span>Hạn giao hàng: </span>
-                                  <strong className="text-white">{formatDateTime(timeline.assignments[0].dueAtUtc)}</strong>
+                                  <strong className="text-[#231F1E]">{formatDateTime(timeline.assignments[0].dueAtUtc)}</strong>
                                 </div>
                               </div>
                             )}
@@ -757,20 +739,20 @@ export default function MyBookings() {
 
                           {/* Production Runs */}
                           {timeline.assignments?.[0]?.productionRuns && timeline.assignments[0].productionRuns.length > 0 && (
-                            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-2">
-                              <span className="font-bold text-cyan-300 flex items-center gap-1.5">
-                                <Printer className="w-3.5 h-3.5 text-cyan-400" />
-                                <span>Nhật ký các đợt in 3D:</span>
+                            <div className="p-3.5 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0] space-y-2">
+                              <span className="font-bold text-[#B83B2A] flex items-center gap-1.5">
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>Nhật ký các đợt in:</span>
                               </span>
                               <div className="space-y-2 pt-1">
                                 {timeline.assignments[0].productionRuns.map((run) => (
-                                  <div key={run.id} className="p-2.5 rounded-lg bg-black/30 border border-white/5 space-y-1">
+                                  <div key={run.id} className="p-2.5 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] space-y-1">
                                     <div className="flex justify-between items-center text-[11px]">
-                                      <span className="font-bold text-white">Đợt in #{run.runNo ?? 1} ({run.status})</span>
-                                      <span className="text-white/50">{formatDateTime(run.startedAtUtc)}</span>
+                                      <span className="font-bold text-[#231F1E]">Đợt in #{run.runNo ?? 1} ({run.status})</span>
+                                      <span className="text-[#7A706C]">{formatDateTime(run.startedAtUtc)}</span>
                                     </div>
                                     {run.qcNote && (
-                                      <p className="text-[11px] text-amber-300/80">QC Note: {run.qcNote}</p>
+                                      <p className="text-[11px] text-amber-800">Ghi chú QC: {run.qcNote}</p>
                                     )}
                                   </div>
                                 ))}
@@ -780,27 +762,27 @@ export default function MyBookings() {
 
                           {/* Shipments with Tracking Events */}
                           {timeline.shipments && timeline.shipments.length > 0 && (
-                            <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-2">
-                              <span className="font-bold text-cyan-300 flex items-center gap-1.5">
-                                <Truck className="w-3.5 h-3.5 text-cyan-400" />
-                                <span>Hành trình bưu phẩm & Vận đơn:</span>
+                            <div className="p-3.5 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0] space-y-2">
+                              <span className="font-bold text-[#B83B2A] flex items-center gap-1.5">
+                                <Truck className="w-3.5 h-3.5" />
+                                <span>Hành trình vận chuyển:</span>
                               </span>
                               {timeline.shipments.map((ship) => (
                                 <div key={ship.id} className="space-y-2 pt-1">
-                                  <div className="flex flex-wrap items-center justify-between text-[11px] p-2 rounded bg-black/30 border border-white/5">
-                                    <span>Đơn vị giao: <strong className="text-white">{ship.carrier}</strong></span>
-                                    <span className="font-mono text-cyan-300 font-bold">Mã: {ship.trackingNumber}</span>
-                                    <span>Xuất kho: <strong className="text-white">{formatDateTime(ship.shippedAtUtc || ship.createdAtUtc)}</strong></span>
+                                  <div className="flex flex-wrap items-center justify-between text-[11px] p-2.5 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0]">
+                                    <span>Đơn vị giao: <strong className="text-[#231F1E]">{ship.carrier}</strong></span>
+                                    <span className="font-mono text-[#B83B2A] font-bold">Mã: {ship.trackingNumber}</span>
+                                    <span>Xuất kho: <strong className="text-[#231F1E]">{formatDateTime(ship.shippedAtUtc || ship.createdAtUtc)}</strong></span>
                                   </div>
                                   {ship.events && ship.events.length > 0 && (
-                                    <div className="pl-3 border-l-2 border-cyan-500/30 space-y-2">
+                                    <div className="pl-3 border-l-2 border-[#B83B2A]/40 space-y-2">
                                       {ship.events.map((ev, idx) => (
                                         <div key={idx} className="text-[11px] space-y-0.5">
-                                          <div className="flex justify-between text-white/70">
-                                            <span className="font-semibold text-white">{ev.status}</span>
-                                            <span className="text-white/40">{formatDateTime(ev.occurredAtUtc)}</span>
+                                          <div className="flex justify-between text-[#7A706C]">
+                                            <span className="font-semibold text-[#231F1E]">{ev.status}</span>
+                                            <span>{formatDateTime(ev.occurredAtUtc)}</span>
                                           </div>
-                                          {ev.note && <p className="text-white/60">{ev.note}</p>}
+                                          {ev.note && <p className="text-[#7A706C]">{ev.note}</p>}
                                         </div>
                                       ))}
                                     </div>
@@ -812,20 +794,20 @@ export default function MyBookings() {
 
                           {/* Defect Reports (if any) */}
                           {timeline.defectReports && timeline.defectReports.length > 0 && (
-                            <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-500/30 space-y-2">
-                              <span className="font-bold text-rose-300 flex items-center gap-1.5">
-                                <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
-                                <span>Hồ sơ khiếu nại bảo hành đã gửi:</span>
+                            <div className="p-3.5 rounded-xl bg-[#FDF2F0] border border-[#B83B2A]/20 space-y-2">
+                              <span className="font-bold text-[#B83B2A] flex items-center gap-1.5">
+                                <ShieldAlert className="w-3.5 h-3.5 text-[#B83B2A]" />
+                                <span>Hồ sơ khiếu nại bảo hành:</span>
                               </span>
                               {timeline.defectReports.map((def) => (
-                                <div key={def.id} className="p-2.5 rounded-lg bg-black/30 border border-rose-500/20 space-y-1 text-[11px]">
+                                <div key={def.id} className="p-2.5 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] space-y-1 text-[11px]">
                                   <div className="flex justify-between font-bold">
-                                    <span className="text-rose-200">Trạng thái: {def.status}</span>
-                                    <span className="text-white/40">{formatDateTime(def.createdAtUtc)}</span>
+                                    <span className="text-[#B83B2A]">Trạng thái: {def.status}</span>
+                                    <span className="text-[#7A706C]">{formatDateTime(def.createdAtUtc)}</span>
                                   </div>
-                                  <p className="text-white/80">Lý do: {def.reason}</p>
+                                  <p className="text-[#231F1E]">Lý do: {def.reason}</p>
                                   {def.resolutionNote && (
-                                    <p className="text-emerald-300">Phản hồi BQT: {def.resolutionNote}</p>
+                                    <p className="text-emerald-700 font-medium">Phản hồi BQT: {def.resolutionNote}</p>
                                   )}
                                 </div>
                               ))}
@@ -833,17 +815,17 @@ export default function MyBookings() {
                           )}
                         </div>
                       ) : !isLoadingTimeline ? (
-                        <p className="text-xs text-white/40 italic">Chưa có thông tin cập nhật bổ sung từ xưởng.</p>
+                        <p className="text-xs text-[#7A706C] italic">Chưa có thông tin cập nhật bổ sung từ xưởng.</p>
                       ) : null}
                     </div>
                   )}
 
                   {/* Action Bar (Pay Now, Cancel, Defect Report, Toggle Timeline) */}
-                  <div className="pt-3 flex flex-wrap items-center justify-between gap-3 border-t border-white/10">
+                  <div className="pt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[#E2D9D0]">
                     <button
                       type="button"
                       onClick={() => handleToggleTimeline(order.id)}
-                      className="px-3.5 py-1.5 rounded-xl bg-white/[0.05] hover:bg-white/10 text-white/70 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-xl bg-[#F6F3EE] hover:bg-[#EFEAE2] text-[#7A706C] hover:text-[#231F1E] border border-[#E2D9D0] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <span>{isExpanded ? 'Thu gọn tiến độ' : 'Xem tiến độ chi tiết'}</span>
                       {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -861,9 +843,9 @@ export default function MyBookings() {
                               deliveredAtUtc: order.deliveredAtUtc || timeline?.shipments?.[0]?.deliveredAtUtc,
                             })
                           }
-                          className="px-3.5 py-1.5 rounded-xl border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                          className="px-3.5 py-1.5 rounded-xl border border-[#B83B2A]/30 text-[#B83B2A] hover:bg-[#FDF2F0] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                         >
-                          <ShieldAlert className="w-3.5 h-3.5 text-cyan-400" />
+                          <ShieldAlert className="w-3.5 h-3.5 text-[#B83B2A]" />
                           <span>Khiếu nại sản phẩm lỗi</span>
                         </button>
                       )}
@@ -873,7 +855,7 @@ export default function MyBookings() {
                         <button
                           type="button"
                           onClick={() => handleOpenCancelModal(order)}
-                          className="px-3.5 py-1.5 rounded-xl border border-white/15 text-white/60 hover:text-rose-300 hover:border-rose-500/40 hover:bg-rose-500/10 text-xs font-semibold transition-colors cursor-pointer"
+                          className="px-3.5 py-1.5 rounded-xl border border-[#E2D9D0] text-[#7A706C] hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 text-xs font-semibold transition-colors cursor-pointer"
                         >
                           Hủy đơn hàng
                         </button>
@@ -884,15 +866,15 @@ export default function MyBookings() {
                         <button
                           type="button"
                           onClick={() => navigate(`/orders/${order.id}/checkout-return`)}
-                          className="btn-pooled-cyan px-4 py-1.5 rounded-xl font-bold text-xs uppercase tracking-wider text-black flex items-center gap-1.5 cursor-pointer shadow-md transition-all"
+                          className="px-4 py-1.5 rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] font-bold text-xs text-white flex items-center gap-1.5 cursor-pointer shadow-sm transition-colors"
                         >
                           <span>Thanh toán ngay</span>
-                          <ArrowRight className="w-3.5 h-3.5 text-black" />
+                          <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
                   </div>
-                </TiltCard>
+                </div>
               );
             })}
           </div>
@@ -901,19 +883,19 @@ export default function MyBookings() {
 
       {/* 2-Phase Cancellation Modal */}
       {cancellationTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg rounded-2xl bg-[#090D14]/95 border border-white/20 text-white shadow-2xl p-6 space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
-              <div className="flex items-center gap-2.5">
-                <AlertCircle className="w-5 h-5 text-rose-400" />
-                <h3 className="text-base font-bold text-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] text-[#231F1E] shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E2D9D0]">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-rose-500" />
+                <h3 className="text-base font-bold text-[#231F1E]">
                   Xác Nhận Hủy Đơn #{cancellationTarget.order.orderCode}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setCancellationTarget(null)}
-                className="p-1.5 text-white/50 hover:text-white rounded-lg"
+                className="p-1.5 text-[#7A706C] hover:text-[#231F1E] rounded-lg cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -929,22 +911,22 @@ export default function MyBookings() {
               const isPaid = pStatus === 'paid' || pStatus === 'refundpending';
 
               return isPaid ? (
-                <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs space-y-1">
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
                   <p className="font-bold flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <Clock className="w-3.5 h-3.5 text-amber-700" />
                     <span>Đơn hàng đã thanh toán qua PayOS</span>
                   </p>
-                  <p className="text-white/70 leading-relaxed">
-                    Yêu cầu hủy sẽ được chuyển sang bộ phận Quản trị để xét duyệt và thực hiện lệnh hoàn tiền theo chính sách.
+                  <p className="text-amber-800 leading-relaxed">
+                    Yêu cầu hủy sẽ được chuyển sang bộ phận Quản trị để xét duyệt và thực hiện hoàn tiền theo quy định.
                   </p>
                 </div>
               ) : (
-                <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-cyan-200 text-xs space-y-1">
+                <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs space-y-1">
                   <p className="font-bold flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-700" />
                     <span>Đơn hàng chưa thanh toán</span>
                   </p>
-                  <p className="text-white/70 leading-relaxed">
+                  <p className="text-blue-800 leading-relaxed">
                     Đơn hàng sẽ được hủy trực tiếp ngay lập tức mà không phát sinh thêm chi phí nào.
                   </p>
                 </div>
@@ -952,22 +934,22 @@ export default function MyBookings() {
             })()}
 
             {cancellationError && (
-              <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
                 <span>{cancellationError}</span>
               </div>
             )}
 
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-white/90">
-                Lý do hủy đơn hàng <span className="text-rose-400">*</span>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-[#231F1E]">
+                Lý do hủy đơn hàng <span className="text-rose-500">*</span>
               </label>
               <textarea
                 rows={3}
                 value={cancellationReason}
                 onChange={(e) => setCancellationReason(e.target.value)}
                 placeholder="Vui lòng cho chúng tôi biết lý do bạn muốn hủy đơn (tối thiểu 5 ký tự)..."
-                className="w-full rounded-xl bg-[#0B0F17] border border-white/10 focus:border-cyan-400 p-3 text-xs text-white placeholder-white/30 outline-none resize-none"
+                className="w-full rounded-xl bg-[#F6F3EE] border border-[#E2D9D0] focus:border-[#B83B2A] p-3 text-xs text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none resize-none"
               />
             </div>
 
@@ -976,7 +958,7 @@ export default function MyBookings() {
                 type="button"
                 onClick={() => setCancellationTarget(null)}
                 disabled={isCancelling}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-white/70 hover:text-white transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-[#7A706C] hover:text-[#231F1E] transition-colors cursor-pointer"
               >
                 Quay lại
               </button>
@@ -984,7 +966,7 @@ export default function MyBookings() {
                 type="button"
                 onClick={handleConfirmCancel}
                 disabled={isCancelling || cancellationReason.trim().length < 5}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 disabled:opacity-50 cursor-pointer transition-all"
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 disabled:opacity-50 cursor-pointer transition-colors"
               >
                 {isCancelling ? (
                   <>

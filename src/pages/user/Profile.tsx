@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { getMe, logout, revokeAllSessions, type CurrentUserDto } from '../../services/authService';
+import CreditTopUpModal from './components/CreditTopUpModal';
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -21,34 +22,25 @@ export default function Profile() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRevoking, setIsRevoking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isTopUpOpen, setIsTopUpOpen] = useState(false);
+
+  const fetchProfile = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await getMe();
+      setUser(data);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : 'Không thể tải thông tin tài khoản.';
+      setError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let isMounted = true;
-    const fetchProfile = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const data = await getMe();
-        if (isMounted) {
-          setUser(data);
-        }
-      } catch (err: unknown) {
-        if (isMounted) {
-          const msg =
-            err instanceof Error ? err.message : 'Không thể tải thông tin tài khoản.';
-          setError(msg);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    fetchProfile();
-    return () => {
-      isMounted = false;
-    };
+    void fetchProfile();
   }, []);
 
   const handleLogout = async () => {
@@ -88,30 +80,35 @@ export default function Profile() {
     }
   };
 
+  const trialCredits =
+    (user as unknown as { trialCredits?: number })?.trialCredits ??
+    user?.freeTrialRemaining ??
+    1;
+
   return (
-    <div className="min-h-screen bg-[#090D14] text-white selection:bg-cyan-500/30">
+    <div className="min-h-screen bg-[#F6F3EE] text-[#231F1E]">
       {/* Hero Header */}
-      <section className="relative overflow-hidden pt-12 pb-10 px-4 sm:px-6 lg:px-8 border-b border-white/10 bg-gradient-to-b from-[#0e1624] to-[#090D14]">
+      <section className="relative overflow-hidden pt-12 pb-10 px-4 sm:px-6 lg:px-8 border-b border-[#E2D9D0] bg-[#FFFFFF]">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
-            <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-cyan-500 to-blue-600 p-0.5 shadow-[0_0_25px_rgba(0,240,255,0.3)]">
-              <div className="w-full h-full rounded-[22px] bg-[#0c1017] flex items-center justify-center text-cyan-300 text-2xl font-black uppercase">
+            <div className="w-20 h-20 rounded-2xl bg-[#FDF2F0] border border-[#B83B2A]/20 p-1 flex items-center justify-center shadow-sm">
+              <div className="w-full h-full rounded-xl bg-[#FFFFFF] flex items-center justify-center text-[#B83B2A] text-2xl font-black uppercase">
                 {user?.fullName?.slice(0, 1) || 'U'}
               </div>
             </div>
 
             <div className="space-y-1.5">
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
-                <h1 className="text-2xl sm:text-3xl font-black text-white">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#231F1E]">
                   {user?.fullName || 'Người dùng'}
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-300 text-xs font-semibold">
+                <span className="px-2.5 py-0.5 rounded-full bg-[#EFEAE2] border border-[#E2D9D0] text-[#7A706C] text-xs font-semibold">
                   {getRoleLabel(user?.role)}
                 </span>
               </div>
-              <p className="text-xs sm:text-sm text-slate-400 flex items-center justify-center sm:justify-start gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-cyan-400" />
-                <span>{user?.email || 'user@example.com'}</span>
+              <p className="text-xs sm:text-sm text-[#7A706C] flex items-center justify-center sm:justify-start gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-[#B83B2A]" />
+                <span>{user?.email || 'email@domain.com'}</span>
               </p>
             </div>
           </div>
@@ -121,13 +118,13 @@ export default function Profile() {
               type="button"
               onClick={handleRevokeAllSessions}
               disabled={isRevoking}
-              className="px-3.5 py-2 rounded-xl border border-rose-500/40 bg-rose-950/20 hover:bg-rose-900/40 text-rose-300 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+              className="px-3.5 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
               title="Đăng xuất khỏi mọi thiết bị đang đăng nhập"
             >
               {isRevoking ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-300" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600" />
               ) : (
-                <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
               )}
               <span>Đăng xuất mọi thiết bị</span>
             </button>
@@ -135,9 +132,9 @@ export default function Profile() {
             <button
               type="button"
               onClick={handleLogout}
-              className="px-4 py-2 rounded-xl border border-slate-700 hover:border-cyan-400/50 hover:bg-white/5 text-slate-300 hover:text-white text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm"
+              className="px-4 py-2 rounded-xl border border-[#E2D9D0] bg-[#FFFFFF] hover:bg-[#EFEAE2] text-[#7A706C] hover:text-[#231F1E] text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer shadow-sm"
             >
-              <LogOut className="w-4 h-4 text-slate-400" />
+              <LogOut className="w-4 h-4 text-[#7A706C]" />
               <span>Đăng xuất</span>
             </button>
           </div>
@@ -148,16 +145,16 @@ export default function Profile() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
         {isLoading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-3">
-            <div className="w-10 h-10 border-3 border-cyan-500/30 border-t-cyan-400 rounded-full animate-spin" />
-            <p className="text-sm text-slate-400 font-medium">Đang tải dữ liệu hồ sơ...</p>
+            <div className="w-8 h-8 border-2 border-[#B83B2A]/30 border-t-[#B83B2A] rounded-full animate-spin" />
+            <p className="text-xs text-[#7A706C] font-medium">Đang tải dữ liệu hồ sơ...</p>
           </div>
         ) : error ? (
-          <div className="p-6 rounded-2xl bg-rose-950/30 border border-rose-500/30 text-center space-y-3">
-            <p className="text-sm text-white">{error}</p>
+          <div className="p-6 rounded-2xl bg-[#FFFFFF] border border-rose-200 text-center space-y-3 shadow-sm">
+            <p className="text-xs text-rose-700 font-medium">{error}</p>
             <button
               type="button"
-              onClick={() => window.location.reload()}
-              className="px-4 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-500 rounded-xl transition-colors cursor-pointer"
+              onClick={() => void fetchProfile()}
+              className="px-4 py-1.5 text-xs font-semibold bg-[#B83B2A] hover:bg-[#9E2F20] text-white rounded-xl transition-colors cursor-pointer"
             >
               Tải lại
             </button>
@@ -166,63 +163,67 @@ export default function Profile() {
           <>
             {/* Credit Overview Cards */}
             <div>
-              <h2 className="text-sm font-bold uppercase tracking-wider text-cyan-300 mb-4 flex items-center gap-2">
-                <Coins className="w-4 h-4" />
-                <span>Số dư Lượt Tạo 3D AI (Credits)</span>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-[#231F1E] mb-4 flex items-center gap-2">
+                <Coins className="w-4 h-4 text-[#B83B2A]" />
+                <span>Tài Khoản &amp; Lượt Tạo</span>
               </h2>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
                 {/* Free Trial Credits */}
-                <div className="p-6 rounded-2xl bg-[#0c1017]/90 border border-white/10 hover:border-cyan-400/40 backdrop-blur-xl relative overflow-hidden group transition-all shadow-md hover:shadow-[0_0_20px_rgba(0,240,255,0.15)]">
+                <div className="p-5 rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] shadow-sm flex flex-col justify-between hover:border-[#B83B2A]/40 transition-all">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400 font-semibold">Lượt dùng thử (Free)</span>
-                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs text-[#7A706C] font-semibold">Lượt dùng thử (Free)</span>
+                    <Sparkles className="w-4 h-4 text-[#B83B2A]" />
                   </div>
-                  <div className="mt-4 flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold text-white">
-                      {user?.freeTrialRemaining ?? 0}
+                  <div className="mt-3 flex items-baseline gap-1.5">
+                    <span className="text-3xl font-extrabold text-[#231F1E] font-mono tabular-nums">
+                      {trialCredits}
                     </span>
-                    <span className="text-xs text-slate-400">lượt</span>
+                    <span className="text-xs text-[#7A706C]">lượt</span>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-500">Cấp miễn phí cho mỗi tài khoản mới.</p>
                 </div>
 
                 {/* Purchased Credits */}
-                <div className="p-6 rounded-2xl bg-[#0c1017]/90 border border-white/10 hover:border-cyan-400/40 backdrop-blur-xl relative overflow-hidden group transition-all shadow-md hover:shadow-[0_0_20px_rgba(0,240,255,0.15)]">
+                <div className="p-5 rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] shadow-sm flex flex-col justify-between hover:border-[#B83B2A]/40 transition-all">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400 font-semibold">Lượt mua thêm</span>
-                    <Zap className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs text-[#7A706C] font-semibold">Lượt mua thêm</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsTopUpOpen(true)}
+                      className="px-2.5 py-1 rounded-lg bg-[#B83B2A] hover:bg-[#9E2F20] text-white text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+                    >
+                      <Zap className="w-3 h-3" />
+                      <span>+ Nạp thêm</span>
+                    </button>
                   </div>
-                  <div className="mt-4 flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold text-white">
+                  <div className="mt-3 flex items-baseline gap-1.5">
+                    <span className="text-3xl font-extrabold text-[#B83B2A] font-mono tabular-nums">
                       {user?.purchasedRemaining ?? 0}
                     </span>
-                    <span className="text-xs text-slate-400">lượt</span>
+                    <span className="text-xs text-[#7A706C]">lượt</span>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-500">Lượt tạo mua gói hoặc được cấp bởi quản trị viên.</p>
                 </div>
 
                 {/* Total Used */}
-                <div className="p-6 rounded-2xl bg-[#0c1017]/90 border border-white/10 hover:border-cyan-400/40 backdrop-blur-xl relative overflow-hidden group transition-all shadow-md hover:shadow-[0_0_20px_rgba(0,240,255,0.15)]">
+                <div className="p-5 rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] shadow-sm flex flex-col justify-between hover:border-[#B83B2A]/40 transition-all">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400 font-semibold">Mô hình đã tạo</span>
-                    <Box className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs text-[#7A706C] font-semibold">Mô hình đã tạo</span>
+                    <Box className="w-4 h-4 text-[#B83B2A]" />
                   </div>
-                  <div className="mt-4 flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold text-white">
+                  <div className="mt-3 flex items-baseline gap-1.5">
+                    <span className="text-3xl font-extrabold text-[#231F1E] font-mono tabular-nums">
                       {user?.totalUsed ?? 0}
                     </span>
-                    <span className="text-xs text-slate-400">mẫu 3D</span>
+                    <span className="text-xs text-[#7A706C]">mẫu 3D</span>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-500">Tổng tác vụ AI generation đã hoàn thành.</p>
                 </div>
               </div>
             </div>
 
             {/* Quick Actions */}
             <div>
-              <h2 className="text-sm font-bold uppercase tracking-wider text-cyan-300 mb-4 flex items-center gap-2">
-                <Sparkles className="w-4 h-4" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-[#231F1E] mb-4 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#B83B2A]" />
                 <span>Truy cập nhanh</span>
               </h2>
 
@@ -230,55 +231,76 @@ export default function Profile() {
                 <button
                   type="button"
                   onClick={() => navigate('/create')}
-                  className="p-5 rounded-2xl bg-[#0c1017]/90 border border-white/10 hover:border-cyan-400/50 hover:bg-[#121c2c]/50 text-left transition-all cursor-pointer group space-y-2 shadow-md hover:shadow-[0_0_25px_rgba(0,240,255,0.15)]"
+                  className="p-4 rounded-xl bg-[#FFFFFF] hover:bg-[#EFEAE2]/50 border border-[#E2D9D0] hover:border-[#B83B2A]/40 flex items-center justify-between transition-all cursor-pointer group shadow-sm"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform">
-                    <Box className="w-5 h-5" />
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-[#FDF2F0] border border-[#B83B2A]/20 flex items-center justify-center text-[#B83B2A] group-hover:scale-105 transition-transform">
+                      <Box className="w-4.5 h-4.5" />
+                    </div>
+                    <span className="font-bold text-sm text-[#231F1E] group-hover:text-[#B83B2A] transition-colors">
+                      Studio 3D
+                    </span>
                   </div>
-                  <h3 className="font-bold text-sm text-white group-hover:text-cyan-300 transition-colors">
-                    Studio Tạo 3D
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Nhập ảnh hoặc mô tả để tạo mô hình 3D ngay tức thì.
-                  </p>
+                  <span className="text-[#7A706C] group-hover:text-[#B83B2A] group-hover:translate-x-0.5 transition-all text-sm font-bold">
+                    →
+                  </span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => navigate('/ticket-prices')}
-                  className="p-5 rounded-2xl bg-[#0c1017]/90 border border-white/10 hover:border-cyan-400/50 hover:bg-[#121c2c]/50 text-left transition-all cursor-pointer group space-y-2 shadow-md hover:shadow-[0_0_25px_rgba(0,240,255,0.15)]"
+                  className="p-4 rounded-xl bg-[#FFFFFF] hover:bg-[#EFEAE2]/50 border border-[#E2D9D0] hover:border-[#B83B2A]/40 flex items-center justify-between transition-all cursor-pointer group shadow-sm"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform">
-                    <CreditCard className="w-5 h-5" />
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-[#FDF2F0] border border-[#B83B2A]/20 flex items-center justify-center text-[#B83B2A] group-hover:scale-105 transition-transform">
+                      <CreditCard className="w-4.5 h-4.5" />
+                    </div>
+                    <span className="font-bold text-sm text-[#231F1E] group-hover:text-[#B83B2A] transition-colors">
+                      Bảng Giá
+                    </span>
                   </div>
-                  <h3 className="font-bold text-sm text-white group-hover:text-cyan-300 transition-colors">
-                    Bảng giá & Gói in
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Xem biểu phí in 3D nhựa Resin SLA & nhựa FDM.
-                  </p>
+                  <span className="text-[#7A706C] group-hover:text-[#B83B2A] group-hover:translate-x-0.5 transition-all text-sm font-bold">
+                    →
+                  </span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => navigate('/orders')}
-                  className="p-5 rounded-2xl bg-[#0c1017]/90 border border-white/10 hover:border-cyan-400/50 hover:bg-[#121c2c]/50 text-left transition-all cursor-pointer group space-y-2 shadow-md hover:shadow-[0_0_25px_rgba(0,240,255,0.15)]"
+                  onClick={() => navigate('/my-bookings')}
+                  className="p-4 rounded-xl bg-[#FFFFFF] hover:bg-[#EFEAE2]/50 border border-[#E2D9D0] hover:border-[#B83B2A]/40 flex items-center justify-between transition-all cursor-pointer group shadow-sm"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform">
-                    <Printer className="w-5 h-5" />
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-[#FDF2F0] border border-[#B83B2A]/20 flex items-center justify-center text-[#B83B2A] group-hover:scale-105 transition-transform">
+                      <Printer className="w-4.5 h-4.5" />
+                    </div>
+                    <span className="font-bold text-sm text-[#231F1E] group-hover:text-[#B83B2A] transition-colors">
+                      Đơn Hàng
+                    </span>
                   </div>
-                  <h3 className="font-bold text-sm text-white group-hover:text-cyan-300 transition-colors">
-                    Đơn in 3D của tôi
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Theo dõi trạng thái sản xuất và giao nhận mẫu phẩm.
-                  </p>
+                  <span className="text-[#7A706C] group-hover:text-[#B83B2A] group-hover:translate-x-0.5 transition-all text-sm font-bold">
+                    →
+                  </span>
                 </button>
               </div>
             </div>
           </>
         )}
       </div>
+
+      {/* Credit Top-Up Modal */}
+      {isTopUpOpen && (
+        <CreditTopUpModal
+          isOpen={isTopUpOpen}
+          onClose={() => setIsTopUpOpen(false)}
+          onSuccess={async () => {
+            try {
+              const fresh = await getMe();
+              setUser(fresh);
+            } catch {}
+          }}
+          initialBalance={user?.purchasedRemaining}
+        />
+      )}
     </div>
   );
 }

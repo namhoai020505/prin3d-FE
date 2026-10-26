@@ -134,7 +134,11 @@ api.interceptors.request.use(
     const requestUrl = config.url || '';
 
     if (token && !isPublicAuthEndpoint(requestUrl) && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`;
+      if (typeof (config.headers as any).set === 'function') {
+        (config.headers as any).set('Authorization', `Bearer ${token}`);
+      } else {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
 
     const contentType = (config.headers?.['Content-Type'] as string) || '';

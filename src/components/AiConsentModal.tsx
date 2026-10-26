@@ -3,7 +3,14 @@ import { ShieldCheck, Sparkles, X, Check, Loader2, AlertCircle } from 'lucide-re
 import { toast } from 'react-toastify';
 import { authService } from '../services/authService';
 import { AI_CONSENT_POLICY_VERSION, AI_CONSENT_PURPOSE } from '../lib/env';
-import { AUTH_SESSION_EVENT, getAccessToken } from '../lib/auth';
+import {
+  AUTH_SESSION_EVENT,
+  getAccessToken,
+  getRoleFromAccessToken,
+  isAdminRole,
+  isManagerRole,
+  isStaffRole,
+} from '../lib/auth';
 
 // Module-level cache: Mỗi accessToken chỉ gọi thăm dò getConsent đúng 1 lần duy nhất
 const checkedConsentTokens = new Set<string>();
@@ -38,6 +45,13 @@ export default function AiConsentModal({
       const token = getAccessToken();
       if (!token || checkedConsentTokens.has(token)) return;
       checkedConsentTokens.add(token);
+
+      // Không tự mở consent modal đối với quản trị viên / nhân viên hoặc khi đang ở phân hệ /admin
+      const role = getRoleFromAccessToken(token);
+      const isManagement = role && (isAdminRole(role) || isStaffRole(role) || isManagerRole(role));
+      if (isManagement || (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin'))) {
+        return;
+      }
 
       try {
         const res = await authService.getConsent(AI_CONSENT_PURPOSE, AI_CONSENT_POLICY_VERSION);
@@ -96,120 +110,102 @@ export default function AiConsentModal({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin'))) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isSubmitting) handleClose();
       }}
     >
-      <div
-        className="w-full max-w-[500px] rounded-2xl bg-[#0c1017]/95 border border-cyan-500/30 p-6 sm:p-7 text-white relative shadow-[0_0_50px_rgba(0,240,255,0.15)] backdrop-blur-2xl"
-        style={{
-          boxShadow:
-            '0 24px 60px rgba(0, 0, 0, 0.9), 0 0 35px rgba(0, 240, 255, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.15)',
-        }}
-      >
+      <div className="w-full max-w-[460px] rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] p-6 sm:p-7 text-[#231F1E] relative shadow-xl">
         {/* Nút đóng */}
         <button
           type="button"
           onClick={handleClose}
           disabled={isSubmitting}
-          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-all cursor-pointer group disabled:opacity-50"
+          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#EFEAE2]/60 hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] flex items-center justify-center transition-all cursor-pointer group disabled:opacity-50"
+          aria-label="Đóng thỏa thuận"
         >
-          <X className="w-4 h-4 text-slate-300 group-hover:text-cyan-300" />
+          <X className="w-4 h-4 group-hover:rotate-90 transition-transform" />
         </button>
 
         {/* Header */}
         <div className="flex items-center gap-3.5 mb-5">
-          <div className="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(0,240,255,0.25)] shrink-0">
-            <ShieldCheck className="w-6 h-6" />
+          <div className="w-10 h-10 rounded-xl bg-[#FDF2F0] border border-[#B83B2A]/20 flex items-center justify-center text-[#B83B2A] shrink-0 shadow-sm">
+            <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-bold text-white tracking-tight">
-                Thỏa Thuận Xử Lý AI 3D
-              </h3>
-              <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-[10px] font-mono text-cyan-300 font-bold">
-                {AI_CONSENT_POLICY_VERSION}
-              </span>
-            </div>
-            <p className="text-xs text-slate-400">
-              Quyền riêng tư &amp; Sở hữu trí tuệ mô hình (`{AI_CONSENT_PURPOSE}`)
-            </p>
+            <h3 className="text-base sm:text-lg font-bold text-[#231F1E] tracking-tight">
+              Thỏa Thuận Xử Lý AI 3D
+            </h3>
           </div>
         </div>
 
-        {/* Nội dung điều khoản kính mờ */}
-        <div className="rounded-xl bg-[#080d14]/80 border border-slate-800 p-4 space-y-3 text-xs text-slate-300 max-h-[220px] overflow-y-auto mb-5 leading-relaxed selection:bg-cyan-500/30">
-          <div className="flex items-start gap-2">
-            <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+        {/* 3 Cam kết ngắn gọn */}
+        <div className="rounded-xl bg-[#F6F3EE] border border-[#E2D9D0] p-4 space-y-3 text-xs mb-5">
+          <div className="flex items-start gap-2.5">
+            <Sparkles className="w-4 h-4 text-[#B83B2A] shrink-0 mt-0.5" />
             <div>
-              <strong className="text-white">1. Xử lý ảnh sang 3D qua Neural Mesh:</strong> Dữ
-              liệu hình ảnh 2D người dùng tải lên sẽ được chuyển đổi sang định dạng đa giác 3D
-              (GLB/STL) bằng các cỗ máy AI chuyên dụng của hệ thống THE BOYS.
+              <span className="font-bold text-[#231F1E]">Chuyển đổi 3D:</span>{' '}
+              <span className="text-[#7A706C]">Ảnh/văn bản chỉ dùng để tạo file 3D của riêng bạn.</span>
             </div>
           </div>
 
-          <div className="flex items-start gap-2">
-            <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-[#B83B2A] shrink-0 mt-0.5" />
             <div>
-              <strong className="text-white">2. Quyền sở hữu và Bảo mật bản quyền:</strong> Bạn giữ
-              toàn quyền sở hữu đối với tác phẩm gốc và file 3D được sinh ra. Hệ thống cam kết không
-              bán hoặc phân phối lại mô hình của bạn cho bên thứ ba khi chưa có sự chấp thuận bằng văn
-              bản.
+              <span className="font-bold text-[#231F1E]">Bản quyền 100%:</span>{' '}
+              <span className="text-[#7A706C]">Bạn giữ toàn quyền sở hữu mẫu 3D đã tạo.</span>
             </div>
           </div>
 
-          <div className="flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-[#B83B2A] shrink-0 mt-0.5" />
             <div>
-              <strong className="text-white">3. Kiểm duyệt an toàn:</strong> Không tải lên hình ảnh
-              vi phạm thuần phong mỹ tục, bạo lực hoặc xâm phạm quyền sở hữu công nghiệp đã đăng ký.
+              <span className="font-bold text-[#231F1E]">An toàn nội dung:</span>{' '}
+              <span className="text-[#7A706C]">Không tải lên hình ảnh nhạy cảm, bạo lực hoặc vi phạm pháp luật.</span>
             </div>
           </div>
         </div>
 
         {/* Checkbox xác nhận */}
-        <label className="flex items-start gap-3 text-xs text-slate-300 cursor-pointer select-none mb-6">
+        <label className="flex items-center gap-2.5 text-xs text-[#231F1E] cursor-pointer select-none mb-6">
           <input
             type="checkbox"
             checked={acknowledged}
             onChange={(e) => setAcknowledged(e.target.checked)}
-            className="w-4 h-4 mt-0.5 rounded border border-slate-700 bg-[#080d14] text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-cyan-400"
+            className="w-4 h-4 rounded border border-[#E2D9D0] bg-[#FFFFFF] text-[#B83B2A] focus:ring-0 cursor-pointer accent-[#B83B2A]"
           />
-          <span>
-            Tôi đã đọc kỹ và đồng ý cho phép nền tảng xử lý dữ liệu ảnh thành mô hình 3D theo chính
-            sách <strong className="text-cyan-300">v1.0 (GDPR &amp; AI Privacy)</strong>.
+          <span className="font-medium text-[#231F1E]">
+            Tôi đồng ý với điều khoản sử dụng AI Studio
           </span>
         </label>
 
         {/* Buttons hành động */}
-        <div className="flex items-center justify-end gap-3">
+        <div className="flex items-center justify-end gap-2.5">
           <button
             type="button"
             onClick={handleClose}
             disabled={isSubmitting}
-            className="px-4 py-2.5 rounded-xl border border-slate-700/80 hover:bg-slate-800 text-slate-300 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+            className="px-4 py-2 rounded-xl border border-[#E2D9D0] bg-[#FFFFFF] hover:bg-[#EFEAE2] text-[#7A706C] hover:text-[#231F1E] text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
           >
             Để sau
           </button>
 
-          {/* 18-Stop Pooled-Light Shader Button */}
           <button
             type="button"
             onClick={handleAgree}
             disabled={isSubmitting || !acknowledged}
-            className="btn-pooled-cyan px-5 py-2.5 font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-5 py-2 rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
           >
             {isSubmitting ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
             ) : (
               <Check className="w-3.5 h-3.5" />
             )}
-            <span>Tôi Đồng Ý &amp; Tiếp Tục</span>
+            <span>Đồng ý &amp; Tiếp tục</span>
           </button>
         </div>
       </div>

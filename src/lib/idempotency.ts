@@ -8,6 +8,13 @@ export class IdempotencyManager {
   private static currentKeys = new Map<string, string>();
 
   /**
+   * Sinh key UUID v4 đơn lẻ.
+   */
+  public static generateKey(): string {
+    return uuidv4();
+  }
+
+  /**
    * Lấy key hiện tại hoặc sinh UUID v4 mới nếu chưa có trong scope.
    */
   public static getOrCreateKey(actionScope: string): string {
@@ -36,4 +43,3 @@ export class IdempotencyManager {
     this.currentKeys.delete(actionScope);
   }
 }
-
