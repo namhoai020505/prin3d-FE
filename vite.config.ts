@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
     .map((host) => host.trim())
     .filter(Boolean)
 
-  console.log('[vite] allowedHosts:', allowedHosts)
+  const apiTarget = env.VITE_API_BASE_URL || 'http://localhost:5133'
 
   return {
     plugins: [
@@ -26,6 +26,14 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: '0.0.0.0',
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: apiTarget,
+          changeOrigin: true,
+          secure: false,
+        },
+      },
       allowedHosts,
     },
   }

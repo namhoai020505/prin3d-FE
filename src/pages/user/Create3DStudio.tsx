@@ -720,6 +720,7 @@ export default function Create3DStudio() {
     const file = locationState?.selectedFile;
     if (file && !uploadedImage) {
       void Promise.resolve().then(() => {
+        setUploadedFile(file);
         setUploadedImage(URL.createObjectURL(file));
       });
     }
@@ -769,18 +770,21 @@ export default function Create3DStudio() {
   const pollGeneration = async (id: string) => {
     try {
       const task = await getGeneration(id);
-      updateAsset(task);
+      const asset = updateAsset(task);
 
       if (isTerminalStatus(task.status)) {
         setIsGenerating(false);
         void fetchUserCredit();
-        if (task.status !== 'succeeded') {
+        if (task.status === 'succeeded') {
+          setActiveModelMesh(asset);
+          setGenerationProgress(100);
+        } else {
           setGenerationError(task.errorMessage || 'Không thể tạo mô hình. Vui lòng thử lại.');
         }
         return;
       }
 
-      const timer = window.setTimeout(() => void pollGeneration(id), 3_000);
+      const timer = window.setTimeout(() => void pollGeneration(id), 2_000);
       pollTimers.current.push(timer);
     } catch {
       setIsGenerating(false);
@@ -943,10 +947,10 @@ export default function Create3DStudio() {
         canvas.height = 512;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.fillStyle = '#181816';
+          ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, 512, 512);
-          ctx.fillStyle = '#E2DFD7';
-          ctx.font = '22px sans-serif';
+          ctx.fillStyle = '#231F1E';
+          ctx.font = 'bold 24px sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(promptText.trim().slice(0, 36) || 'Text-to-3D', 256, 256);
@@ -971,6 +975,8 @@ export default function Create3DStudio() {
         image: fileToUpload,
         modelName: modelTaskName,
         shouldTexture,
+        heightMm: 100,
+        idempotencyKey: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : undefined,
       });
 
       void fetchUserCredit();
@@ -1049,11 +1055,18 @@ export default function Create3DStudio() {
     };
   }, [authSessionRevision]);
 
-  useEffect(() => () => {
-    if (uploadedImage && uploadedImage.startsWith('blob:')) {
-      URL.revokeObjectURL(uploadedImage);
-    }
+  const currentBlobUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentBlobUrlRef.current = uploadedImage;
   }, [uploadedImage]);
+
+  useEffect(() => {
+    return () => {
+      if (currentBlobUrlRef.current && currentBlobUrlRef.current.startsWith('blob:')) {
+        URL.revokeObjectURL(currentBlobUrlRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="relative w-full h-screen overflow-hidden select-none bg-[#F6F3EE] text-[#231F1E] flex">
@@ -1519,21 +1532,37 @@ export default function Create3DStudio() {
                 <span>Nạp thêm lượt (Từ 50.000đ)</span>
               </button>
             ) : (
-              <button
-                type="button"
-                disabled={isGenerating}
-                onClick={handleGenerate}
-                className="w-full mt-1 py-2 rounded-lg font-medium text-xs flex items-center justify-center gap-2 text-white bg-[#B83B2A] hover:bg-[#9E2F20] border border-[#B83B2A] active:scale-[0.99] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-white" />
-                <span>
-                  {isGenerating
-                    ? `Đang tạo (${generationProgress}%)...`
-                    : generationMode === 'text'
-                    ? 'Tạo mô hình từ văn bản'
-                    : 'Tạo mô hình từ ảnh'}
-                </span>
-              </button>
+              <div className="w-full flex flex-col gap-1.5 mt-1">
+                {isGenerating && (
+                  <div className="w-full space-y-1 px-0.5">
+                    <div className="flex justify-between items-center text-[11px] text-[#7A706C]">
+                      <span>Tiến độ tạo mô hình 3D</span>
+                      <span className="font-mono tabular-nums text-[#B83B2A] font-semibold">{generationProgress}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-[#EFEAE2] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-[#B83B2A] transition-all duration-300 ease-out"
+                        style={{ width: `${Math.max(5, generationProgress)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  disabled={isGenerating}
+                  onClick={handleGenerate}
+                  className="w-full py-2 rounded-lg font-medium text-xs flex items-center justify-center gap-2 text-white bg-[#B83B2A] hover:bg-[#9E2F20] border border-[#B83B2A] active:scale-[0.99] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-white" />
+                  <span>
+                    {isGenerating
+                      ? `Đang tạo (${generationProgress}%)...`
+                      : generationMode === 'text'
+                      ? 'Tạo mô hình từ văn bản'
+                      : 'Tạo mô hình từ ảnh'}
+                  </span>
+                </button>
+              </div>
             )}
           </div>
         ) : (

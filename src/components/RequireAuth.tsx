@@ -111,20 +111,23 @@ const RequireAuth = ({
     };
   }, [allowedRoles, verifyAdmin]);
 
+  useEffect(() => {
+    if (authState === 'login' && typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
+    }
+  }, [authState]);
+
   if (authState === 'checking') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0F172A] text-sm font-semibold text-white">
+      <div className="flex min-h-screen items-center justify-center bg-[#F6F3EE] text-sm font-semibold text-[#7A706C]">
         Đang kiểm tra quyền truy cập...
       </div>
     );
   }
 
   if (authState === 'login') {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
-      );
-    }
     return <Navigate to="/" replace />;
   }
 
