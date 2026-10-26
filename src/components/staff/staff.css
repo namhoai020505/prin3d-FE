@@ -1,0 +1,36 @@
+.staff-portal {
+  --staff-bg: #070b14; --staff-panel: #090d14; --staff-input: #0d131f;
+  --staff-border: #334155; --staff-text: #f8fafc; --staff-muted: #94a3b8;
+  --staff-accent: #00f0ff; --staff-danger: #f43f5e;
+  display: flex; height: 100dvh; overflow: hidden; color: var(--staff-text);
+  background: var(--staff-bg); font-family: Urbanist, sans-serif;
+}
+.staff-portal[data-staff-theme='light'] {
+  --staff-bg: #f1f5f9; --staff-panel: #fff; --staff-input: #f8fafc;
+  --staff-border: #cbd5e1; --staff-text: #0f172a; --staff-muted: #475569;
+  --staff-accent: #007c85; --staff-danger: #be123c;
+}
+.staff-sidebar { width: 16rem; flex-shrink: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--staff-panel); border-right: 1px solid var(--staff-border); }
+.staff-nav { display: block; padding: .7rem; border-radius: .6rem; }
+.staff-nav.active { color: var(--staff-accent); background: var(--staff-input); }
+.staff-panel { background: var(--staff-panel); border: 1px solid var(--staff-border); border-radius: .9rem; padding: 1rem; }
+.staff-input { width: 100%; padding: .6rem .8rem; border: 1px solid var(--staff-border); border-radius: .5rem; background: var(--staff-input); color: var(--staff-text); }
+.staff-button { padding: .5rem .8rem; border: 1px solid var(--staff-border); border-radius: .5rem; background: var(--staff-input); color: var(--staff-accent); cursor: pointer; }
+.staff-button:disabled { opacity: .45; cursor: not-allowed; }
+.staff-button[aria-pressed='true'] { border-color: var(--staff-accent); }
+.staff-muted { color: var(--staff-muted); }
+.staff-error { color: var(--staff-danger); }
+.staff-portal label { display: block; font-size: .875rem; }
+.staff-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 1rem; background: #000a; }
+.staff-overlay > form { width: 100%; max-width: 34rem; max-height: 90dvh; overflow-y: auto; }
+.staff-table { width: 100%; min-width: 46rem; text-align: left; }
+.staff-table th, .staff-table td { padding: .8rem; border-bottom: 1px solid var(--staff-border); }
+@media (max-width: 767px) {
+  .staff-portal { flex-direction: column; }
+  .staff-sidebar { width: 100%; max-height: 13rem; border-right: 0; border-bottom: 1px solid var(--staff-border); }
+  .staff-sidebar nav { display: flex; gap: .3rem; flex-wrap: wrap; padding: .4rem; }
+  .staff-sidebar > a { padding: .4rem; }
+  .staff-sidebar > div { display: flex; align-items: center; gap: .5rem; padding: .4rem; }
+  .staff-sidebar > div button { width: auto; }
+  .staff-nav { padding: .4rem; font-size: .8rem; }
+}

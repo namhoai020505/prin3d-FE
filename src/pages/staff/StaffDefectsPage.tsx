@@ -1,131 +1,52 @@
-import React, { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
-import { MOCK_DEFECT_REPORTS, type DefectReportItem, type ResolveDefectPayload } from '../../types/staff';
-import defectService from '../../services/defectService';
+import { staffService } from '../../services/staffService';
+import { fulfillmentService } from '../../services/fulfillmentService';
+import { resolveDefectReport, type DefectReportDto } from '../../services/defectService';
+import type { ResolveDefectPayload } from '../../types/staff';
+import { errorMessage, useStaffData } from '../../hooks/useStaffData';
+import { StaffDataState } from '../../components/staff/StaffDataState';
 
-export const StaffDefectsPage: React.FC = () => {
-  const [reports, setReports] = useState<DefectReportItem[]>(MOCK_DEFECT_REPORTS);
+function Evidence({ storageKey }: { storageKey: string }) {
+  return /^https?:\/\//i.test(storageKey) ? <a href={storageKey} target="_blank" rel="noreferrer"><img className="w-full max-h-64 object-contain" src={storageKey} alt="Ảnh bằng chứng" /></a> : <p className="font-mono text-sm break-all">Mã lưu trữ: {storageKey}</p>;
+}
+function Report({ report, onSuccess }: { report: DefectReportDto; onSuccess: () => Promise<void> }) {
   const [note, setNote] = useState('');
-  const [submittingId, setSubmittingId] = useState<string | null>(null);
-
-  const handleResolve = async (
-    id: string,
-    resolutionType: ResolveDefectPayload['resolutionType']
-  ) => {
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => fulfillmentService.getOrderTimeline(report.orderId), [report.orderId]);
+  const { data: timeline, loading, error: timelineError, reload } = useStaffData(load);
+  const runs = timeline?.productionRuns || timeline?.assignments?.flatMap(a => a.productionRuns || []) || [];
+  const evidence = runs.filter(run => run.qcEvidenceStorageKey);
+  const open = ['Open', 'PendingReview', 'Pending'].includes(report.status);
+  const resolve = async (resolutionType: ResolveDefectPayload['resolutionType']) => {
+    if (lock.current || !open) return;
+    if (note.trim().length < 3) { setError('Cần nhập giải trình kỹ thuật tối thiểu 3 ký tự.'); return; }
+    lock.current = true; setBusy(true); setError(null);
     try {
-      setSubmittingId(id);
-      try {
-        await defectService.resolveDefectReport(id, {
-          resolutionType,
-          resolutionNote: note.trim() || undefined,
-        });
-      } catch {
-        // Fallback sang local state nếu Backend endpoint chưa sẵn sàng
-      }
-
-      setReports((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, status: resolutionType } : r))
-      );
-      toast.success(`Đã xử lý khiếu nại với quyết định: ${resolutionType}`);
-      setNote('');
-    } finally {
-      setSubmittingId(null);
-    }
+      await resolveDefectReport(report.id, { resolutionType, resolutionNote: note.trim() });
+      toast.success('Đã lưu quyết định xử lý khiếu nại trên máy chủ.');
+      await onSuccess();
+    } catch (err) { setError(errorMessage(err)); }
+    finally { lock.current = false; setBusy(false); }
   };
-
-  return (
-    <div className="p-6 space-y-6 overflow-y-auto flex-1">
-      <div>
-        <h2 className="text-lg font-bold">Thẩm Định Kỹ Thuật Khiếu Nại Lỗi In (Defect Reports)</h2>
-        <p className="text-xs text-slate-400">
-          Đối chiếu ảnh báo lỗi của khách hàng với ảnh lưu trữ QC lúc xuất xưởng để duyệt in bù hoặc chuyển Admin hoàn tiền.
-        </p>
-      </div>
-
-      {reports.map((item) => (
-        <div
-          key={item.id}
-          className="p-6 rounded-2xl bg-[#090D14] border border-slate-800 space-y-5 shadow-lg"
-        >
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div>
-              <span className="font-mono text-xs text-[#00F0FF]">{item.orderCode}</span>
-              <h3 className="text-base font-bold text-slate-100">{item.modelName}</h3>
-              <p className="text-xs text-slate-400">Khách hàng: {item.customerName}</p>
-            </div>
-            <span
-              className={`px-3 py-1 rounded-full text-xs font-mono ${
-                item.status === 'ReprintApproved'
-                  ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
-                  : item.status === 'RefundApproved'
-                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                  : item.status === 'Rejected'
-                  ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                  : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-              }`}
-            >
-              {item.status}
-            </span>
-          </div>
-
-          <p className="text-sm text-rose-300 bg-rose-500/10 border border-rose-500/30 p-3 rounded-xl">
-            <strong>Mô tả lỗi từ khách:</strong> "{item.reportedIssue}"
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <p className="text-xs text-slate-400 mb-2">Ảnh chụp lỗi khách hàng gửi</p>
-              <img
-                src={item.customerImageUrl}
-                alt="Customer Defect"
-                className="w-full h-56 object-cover rounded-xl border border-rose-500/40"
-              />
-            </div>
-            <div>
-              <p className="text-xs text-slate-400 mb-2">Ảnh lưu trữ bàn QC trước khi đóng gói</p>
-              <img
-                src={item.qcArchiveImageUrl}
-                alt="QC Archive"
-                className="w-full h-56 object-cover rounded-xl border border-emerald-500/40"
-              />
-            </div>
-          </div>
-
-          <textarea
-            rows={2}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Nhập giải trình kỹ thuật hoặc ghi chú cho xưởng in lại..."
-            className="w-full p-3 rounded-xl bg-[#0D131F] border border-slate-800 text-sm focus:border-[#00F0FF] outline-none"
-          />
-
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => handleResolve(item.id, 'ReprintApproved')}
-              disabled={submittingId === item.id}
-              className="px-4 py-2.5 rounded-xl bg-[#00F0FF] text-slate-950 font-bold text-xs hover:bg-[#00F0FF]/90 transition-all cursor-pointer disabled:opacity-50"
-            >
-              [Duyệt In Lại Đền Bù (ReprintApproved)]
-            </button>
-            <button
-              onClick={() => handleResolve(item.id, 'RefundApproved')}
-              disabled={submittingId === item.id}
-              className="px-4 py-2.5 rounded-xl bg-amber-500/20 border border-amber-500 text-amber-300 font-bold text-xs hover:bg-amber-500/30 transition-all cursor-pointer disabled:opacity-50"
-            >
-              [Duyệt Hoàn Tiền — Chuyển Admin PayOS]
-            </button>
-            <button
-              onClick={() => handleResolve(item.id, 'Rejected')}
-              disabled={submittingId === item.id}
-              className="px-4 py-2.5 rounded-xl bg-rose-500/20 border border-rose-500 text-rose-300 font-bold text-xs hover:bg-rose-500/30 transition-all cursor-pointer disabled:opacity-50"
-            >
-              [Bác Bỏ Khiếu Nại (Rejected)]
-            </button>
-          </div>
-        </div>
-      ))}
+  return <div className="staff-panel space-y-4">
+    <h2 className="font-bold">Đơn hàng {timeline?.orderCode || report.orderId}</h2><p>Trạng thái: {report.status}</p><p>Mô tả lỗi: {report.reason}</p><p className="staff-muted">Báo cáo lúc {report.createdAtUtc}</p>
+    <div className="grid md:grid-cols-2 gap-4">
+      <section className="staff-panel space-y-2"><h3>Ảnh lỗi từ khách hàng</h3>{report.evidence?.length ? report.evidence.map(e => <Evidence key={e.id} storageKey={e.storageKey} />) : <p className="staff-muted">Chưa có bằng chứng.</p>}</section>
+      <section className="staff-panel space-y-2"><h3>Ảnh lưu trữ QC</h3><StaffDataState loading={loading} error={timelineError} empty={!evidence.length} retry={reload} />{evidence.map(run => <div key={run.id}><p>Đợt #{run.runNo ?? '—'} / {run.status}</p><Evidence storageKey={run.qcEvidenceStorageKey!} /></div>)}</section>
     </div>
-  );
-};
-
-export default StaffDefectsPage;
+    {error && <p role="alert" className="staff-error">Không thể xử lý khiếu nại: {error}</p>}
+    {open ? <fieldset disabled={busy} className="space-y-3"><label>Giải trình kỹ thuật<textarea className="staff-input" value={note} onChange={e => setNote(e.target.value)} /></label><div className="flex gap-3 flex-wrap"><button className="staff-button" onClick={() => void resolve('ReprintApproved')}>Duyệt In Lại Đền Bù</button><button className="staff-button" onClick={() => void resolve('RefundApproved')}>Duyệt Hoàn Tiền / Chuyển Admin</button><button className="staff-button" onClick={() => void resolve('Rejected')}>Bác Bỏ Khiếu Nại</button></div></fieldset> : <p>Giải trình: {report.resolutionNote || '—'}</p>}
+  </div>;
+}
+export default function StaffDefectsPage() {
+  const { data, loading, error, reload } = useStaffData(staffService.getDefects);
+  return <div className="p-4 md:p-6 space-y-4 flex-1 overflow-y-auto">
+    <div className="flex justify-between gap-3"><h1 className="text-xl font-bold">Thẩm Định Khiếu Nại Lỗi In</h1><button className="staff-button" disabled={loading} onClick={() => void reload()}>Tải lại</button></div>
+    <p className="staff-muted">Đối chiếu bằng chứng kỹ thuật để duyệt in bù hoặc chuyển yêu cầu hoàn tiền cho Admin.</p>
+    <StaffDataState loading={loading} error={error} empty={!data?.length} retry={reload} />
+    {!loading && !error && data?.map(report => <Report key={`${report.id}:${report.status}`} report={report} onSuccess={reload} />)}
+  </div>;
+}

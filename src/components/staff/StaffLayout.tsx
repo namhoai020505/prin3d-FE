@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { StaffSidebar } from './StaffSidebar';
+import './staff.css';
 
 export type ThemeMode = 'dark' | 'light';
 
@@ -38,9 +39,8 @@ export const StaffLayout: React.FC = () => {
 
   return (
     <div
-      className={`min-h-screen flex font-['Urbanist',sans-serif] transition-colors duration-200 ${
-        isDark ? 'bg-[#070B14] text-[#F8FAFC]' : 'bg-slate-100 text-slate-900'
-      }`}
+      className="staff-portal"
+      data-staff-theme={themeMode}
     >
       <StaffSidebar isDark={isDark} onToggleTheme={toggleTheme} />
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">

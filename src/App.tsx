@@ -50,7 +50,7 @@ const PageLoader = () => (
 );
 
 const customerRoles = ['customer', 'cus', 'staff', 'admin'];
-const adminRoles = ['admin', 'staff'];
+const adminRoles = ['admin'];
 const staffRoles = ['staff', 'admin'];
 
 const RootLayout = () => {
