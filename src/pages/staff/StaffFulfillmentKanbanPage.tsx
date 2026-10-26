@@ -14,7 +14,7 @@ const columns: { key: KanbanStage; title: string }[] = [
   { key: 'InProduction', title: 'Đang In & Xử Lý' }, { key: 'QualityCheck', title: 'Chờ Kiểm Định QC' },
   { key: 'Delivery', title: 'Đóng Gói & Giao Vận' },
 ];
-export default function StaffFulfillmentKanbanPage() {
+export default function StaffFulfillmentKanbanPage({ basePath = '/staff' }: { basePath?: string }) {
   const { orderId } = useParams();
   const navigate = useNavigate();
   const { data, loading, error, reload } = useStaffData(staffService.getOrders);
@@ -83,7 +83,7 @@ export default function StaffFulfillmentKanbanPage() {
         </article>)}</section>)}
       </div></div>
     </>}
-    <StaffFulfillmentDrawer order={drawerOrder} onClose={() => { setDrawerId(null); if (orderId) navigate('/staff/fulfillment'); }} />
+    <StaffFulfillmentDrawer order={drawerOrder} onClose={() => { setDrawerId(null); if (orderId) navigate(`${basePath}/fulfillment`); }} />
     {dialog && <>{actionError && <div role="alert" className="fixed z-[60] top-4 right-4 staff-panel staff-error">{actionError}</div>}{dialog.type === 'assign' ? <AssignLabDialog key={dialog.order.id} order={dialog.order} busy={busy} onClose={() => setDialog(null)} onSubmit={assign} /> : dialog.type === 'qc' ? <QcReviewDialog key={dialog.order.id} order={dialog.order} busy={busy} onClose={() => setDialog(null)} onSubmit={recordQc} /> : dialog.type === 'shipment' ? <CreateShipmentDialog key={dialog.order.id} order={dialog.order} busy={busy} onClose={() => setDialog(null)} onSubmit={shipment} /> : <UpdateShipmentDialog key={dialog.order.id} order={dialog.order} busy={busy} onClose={() => setDialog(null)} onSubmit={event} />}</>}
   </div>;
 }

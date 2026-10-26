@@ -40,6 +40,10 @@ const StaffReviewsPage = lazy(() => import('./pages/staff/StaffReviewsPage'));
 const StaffFulfillmentKanbanPage = lazy(() => import('./pages/staff/StaffFulfillmentKanbanPage'));
 const StaffOrdersPage = lazy(() => import('./pages/staff/StaffOrdersPage'));
 const StaffDefectsPage = lazy(() => import('./pages/staff/StaffDefectsPage'));
+const ManagerLayout = lazy(() => import('./components/manager/ManagerLayout'));
+const ManagerDashboard = lazy(() => import('./pages/manager/ManagerDashboard'));
+const ManagerOrdersPage = lazy(() => import('./pages/manager/ManagerOrdersPage'));
+const ManagerPaymentsPage = lazy(() => import('./pages/manager/ManagerPaymentsPage'));
 
 // Fallback spinner while lazy chunks are loading - Cyberpunk Dark Obsidian & Neon Cyan
 const PageLoader = () => (
@@ -49,9 +53,10 @@ const PageLoader = () => (
   </div>
 );
 
-const customerRoles = ['customer', 'cus', 'staff', 'admin'];
+const customerRoles = ['customer', 'cus', 'staff', 'manager', 'admin'];
 const adminRoles = ['admin'];
 const staffRoles = ['staff', 'admin'];
+const managerRoles = ['manager', 'admin'];
 
 const RootLayout = () => {
   useIdleTimeout(10);
@@ -131,12 +136,29 @@ const router = createBrowserRouter([
           },
         ],
       },
+      {
+        element: <RequireAuth allowedRoles={managerRoles} verifyAdmin />,
+        children: [{
+          path: '/manager', element: <ManagerLayout />,
+          children: [
+            { index: true, element: <Navigate to="dashboard" replace /> },
+            { path: 'dashboard', element: <ManagerDashboard /> },
+            { path: 'orders', element: <ManagerOrdersPage /> },
+            { path: 'orders/:id', element: <ManagerOrdersPage /> },
+            { path: 'reviews', element: <StaffReviewsPage /> },
+            { path: 'fulfillment', element: <StaffFulfillmentKanbanPage basePath="/manager" /> },
+            { path: 'fulfillment/:orderId', element: <StaffFulfillmentKanbanPage basePath="/manager" /> },
+            { path: 'payments', element: <ManagerPaymentsPage /> },
+            { path: 'defects', element: <StaffDefectsPage /> },
+            { path: '*', element: <Navigate to="dashboard" replace /> },
+          ],
+        }],
+      },
       // Redirect legacy paths
       { path: '/movies/*', element: <Navigate to="/" replace /> },
       { path: '/cinemas/*', element: <Navigate to="/" replace /> },
       { path: '/cinema-schedule', element: <Navigate to="/" replace /> },
       { path: '/booking/*', element: <Navigate to="/" replace /> },
-      { path: '/manager/*', element: <Navigate to="/admin/orders" replace /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

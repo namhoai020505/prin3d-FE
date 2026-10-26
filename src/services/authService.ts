@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import api from '../lib/api';
-import { AUTH_SESSION_EVENT, clearAuthSession, getAccessToken, isAdminRole, isStaffRole, setAuthSession } from '../lib/auth';
+import { AUTH_SESSION_EVENT, clearAuthSession, getAccessToken, isAdminRole, isManagerRole, isStaffRole, setAuthSession } from '../lib/auth';
 import { AI_CONSENT_POLICY_VERSION, AI_CONSENT_PURPOSE } from '../lib/env';
 
 export type CurrentUserDto = {
   id: string;
   email: string;
   fullName: string;
-  role: 'cus' | 'staff' | 'admin' | 'disabled';
+  role: 'cus' | 'staff' | 'manager' | 'admin' | 'disabled';
   freeTrialRemaining: number;
   purchasedRemaining: number;
   totalUsed: number;
@@ -227,7 +227,7 @@ export const getMe = async (forceRefresh = false): Promise<CurrentUserDto> => {
           id: (user.id || response.id) as string,
           email: (user.email || response.email) as string,
           fullName: (user.fullName || response.fullName) as string,
-          role: (response.role || user.role || 'cus') as 'cus' | 'staff' | 'admin' | 'disabled',
+          role: (response.role || user.role || 'cus') as CurrentUserDto['role'],
           freeTrialRemaining: Number(response.freeTrialRemaining ?? user.freeTrialRemaining ?? 0),
           purchasedRemaining: Number(response.purchasedRemaining ?? user.purchasedRemaining ?? 0),
           totalUsed: Number(response.totalUsed ?? user.totalUsed ?? 0),
@@ -302,8 +302,8 @@ export const useCurrentUser = () => {
 
 export const verifyAdminSession = async (): Promise<void> => {
   const me = await getMe();
-  if (!me || (!isAdminRole(me.role) && !isStaffRole(me.role) && me.role !== 'admin' && me.role !== 'staff')) {
-    throw new Error('Authenticated user is not an admin or staff.');
+  if (!me || (!isAdminRole(me.role) && !isStaffRole(me.role) && !isManagerRole(me.role))) {
+    throw new Error('Tài khoản không có quyền vận hành.');
   }
 };
 

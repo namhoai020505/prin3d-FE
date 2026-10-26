@@ -18,6 +18,7 @@ import {
   getAccessToken,
   getRoleFromAccessToken,
   isAdminRole,
+  isManagerRole,
   isStaffRole,
 } from '../lib/auth';
 
@@ -88,7 +89,7 @@ export const NotificationBellV2: React.FC<NotificationBellV2Props> = ({
 
   const unreadCount = notifications.filter((n) => !n.readAtUtc).length;
   const userRole = getRoleFromAccessToken();
-  const isManagement = isAdminRole(userRole) || isStaffRole(userRole);
+  const isManagement = isAdminRole(userRole) || isStaffRole(userRole) || isManagerRole(userRole);
 
   const handleMarkAsRead = async (id: string) => {
     try {

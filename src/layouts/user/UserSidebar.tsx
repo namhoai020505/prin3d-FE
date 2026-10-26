@@ -15,7 +15,7 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import logoTheBoy from '../../assets/images/LOGOTheBoy.png';
-import { AUTH_SESSION_EVENT, getAccessToken, getAuthFullName, isAdminRole, isStaffRole } from '../../lib/auth';
+import { AUTH_SESSION_EVENT, getAccessToken, getAuthFullName, getPostLoginRedirect, isAdminRole, isManagerRole, isStaffRole } from '../../lib/auth';
 import { getMe, logout, revokeAllSessions, type CurrentUserDto } from '../../services/authService';
 import NotificationBellV2 from '../../components/NotificationBellV2';
 
@@ -72,7 +72,7 @@ export default function UserSidebar() {
 
   const isLoggedIn = Boolean(token);
   const isManagementUser = Boolean(
-    currentUser && (isAdminRole(currentUser.role) || isStaffRole(currentUser.role) || currentUser.role === 'admin' || currentUser.role === 'staff')
+    currentUser && (isAdminRole(currentUser.role) || isStaffRole(currentUser.role) || isManagerRole(currentUser.role))
   );
 
   const handleProfileClick = () => {
@@ -134,9 +134,9 @@ export default function UserSidebar() {
       ? [
           {
             label: 'Trung tâm quản trị',
-            path: '/admin/orders',
+            path: getPostLoginRedirect(currentUser?.role),
             icon: LayoutDashboard,
-            isActive: location.pathname.startsWith('/admin'),
+            isActive: /^\/(admin|staff|manager)/.test(location.pathname),
           },
         ]
       : []),
@@ -251,7 +251,7 @@ export default function UserSidebar() {
                     type="button"
                     onClick={() => {
                       setIsAccountMenuOpen(false);
-                      navigate('/admin/orders');
+                      navigate(getPostLoginRedirect(currentUser?.role));
                     }}
                     className="w-full px-3 py-2 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-left text-cyan-300 hover:text-cyan-100 border border-cyan-500/40 flex items-center justify-between cursor-pointer font-bold shadow-sm"
                   >

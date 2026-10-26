@@ -9,9 +9,12 @@ export interface StatusMeta {
 export const FULFILLMENT_STATUS_MAP: Record<string, { label: string; tone: StatusBadgeTone }> = {
   PendingPayment: { label: 'Chờ thanh toán', tone: 'amber' },
   AwaitingAssignment: { label: 'Chờ gán xưởng', tone: 'cyan' },
+  Assigned: { label: 'Xưởng tiếp nhận', tone: 'cyan' },
+  Printing: { label: 'Đang in', tone: 'blue' },
   InProduction: { label: 'Đang sản xuất', tone: 'blue' },
   PostProcessing: { label: 'Xử lý nguội', tone: 'purple' },
   QualityCheck: { label: 'Kiểm định QC', tone: 'cyan' },
+  Packaged: { label: 'Đã đóng gói', tone: 'cyan' },
   Shipped: { label: 'Đang giao hàng', tone: 'blue' },
   Delivered: { label: 'Đã giao hàng', tone: 'green' },
   Cancelled: { label: 'Đã hủy', tone: 'rose' },

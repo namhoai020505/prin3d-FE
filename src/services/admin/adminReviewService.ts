@@ -90,6 +90,12 @@ export const adminReviewService = {
     return URL.createObjectURL(blob);
   },
 
+  getImageBlobUrl: async (generationId: string, signal: AbortSignal): Promise<string> => {
+    const response: unknown = await api.get(`/api/generations/${generationId}/files/image`, { responseType: 'blob', signal });
+    const blob = response instanceof Blob ? response : (response as { data: Blob }).data;
+    return URL.createObjectURL(blob);
+  },
+
   createPrintReview: async (payload: CreateAdminPrintReviewPayload): Promise<PrintReviewDto> => {
     const res: any = await api.post('/api/v2/reviews', payload);
     return res?.data ?? res;

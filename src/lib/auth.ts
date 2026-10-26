@@ -228,7 +228,11 @@ export const getPostLoginRedirect = (role: string | null | undefined) => {
     return '/staff/reviews';
   }
 
-  if (isAdminRole(role) || isManagerRole(role)) {
+  if (isManagerRole(role)) {
+    return '/manager/dashboard';
+  }
+
+  if (isAdminRole(role)) {
     return '/admin/orders';
   }
 

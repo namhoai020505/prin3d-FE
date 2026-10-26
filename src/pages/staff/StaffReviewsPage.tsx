@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { toast } from 'react-toastify';
 import { StaffModelViewer } from '../../components/staff/StaffModelViewer';
 import { StaffDataState } from '../../components/staff/StaffDataState';
@@ -8,6 +8,24 @@ import { createPrintReview } from '../../services/approvalAndReviewService';
 import { listPricingPackages } from '../../services/pricingPackageService';
 import type { GenerationTaskItem } from '../../services/admin/adminReviewService';
 import { getMediaUrl } from '../../lib/media';
+import { adminReviewService } from '../../services/admin/adminReviewService';
+
+function ReviewThumbnail({ task }: { task: GenerationTaskItem }) {
+  const protectedImage = Boolean(task.imageUrl?.includes(`/api/generations/${task.id}/files/`));
+  const [source, setSource] = useState<string | null>(protectedImage ? null : getMediaUrl(task.imageUrl));
+  useEffect(() => {
+    if (!protectedImage) return;
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    void adminReviewService.getImageBlobUrl(task.id, controller.signal).then(url => {
+      if (controller.signal.aborted) { URL.revokeObjectURL(url); return; }
+      objectUrl = url;
+      setSource(url);
+    }).catch(() => { /* The text queue remains usable if the image cannot be downloaded. */ });
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [task.id, protectedImage]);
+  return source ? <img src={source} alt={task.modelName || task.id} className="w-16 h-16 object-cover rounded" /> : null;
+}
 
 function ReviewForm({ task, onSuccess }: { task: GenerationTaskItem; onSuccess: () => Promise<void> }) {
   const [decision, setDecision] = useState<'Approved' | 'Rejected'>('Approved');
@@ -93,7 +111,7 @@ export default function StaffReviewsPage() {
       <div className="flex gap-2 flex-wrap">{[{ id: 'ALL', name: 'Tất cả' }, { id: 'DONE', name: 'Hoàn tất' }, { id: 'WARN', name: 'Cần chú ý' }, { id: 'ERR', name: 'Lỗi / Hở lưới' }].map(tab => <button key={tab.id} className="staff-button text-xs" aria-pressed={filter === tab.id} onClick={() => setFilter(tab.id)}>{tab.name}</button>)}</div>
       <button className="staff-button" disabled={loading} onClick={() => void reload()}>Tải lại</button>
       <StaffDataState loading={loading} error={error} empty={!queue.length} retry={reload} />
-      {!loading && !error && queue.map(task => <button key={task.id} className="staff-panel text-left w-full space-y-1" aria-pressed={id === task.id} onClick={() => setId(task.id)}>{task.imageUrl && <img src={getMediaUrl(task.imageUrl)} alt={task.modelName || task.id} className="w-16 h-16 object-cover rounded" />}<strong>{task.modelName || task.id}</strong><p className="staff-muted text-xs font-mono break-all">{task.id}</p><p className="text-xs">{task.latestPrintReview?.decision || task.reviewStatus || task.status}</p><p className="text-xs">{task.isWatertight === true ? 'Kín nước Watertight' : task.isWatertight === false ? 'Hở lưới Non-manifold' : 'Chưa có phân tích lưới'}</p></button>)}
+      {!loading && !error && queue.map(task => <button key={task.id} className="staff-panel text-left w-full space-y-1" aria-pressed={id === task.id} onClick={() => setId(task.id)}>{task.imageUrl && <ReviewThumbnail task={task} />}<strong>{task.modelName || task.id}</strong><p className="staff-muted text-xs font-mono break-all">{task.id}</p><p className="text-xs">{task.latestPrintReview?.decision || task.reviewStatus || task.status}</p><p className="text-xs">{task.isWatertight === true ? 'Kín nước Watertight' : task.isWatertight === false ? 'Hở lưới Non-manifold' : 'Chưa có phân tích lưới'}</p></button>)}
     </section>
     <section className="flex-1 min-w-0 p-4 lg:overflow-y-auto">{id ? <Workspace key={id} id={id} refreshQueue={reload} /> : <p className="staff-panel">Chọn một mẫu để thẩm định.</p>}</section>
   </div>;

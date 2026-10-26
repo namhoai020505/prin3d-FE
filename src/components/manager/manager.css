@@ -1,0 +1,73 @@
+.manager-portal { --staff-border: #243244; font-size: 14px; }
+.manager-portal[data-staff-theme='light'] { --staff-border: #dbe3ec; }
+.manager-sidebar { width: 260px; }
+.manager-brand { display: flex; gap: 12px; align-items: center; padding: 28px 24px; color: var(--staff-accent); font-size: 23px; font-weight: 800; letter-spacing: .04em; }
+.manager-brand small { display: block; color: var(--staff-muted); font-size: 10px; letter-spacing: .15em; margin-top: 3px; }
+.manager-nav-label { padding: 12px 24px 4px; color: var(--staff-muted); font-size: 10px; letter-spacing: .12em; }
+.manager-nav { display: flex; gap: 12px; align-items: center; min-height: 46px; color: var(--staff-muted); font-weight: 600; }
+.manager-nav.active { color: var(--staff-accent); box-shadow: inset 3px 0 var(--staff-accent); }
+.manager-nav:hover, .manager-icon:hover { background: var(--staff-input); color: var(--staff-accent); }
+.manager-sidebar-footer { border-top: 1px solid var(--staff-border); padding: 12px; }
+.manager-profile { display: flex; align-items: center; gap: 10px; padding: 18px 4px 4px; }
+.manager-profile > div { flex: 1; min-width: 0; }
+.manager-profile strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.manager-profile small { color: var(--staff-muted); font-size: 11px; }
+.manager-avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--staff-border); color: var(--staff-accent); background: var(--staff-input); }
+.manager-workspace { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.manager-topbar { display: flex; align-items: center; gap: 14px; min-height: 86px; padding: 16px 28px; background: var(--staff-panel); border-bottom: 1px solid var(--staff-border); }
+.manager-topbar h1 { font-size: 18px; font-weight: 700; }
+.manager-eyebrow { font-size: 10px; letter-spacing: .15em; color: var(--staff-muted); margin-bottom: 4px; }
+.manager-icon { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border: 1px solid var(--staff-border); border-radius: 9px; cursor: pointer; }
+.manager-content { flex: 1; min-height: 0; overflow: auto; }
+.manager-page { padding: 28px; display: flex; flex-direction: column; gap: 22px; }
+.manager-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.manager-heading h2 { font-size: 23px; font-weight: 700; margin-bottom: 5px; }
+.manager-heading p, .manager-subtitle { color: var(--staff-muted); font-size: 13px; }
+.manager-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; }
+.manager-metric { padding: 20px; }
+.manager-metric > span { color: var(--staff-muted); display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.manager-metric strong { display: block; font-size: clamp(22px,2vw,32px); margin-top: 16px; font-variant-numeric: tabular-nums; }
+.manager-metric small { color: var(--staff-muted); display: block; margin-top: 8px; font-size: 11px; }
+.manager-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; }
+.manager-panel-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 20px; font-size: 15px; font-weight: 700; }
+.manager-panel-title a { color: var(--staff-accent); font-size: 12px; }
+.manager-bars { display: flex; flex-direction: column; gap: 18px; }
+.manager-bar-label { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 7px; }
+.manager-bar-track { height: 6px; border-radius: 8px; background: var(--staff-input); overflow: hidden; }
+.manager-bar-track > span { display: block; height: 100%; background: var(--staff-accent); border-radius: inherit; }
+.manager-filters { display: flex; gap: 12px; flex-wrap: wrap; }
+.manager-filters .staff-input { flex: 1; min-width: 180px; }
+.manager-filters select.staff-input { flex: 0 1 210px; }
+.manager-status { display: inline-block; padding: 4px 9px; border-radius: 6px; border: 1px solid var(--staff-border); font-size: 11px; white-space: nowrap; }
+.manager-status[data-status='Paid'], .manager-status[data-status='Succeeded'], .manager-status[data-status='Delivered'] { color: #34d399; background: #10b98112; border-color: #10b98140; }
+.manager-status[data-status='NeedsAttention'], .manager-status[data-status='Failed'], .manager-status[data-status='Cancelled'] { color: var(--staff-danger); background: #f43f5e12; border-color: #f43f5e40; }
+.manager-portal[data-staff-theme='light'] .manager-status:is([data-status='Paid'], [data-status='Succeeded'], [data-status='Delivered']) { color: #047857; }
+.manager-link { color: var(--staff-accent); cursor: pointer; text-align: left; }
+.manager-portal .staff-table { font-size: 12px; }
+.manager-portal .staff-table th { color: var(--staff-muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.manager-portal .staff-table td { padding-top: 16px; padding-bottom: 16px; }
+.manager-portal .staff-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; min-height: 38px; }
+.manager-portal :is(button,a,input,select,textarea):focus-visible { outline: 2px solid var(--staff-accent); outline-offset: 3px; }
+.manager-note { padding: 12px 16px; border-left: 2px solid var(--staff-accent); background: var(--staff-input); color: var(--staff-muted); font-size: 12px; }
+.manager-menu, .manager-backdrop { display: none; }
+@media (max-width: 1100px) { .manager-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .manager-grid { grid-template-columns: 1fr; } }
+@media (max-width: 767px) {
+  .manager-portal { flex-direction: row; }
+  .manager-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 60; width: 260px; max-height: none; border-right: 1px solid var(--staff-border); transform: translateX(-100%); transition: transform .2s; }
+  .manager-sidebar.is-open { transform: translateX(0); }
+  .manager-sidebar nav { display: block; padding: 12px; }
+  .manager-sidebar > a { padding: 28px 24px; }
+  .manager-sidebar > div { display: block; }
+  .manager-sidebar .manager-nav-label { padding: 12px 24px 4px; }
+  .manager-sidebar .manager-sidebar-footer { padding: 12px; }
+  .manager-nav { padding: .7rem; font-size: 14px; }
+  .manager-menu { display: grid; }
+  .manager-backdrop { display: block; position: fixed; inset: 0; background: #0009; z-index: 59; }
+  .manager-topbar { padding: 14px 16px; min-height: 76px; gap: 10px; }
+  .manager-topbar h1 { font-size: 14px; }
+  .manager-eyebrow { font-size: 8px; }
+  .manager-page { padding: 18px 16px; gap: 18px; }
+  .manager-heading h2 { font-size: 20px; }
+  .manager-metrics { gap: 10px; }
+  .manager-metric { padding: 14px; }
+}

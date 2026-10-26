@@ -197,6 +197,7 @@ const Sidebar = ({ collapsed, isLightMode }: SidebarProps) => {
         }`}
       >
         {/* Switch to Staff Portal Link */}
+        {!collapsed && <Link to="/manager/dashboard" className="block px-3 py-2 text-xs font-bold text-cyan-500">Cổng Quản lý Manager</Link>}
         <Link
           to="/staff/reviews"
           title="Chuyển sang Cổng Kỹ thuật viên Staff"

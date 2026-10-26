@@ -105,6 +105,16 @@ export interface ReviewCancellationRequestPayload {
   decisionNote?: string;
 }
 
+type OrderV2ApiDto = Omit<OrderV2DetailDto, 'orderPaymentStatus' | 'unitPriceSnapshot' | 'subTotalVnd' | 'finalShippingFee' | 'totalAmount' | 'materialSnapshot' | 'heightMmSnapshot'> & {
+  paymentStatus: string;
+  unitPriceVnd: number;
+  subtotalVnd: number;
+  shippingFeeVnd: number;
+  totalVnd: number;
+  material: string;
+  heightMm: number;
+};
+
 export const adminOrderService = {
   getOrders: async (page = 1, signal?: AbortSignal): Promise<OrderSummaryItem[]> => {
     const res: any = await api.get(`/api/orders?page=${page}`, { signal });
@@ -112,8 +122,18 @@ export const adminOrderService = {
   },
 
   getOrderById: async (id: string, signal?: AbortSignal): Promise<OrderV2DetailDto> => {
-    const res: any = await api.get(`/api/v2/orders/${id}`, { signal });
-    return res?.data ?? res;
+    const response: unknown = await api.get(`/api/v2/orders/${id}`, { signal });
+    const order = (response && typeof response === 'object' && 'data' in response ? response.data : response) as OrderV2ApiDto;
+    return {
+      ...order,
+      orderPaymentStatus: order.paymentStatus,
+      unitPriceSnapshot: order.unitPriceVnd,
+      subTotalVnd: order.subtotalVnd,
+      finalShippingFee: order.shippingFeeVnd,
+      totalAmount: order.totalVnd,
+      materialSnapshot: order.material,
+      heightMmSnapshot: order.heightMm,
+    };
   },
 
   cancelOrder: async (id: string, payload: CancelOrderV2Payload): Promise<CancelOrderV2ResultDto> => {
