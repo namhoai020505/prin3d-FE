@@ -1953,7 +1953,7 @@ export default function Studio3DViewport({
 
       const dist = Math.max(2.0, camera.position.distanceTo(target));
 
-      let targetPos = new THREE.Vector3();
+      const targetPos = new THREE.Vector3();
       switch (view) {
         case 'front': // Trục Z: Nhìn chính diện
           targetPos.set(target.x, target.y, target.z + dist);

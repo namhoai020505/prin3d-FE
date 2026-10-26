@@ -214,34 +214,34 @@ const unwrap = <T>(res: unknown): T => {
 };
 
 // V1 API Implementations
-export const normalizeOrderV2 = (data: any): OrderV2Dto => {
-  if (!data) return data;
+export const normalizeOrderV2 = (data: Record<string, unknown> | null | undefined): OrderV2Dto => {
+  if (!data) return {} as OrderV2Dto;
+  const d = data;
   return {
-    ...data,
-    id: data.id || data.orderId || '',
-    orderCode: data.orderCode || '',
-    userId: data.userId || '',
-    quoteId: data.quoteId || '',
-    fulfillmentStatus: data.fulfillmentStatus || 'PendingPayment',
-    orderPaymentStatus: data.orderPaymentStatus || data.paymentStatus || 'Unpaid',
-    quantity: data.quantity ?? 1,
-    unitPriceSnapshot: data.unitPriceSnapshot ?? data.unitPriceVnd ?? 0,
-    subTotalVnd: data.subTotalVnd ?? data.subtotalVnd ?? 0,
-    finalShippingFee: data.finalShippingFee ?? data.shippingFeeVnd ?? 0,
-    totalAmount: data.totalAmount ?? data.totalVnd ?? 0,
-    currency: data.currency || 'VND',
-    address: data.address || {
+    id: (d.id as string) || (d.orderId as string) || '',
+    orderCode: (d.orderCode as string) || '',
+    userId: (d.userId as string) || '',
+    quoteId: (d.quoteId as string) || '',
+    fulfillmentStatus: (d.fulfillmentStatus as string) || 'PendingPayment',
+    orderPaymentStatus: (d.orderPaymentStatus as string) || (d.paymentStatus as string) || 'Unpaid',
+    quantity: (d.quantity as number) ?? 1,
+    unitPriceSnapshot: (d.unitPriceSnapshot as number) ?? (d.unitPriceVnd as number) ?? 0,
+    subTotalVnd: (d.subTotalVnd as number) ?? (d.subtotalVnd as number) ?? 0,
+    finalShippingFee: (d.finalShippingFee as number) ?? (d.shippingFeeVnd as number) ?? 0,
+    totalAmount: (d.totalAmount as number) ?? (d.totalVnd as number) ?? 0,
+    currency: (d.currency as string) || 'VND',
+    address: (d.address as ShippingAddress) || {
       receiverName: '',
       receiverPhone: '',
       streetAddress: '',
       district: '',
       city: '',
     },
-    materialSnapshot: data.materialSnapshot || data.material || 'Resin',
-    heightMmSnapshot: data.heightMmSnapshot ?? data.heightMm ?? 100,
-    createdAtUtc: data.createdAtUtc || new Date().toISOString(),
-    items: data.items || [],
-    histories: data.histories || data.statusHistories || [],
+    materialSnapshot: (d.materialSnapshot as string) || (d.material as string) || 'Resin',
+    heightMmSnapshot: (d.heightMmSnapshot as number) ?? (d.heightMm as number) ?? 100,
+    createdAtUtc: (d.createdAtUtc as string) || new Date().toISOString(),
+    items: (d.items as OrderV2ItemDto[]) || [],
+    histories: (d.histories as OrderV2HistoryDto[]) || (d.statusHistories as OrderV2HistoryDto[]) || [],
   };
 };
 
@@ -309,7 +309,7 @@ export const checkoutOrderV2 = async (input: CheckoutOrderV2Input): Promise<Orde
     },
   });
   IdempotencyManager.clearKey(`order:checkout:${input.quoteId}`);
-  return normalizeOrderV2(unwrap<any>(response));
+  return normalizeOrderV2(unwrap<Record<string, unknown>>(response));
 };
 
 export const createPaymentAttempt = async (
@@ -370,7 +370,7 @@ export const checkoutQuote = async (
  */
 export const getOrderById = async (orderId: string): Promise<OrderV2Dto> => {
   const raw = await api.get(`/api/v2/orders/${orderId}`);
-  return normalizeOrderV2(unwrap<any>(raw));
+  return normalizeOrderV2(unwrap<Record<string, unknown>>(raw));
 };
 
 /**
