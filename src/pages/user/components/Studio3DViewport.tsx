@@ -23,7 +23,6 @@ import {
   ShieldCheck,
   AlertTriangle,
   Loader2,
-  RotateCcw,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { FaceCount } from '../../../constants/models';
@@ -70,6 +69,7 @@ interface Studio3DViewportProps {
   supportStrength?: 'heavy' | 'standard' | 'light';
   adhesionType?: 'raft' | 'brim' | 'skirt';
   hasBrim?: boolean;
+  activeAxis?: 'x' | 'y' | 'z' | null;
 }
 
 export type ShadingMode = 'pbr' | 'clay' | 'wireframe' | 'normal' | 'solid-wire' | 'solid' | 'sla-resin';
@@ -318,7 +318,13 @@ function computeAccurateModelMetrics(model: THREE.Object3D): ModelMetrics {
 
   const dimX = Math.max(5, Math.round(rawSize.x * scaleToMm));
   const dimY = Math.max(5, Math.round(rawSize.y * scaleToMm));
-  const dimZ = Math.max(5, Math.round(rawSize.z * scaleToMm));
+  let dimZ = Math.max(5, Math.round(rawSize.z * scaleToMm));
+
+  // Minimum Z-Depth (Extrusion / volumetric thickness) at least 25%-30% of max(X, Y)
+  const minDimZ = Math.round(Math.max(dimX, dimY) * 0.28);
+  if (dimZ < minDimZ) {
+    dimZ = minDimZ;
+  }
 
   const boxVolumeCm3 = Math.max(1, (dimX * dimY * dimZ) / 1000);
   const boxSurfaceAreaCm2 = Math.max(1, 2 * (dimX * dimY + dimY * dimZ + dimX * dimZ) / 100);
@@ -347,6 +353,47 @@ function computeAccurateModelMetrics(model: THREE.Object3D): ModelMetrics {
     surfaceAreaCm2: areaCm2,
     dimensions: { x: dimX, y: dimY, z: dimZ },
   };
+}
+
+/**
+ * Ensures 3D models created from 2D images or shallow reliefs have full 3D volumetric thickness
+ * instead of being paper-thin along the Z axis (minimum 25%-30% of max(X, Y)).
+ */
+function ensureModelMinimumDepth(model: THREE.Object3D) {
+  model.position.set(0, 0, 0);
+  model.rotation.set(0, 0, 0);
+  model.scale.set(1, 1, 1);
+  model.updateMatrixWorld(true);
+
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const maxXY = Math.max(size.x, size.y);
+
+  if (maxXY > 0.0001) {
+    const minAllowedZ = maxXY * 0.28;
+    if (size.z < minAllowedZ) {
+      const zScale = Math.max(1.0, minAllowedZ / Math.max(size.z, 0.0001));
+      model.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          if (mesh.geometry) {
+            mesh.geometry.computeBoundingBox();
+            const geomBox = mesh.geometry.boundingBox;
+            if (geomBox) {
+              const centerZ = (geomBox.min.z + geomBox.max.z) / 2;
+              mesh.geometry.translate(0, 0, -centerZ);
+              mesh.geometry.scale(1, 1, zScale);
+              mesh.geometry.translate(0, 0, centerZ * zScale);
+              mesh.geometry.computeVertexNormals();
+              mesh.geometry.computeBoundingBox();
+              mesh.geometry.computeBoundingSphere();
+            }
+          }
+        }
+      });
+      model.updateMatrixWorld(true);
+    }
+  }
 }
 
 function autoCenterAndNormalizeModel(model: THREE.Object3D) {
@@ -1077,12 +1124,15 @@ function create3DSupportStructure(
 
 /**
  * Creates a precision CAD-style 3D Bounding Box cage with:
- * - 12 primary neon cyan edge lines
+ * - 4 X-axis edges in Red (#ef4444) - Width
+ * - 4 Y-axis edges in Green (#22c55e) - Height
+ * - 4 Z-axis edges in Blue (#3b82f6) - Depth
+ * - Interactive Coordinate Origin Axes Indicator
  * - 8 High-Tech corner L-bracket accents
- * - 8 glowing corner vertex points
+ * - 8 corner vertex dots
  * - Ground build-plate contact footprint
  */
-function createBoundingBoxCage(size: THREE.Vector3): THREE.Group {
+function createBoundingBoxCage(size: THREE.Vector3, activeAxis?: 'x' | 'y' | 'z' | null): THREE.Group {
   const cageGroup = new THREE.Group();
   cageGroup.name = 'CAD_Bounding_Cage';
 
@@ -1090,20 +1140,67 @@ function createBoundingBoxCage(size: THREE.Vector3): THREE.Group {
   const halfZ = size.z / 2;
   const height = size.y;
 
-  // 1. Primary outer bounding box wireframe (grounded at Y = 0)
-  const boxGeo = new THREE.BoxGeometry(size.x, height, size.z);
-  boxGeo.translate(0, height / 2, 0);
-  const edgesGeo = new THREE.EdgesGeometry(boxGeo);
-  const edgesMat = new THREE.LineBasicMaterial({
-    color: 0x4a5d4e, // Moss Green
+  // 1. Four edges parallel to X (Horizontal Width) - Standard 3D Red (#ef4444)
+  const xPoints: THREE.Vector3[] = [
+    new THREE.Vector3(-halfX, 0, -halfZ), new THREE.Vector3(halfX, 0, -halfZ),
+    new THREE.Vector3(-halfX, 0, halfZ), new THREE.Vector3(halfX, 0, halfZ),
+    new THREE.Vector3(-halfX, height, -halfZ), new THREE.Vector3(halfX, height, -halfZ),
+    new THREE.Vector3(-halfX, height, halfZ), new THREE.Vector3(halfX, height, halfZ),
+  ];
+  const xGeo = new THREE.BufferGeometry().setFromPoints(xPoints);
+  const xMat = new THREE.LineBasicMaterial({
+    color: 0xef4444, // Red for X (Rộng)
     transparent: true,
-    opacity: 0.65,
+    opacity: activeAxis === 'x' ? 1.0 : (activeAxis ? 0.35 : 0.85),
   });
-  const mainWireframe = new THREE.LineSegments(edgesGeo, edgesMat);
-  cageGroup.add(mainWireframe);
+  const xLines = new THREE.LineSegments(xGeo, xMat);
+  xLines.name = 'axis_x_lines';
+  cageGroup.add(xLines);
 
-  // 2. High-Tech Corner L-Brackets at all 8 vertices
-  const cornerLen = Math.max(0.08, Math.min(size.x, height, size.z) * 0.15);
+  // 2. Four edges parallel to Y (Vertical Height) - Standard 3D Green (#22c55e)
+  const yPoints: THREE.Vector3[] = [
+    new THREE.Vector3(-halfX, 0, -halfZ), new THREE.Vector3(-halfX, height, -halfZ),
+    new THREE.Vector3(halfX, 0, -halfZ), new THREE.Vector3(halfX, height, -halfZ),
+    new THREE.Vector3(-halfX, 0, halfZ), new THREE.Vector3(-halfX, height, halfZ),
+    new THREE.Vector3(halfX, 0, halfZ), new THREE.Vector3(halfX, height, halfZ),
+  ];
+  const yGeo = new THREE.BufferGeometry().setFromPoints(yPoints);
+  const yMat = new THREE.LineBasicMaterial({
+    color: 0x22c55e, // Green for Y (Cao)
+    transparent: true,
+    opacity: activeAxis === 'y' ? 1.0 : (activeAxis ? 0.35 : 0.85),
+  });
+  const yLines = new THREE.LineSegments(yGeo, yMat);
+  yLines.name = 'axis_y_lines';
+  cageGroup.add(yLines);
+
+  // 3. Four edges parallel to Z (Depth / Sâu) - Standard 3D Blue (#3b82f6)
+  const zPoints: THREE.Vector3[] = [
+    new THREE.Vector3(-halfX, 0, -halfZ), new THREE.Vector3(-halfX, 0, halfZ),
+    new THREE.Vector3(halfX, 0, -halfZ), new THREE.Vector3(halfX, 0, halfZ),
+    new THREE.Vector3(-halfX, height, -halfZ), new THREE.Vector3(-halfX, height, halfZ),
+    new THREE.Vector3(halfX, height, -halfZ), new THREE.Vector3(halfX, height, halfZ),
+  ];
+  const zGeo = new THREE.BufferGeometry().setFromPoints(zPoints);
+  const zMat = new THREE.LineBasicMaterial({
+    color: 0x3b82f6, // Blue for Z (Sâu)
+    transparent: true,
+    opacity: activeAxis === 'z' ? 1.0 : (activeAxis ? 0.35 : 0.85),
+  });
+  const zLines = new THREE.LineSegments(zGeo, zMat);
+  zLines.name = 'axis_z_lines';
+  cageGroup.add(zLines);
+
+  // 4. Corner Coordinate Axes Indicator (X: Red, Y: Green, Z: Blue)
+  const axisLen = Math.max(0.15, Math.min(size.x, height, size.z) * 0.28);
+  const origin = new THREE.Vector3(-halfX, 0.005, -halfZ);
+  const xArrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), origin, axisLen, 0xef4444, axisLen * 0.25, axisLen * 0.15);
+  const yArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), origin, axisLen, 0x22c55e, axisLen * 0.25, axisLen * 0.15);
+  const zArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), origin, axisLen, 0x3b82f6, axisLen * 0.25, axisLen * 0.15);
+  cageGroup.add(xArrow, yArrow, zArrow);
+
+  // 5. High-Tech Corner L-Brackets at all 8 vertices
+  const cornerLen = Math.max(0.08, Math.min(size.x, height, size.z) * 0.12);
   const bracketPoints: THREE.Vector3[] = [];
   const vertexPoints: THREE.Vector3[] = [];
 
@@ -1132,26 +1229,26 @@ function createBoundingBoxCage(size: THREE.Vector3): THREE.Group {
 
   const bracketsGeo = new THREE.BufferGeometry().setFromPoints(bracketPoints);
   const bracketsMat = new THREE.LineBasicMaterial({
-    color: 0xe2dfd7, // Sand White
+    color: 0x7a706c,
     transparent: true,
-    opacity: 0.95,
+    opacity: 0.6,
   });
   const bracketsMesh = new THREE.LineSegments(bracketsGeo, bracketsMat);
   cageGroup.add(bracketsMesh);
 
-  // 3. 8 Glowing corner dots
+  // 6. 8 Corner vertex dots
   const dotsGeo = new THREE.BufferGeometry().setFromPoints(vertexPoints);
   const dotsMat = new THREE.PointsMaterial({
-    color: 0x8c8881,
+    color: 0x231f1e,
     size: 4,
     sizeAttenuation: false,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.85,
   });
   const cornerDots = new THREE.Points(dotsGeo, dotsMat);
   cageGroup.add(cornerDots);
 
-  // 4. Subtle Build-Plate Footprint outline at Y = 0.002
+  // 7. Subtle Build-Plate Footprint outline at Y = 0.002
   const footprintPoints = [
     new THREE.Vector3(-halfX, 0.002, -halfZ),
     new THREE.Vector3(halfX, 0.002, -halfZ),
@@ -1161,9 +1258,9 @@ function createBoundingBoxCage(size: THREE.Vector3): THREE.Group {
   ];
   const footprintGeo = new THREE.BufferGeometry().setFromPoints(footprintPoints);
   const footprintMat = new THREE.LineBasicMaterial({
-    color: 0x4a5d4e,
+    color: 0x7a706c,
     transparent: true,
-    opacity: 0.35,
+    opacity: 0.25,
   });
   const footprintLine = new THREE.Line(footprintGeo, footprintMat);
   cageGroup.add(footprintLine);
@@ -1203,6 +1300,7 @@ export default function Studio3DViewport({
   supportStrength = 'heavy',
   adhesionType = 'raft',
   hasBrim = true,
+  activeAxis,
 }: Studio3DViewportProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -1548,7 +1646,7 @@ export default function Studio3DViewport({
       onBaseDimensionsCalculated?.({ x: wMm, y: hMm, z: dMm });
 
       // 3. Create high-precision CAD Bounding Cage and attach directly to targetGroup
-      const cage = createBoundingBoxCage(size);
+      const cage = createBoundingBoxCage(size, activeAxis);
       cage.visible = !!showBoundingBox;
       targetGroup.add(cage);
       boundingBoxHelperRef.current = cage;
@@ -1622,7 +1720,10 @@ export default function Studio3DViewport({
           // 1. Setup original materials & textures (preserving sRGB colorSpace & PBR maps)
           setupOriginalMaterials(loadedModel);
 
-          // 2. Compute accurate geometric metrics (faces, vertices, volume, surface area, dimensions)
+          // 2. Ensure minimum Z depth so image-to-3D models have realistic 3D thickness (avoid paper-thin)
+          ensureModelMinimumDepth(loadedModel);
+
+          // 3. Compute accurate geometric metrics (faces, vertices, volume, surface area, dimensions)
           const metrics = computeAccurateModelMetrics(loadedModel);
           onModelMetricsCalculated?.(metrics);
           onBaseDimensionsCalculated?.(metrics.dimensions);
@@ -1687,6 +1788,25 @@ export default function Studio3DViewport({
       boundingBoxHelperRef.current.visible = !!showBoundingBox;
     }
   }, [showBoundingBox]);
+
+  // 3c-2. Highlight active axis on bounding box
+  useEffect(() => {
+    if (!boundingBoxHelperRef.current) return;
+    const cage = boundingBoxHelperRef.current;
+    const xMesh = cage.getObjectByName('axis_x_lines') as THREE.LineSegments | undefined;
+    const yMesh = cage.getObjectByName('axis_y_lines') as THREE.LineSegments | undefined;
+    const zMesh = cage.getObjectByName('axis_z_lines') as THREE.LineSegments | undefined;
+
+    if (xMesh?.material) {
+      (xMesh.material as THREE.LineBasicMaterial).opacity = activeAxis === 'x' ? 1.0 : (activeAxis ? 0.35 : 0.85);
+    }
+    if (yMesh?.material) {
+      (yMesh.material as THREE.LineBasicMaterial).opacity = activeAxis === 'y' ? 1.0 : (activeAxis ? 0.35 : 0.85);
+    }
+    if (zMesh?.material) {
+      (zMesh.material as THREE.LineBasicMaterial).opacity = activeAxis === 'z' ? 1.0 : (activeAxis ? 0.35 : 0.85);
+    }
+  }, [activeAxis]);
 
   // 3d. Sync Slicing clipping plane and laser plane
   useEffect(() => {
@@ -2229,12 +2349,14 @@ export default function Studio3DViewport({
                 { id: 'pbr', label: 'Lưới + Khối', title: 'PBR Chuẩn: Khối + Texture gốc (Phím Z)' },
                 { id: 'wireframe', label: 'Wireframe', title: 'Chỉ khung dây (Phím Z)' },
                 { id: 'clay', label: 'In 3D SLA', title: 'Chế độ in 3D Nhựa Resin SLA / Clay (Phím Z)' },
+                { id: 'normal', label: 'Normal Map', title: 'Normal / Print Check: Kiểm tra hướng pháp tuyến và in SLA' },
               ] as const
             ).map((mode) => {
               const isActive =
                 (mode.id === 'pbr' && (shadingMode === 'pbr' || shadingMode === 'solid' || shadingMode === 'solid-wire')) ||
                 (mode.id === 'wireframe' && shadingMode === 'wireframe') ||
-                (mode.id === 'clay' && (shadingMode === 'clay' || shadingMode === 'sla-resin'));
+                (mode.id === 'clay' && (shadingMode === 'clay' || shadingMode === 'sla-resin')) ||
+                (mode.id === 'normal' && shadingMode === 'normal');
               return (
                 <button
                   key={mode.id}
@@ -2254,6 +2376,23 @@ export default function Studio3DViewport({
                 </button>
               );
             })}
+          </div>
+
+          <div className="w-[1px] h-4 bg-[#E2D9D0] mx-0.5 shrink-0" />
+
+          {/* Loading or Face Count badge */}
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#F6F3EE] border border-[#E2D9D0] text-[10.5px] font-mono tabular-nums text-[#231F1E] shrink-0" title="Số lượng mặt đa giác (Faces)">
+            {isModelLoading ? (
+              <>
+                <Loader2 className="w-3 h-3 animate-spin text-[#B83B2A]" />
+                <span className="text-[#7A706C]">Đang nạp...</span>
+              </>
+            ) : (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#B83B2A] animate-pulse" />
+                <span className="font-semibold text-[#231F1E]">{customFaceCountDisplay || faceCount} Faces</span>
+              </>
+            )}
           </div>
 
           <div className="w-[1px] h-4 bg-[#E2D9D0] mx-0.5 shrink-0" />
@@ -2348,26 +2487,26 @@ export default function Studio3DViewport({
             {/* X Axis Button (Right / Red) */}
             <button
               onClick={() => setCameraView('right')}
-              className="absolute right-0.5 w-4 h-4 rounded-full bg-[#B83B2A] hover:brightness-110 text-[8px] font-bold text-white flex items-center justify-center shadow-none hover:scale-125 transition-transform cursor-pointer"
-              title="Góc nhìn bên phải (Trục X)"
+              className="absolute right-0.5 w-4 h-4 rounded-full bg-[#ef4444] hover:brightness-110 text-[8px] font-bold text-white flex items-center justify-center shadow-none hover:scale-125 transition-transform cursor-pointer"
+              title="Góc nhìn bên phải (Trục X - Rộng)"
             >
               X
             </button>
 
-            {/* Z Axis Button (Bottom / Warm Stone) */}
+            {/* Z Axis Button (Bottom / Blue) */}
             <button
               onClick={() => setCameraView('bottom')}
-              className="absolute bottom-0.5 w-4 h-4 rounded-full bg-[#7A706C] hover:brightness-110 text-[8px] font-bold text-white flex items-center justify-center shadow-none hover:scale-125 transition-transform cursor-pointer"
-              title="Góc nhìn từ dưới lên (Trục Z - Nhìn mặt đáy)"
+              className="absolute bottom-0.5 w-4 h-4 rounded-full bg-[#3b82f6] hover:brightness-110 text-[8px] font-bold text-white flex items-center justify-center shadow-none hover:scale-125 transition-transform cursor-pointer"
+              title="Góc nhìn từ dưới lên (Trục Z - Sâu)"
             >
               Z
             </button>
 
-            {/* Y Axis Button (Top / Vermilion Soft) */}
+            {/* Y Axis Button (Top / Green) */}
             <button
               onClick={() => setCameraView('top')}
-              className="absolute top-0.5 w-4 h-4 rounded-full bg-[#D98276] hover:brightness-110 text-[8px] font-bold text-white flex items-center justify-center shadow-none hover:scale-125 transition-transform cursor-pointer"
-              title="Góc nhìn từ trên xuống (Trục Y)"
+              className="absolute top-0.5 w-4 h-4 rounded-full bg-[#22c55e] hover:brightness-110 text-[8px] font-bold text-white flex items-center justify-center shadow-none hover:scale-125 transition-transform cursor-pointer"
+              title="Góc nhìn từ trên xuống (Trục Y - Cao)"
             >
               Y
             </button>
@@ -2375,7 +2514,7 @@ export default function Studio3DViewport({
             {/* Left Button (-X) */}
             <button
               onClick={() => setCameraView('left')}
-              className="absolute left-0.5 w-2.5 h-2.5 rounded-full bg-[#231F1E]/15 hover:bg-[#B83B2A] hover:scale-125 transition-all cursor-pointer"
+              className="absolute left-0.5 w-2.5 h-2.5 rounded-full bg-[#231F1E]/15 hover:bg-[#ef4444] hover:scale-125 transition-all cursor-pointer"
               title="Góc nhìn bên trái (-X)"
             />
           </div>
@@ -2403,109 +2542,6 @@ export default function Studio3DViewport({
                 </button>
               );
             })}
-          </div>
-        </div>
-      </div>
-
-      {/* FLOATING PILL TOOLBAR: AUTO-ROTATE & 4 SHADING MODES (PBR, CLAY, WIREFRAME, NORMAL) */}
-      <div
-        className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-20 transition-all duration-300 pointer-events-auto ${
-          isLeftPanelOpen ? 'sm:ml-28' : ''
-        } ${isRightPanelOpen ? 'sm:-mr-24' : ''}`}
-      >
-        <div className="bg-[#1C1C1C]/92 backdrop-blur-xl border border-white/10 rounded-full px-3.5 py-1.5 shadow-2xl flex items-center gap-2.5 text-white">
-          {/* Auto Rotate Toggle */}
-          <button
-            type="button"
-            onClick={() => setIsAutoRotate(!isAutoRotate)}
-            className={`p-1.5 rounded-full transition-all cursor-pointer flex items-center justify-center ${
-              isAutoRotate
-                ? 'bg-[#B83B2A] text-white shadow-sm'
-                : 'text-[#8C8881] hover:text-[#E2DFD7] hover:bg-white/10'
-            }`}
-            title={isAutoRotate ? 'Tắt tự xoay (Phím R)' : 'Bật tự xoay (Phím R)'}
-          >
-            <RotateCcw className={`w-3.5 h-3.5 transition-transform ${isAutoRotate ? 'animate-[spin_4s_linear_infinite]' : ''}`} />
-          </button>
-
-          <div className="w-[1px] h-4 bg-white/15" />
-
-          {/* 4 Shading Spheres */}
-          <div className="flex items-center gap-2">
-            {/* 1. PBR Textured */}
-            <button
-              type="button"
-              onClick={() => setShadingMode('pbr')}
-              className={`relative w-6 h-6 rounded-full transition-all cursor-pointer p-0.5 border ${
-                shadingMode === 'pbr' || shadingMode === 'solid'
-                  ? 'border-[#B83B2A] ring-2 ring-[#B83B2A]/40 scale-110 shadow-sm'
-                  : 'border-white/20 hover:border-white/50 opacity-80 hover:opacity-100'
-              }`}
-              title="PBR Textured: 100% màu sắc, độ bóng kim loại và texture gốc"
-            >
-              <div className="w-full h-full rounded-full bg-[radial-gradient(circle_at_35%_35%,_#4ecdc4_0%,_#1a535c_60%,_#0b252a_100%)] shadow-inner" />
-            </button>
-
-            {/* 2. Clay / MatCap */}
-            <button
-              type="button"
-              onClick={() => setShadingMode('clay')}
-              className={`relative w-6 h-6 rounded-full transition-all cursor-pointer p-0.5 border ${
-                shadingMode === 'clay' || shadingMode === 'sla-resin'
-                  ? 'border-[#B83B2A] ring-2 ring-[#B83B2A]/40 scale-110 shadow-sm'
-                  : 'border-white/20 hover:border-white/50 opacity-80 hover:opacity-100'
-              }`}
-              title="Clay / MatCap: Đất sét trắng xám mịn (#D4CFC7) soi chi tiết khối điêu khắc"
-            >
-              <div className="w-full h-full rounded-full bg-[radial-gradient(circle_at_35%_35%,_#ffffff_0%,_#d4cfc7_55%,_#8c8881_100%)] shadow-inner" />
-            </button>
-
-            {/* 3. Wireframe */}
-            <button
-              type="button"
-              onClick={() => setShadingMode('wireframe')}
-              className={`relative w-6 h-6 rounded-full transition-all cursor-pointer p-0.5 border ${
-                shadingMode === 'wireframe'
-                  ? 'border-[#B83B2A] ring-2 ring-[#B83B2A]/40 scale-110 shadow-sm'
-                  : 'border-white/20 hover:border-white/50 opacity-80 hover:opacity-100'
-              }`}
-              title="Wireframe: Khung lưới đa giác mảnh"
-            >
-              <div className="w-full h-full rounded-full bg-[#1c1c1c] border border-dashed border-[#d4cfc7] flex items-center justify-center">
-                <Grid className="w-2.5 h-2.5 text-[#d4cfc7]" />
-              </div>
-            </button>
-
-            {/* 4. Normal / Print Check */}
-            <button
-              type="button"
-              onClick={() => setShadingMode('normal')}
-              className={`relative w-6 h-6 rounded-full transition-all cursor-pointer p-0.5 border ${
-                shadingMode === 'normal'
-                  ? 'border-[#B83B2A] ring-2 ring-[#B83B2A]/40 scale-110 shadow-sm'
-                  : 'border-white/20 hover:border-white/50 opacity-80 hover:opacity-100'
-              }`}
-              title="Normal / Print Check: Kiểm tra hướng pháp tuyến và in SLA"
-            >
-              <div className="w-full h-full rounded-full bg-[radial-gradient(circle_at_35%_35%,_#a855f7_0%,_#3b82f6_45%,_#22c55e_80%,_#eab308_100%)] shadow-inner" />
-            </button>
-          </div>
-
-          <div className="w-[1px] h-4 bg-white/15" />
-
-          {/* Loading or Face Count */}
-          <div className="flex items-center gap-1.5 text-xs font-mono tabular-nums text-[#E2DFD7]">
-            {isModelLoading ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#B83B2A]" />
-                <span className="text-[11px] text-[#E2DFD7]">Đang nạp file...</span>
-              </>
-            ) : (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-[#B83B2A] animate-pulse" />
-                <span className="text-[11px] font-medium text-[#E2DFD7]">{customFaceCountDisplay || faceCount} Faces</span>
-              </>
-            )}
           </div>
         </div>
       </div>

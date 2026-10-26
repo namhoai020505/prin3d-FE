@@ -180,6 +180,7 @@ export default function Create3DStudio() {
 
   // 3D Model Dimensions, Scale & Bounding Box Inspector States (Default clean presentation)
   const [showBoundingBox, setShowBoundingBox] = useState(false);
+  const [activeAxis, setActiveAxis] = useState<'x' | 'y' | 'z' | null>(null);
   const [isDimensionsPanelOpen, setIsDimensionsPanelOpen] = useState(false);
   const [isUniformScale, setIsUniformScale] = useState(true);
   const [scalePercent, setScalePercent] = useState(100);
@@ -1120,6 +1121,7 @@ export default function Create3DStudio() {
         supportStrength={supportStrength}
         adhesionType={adhesionType}
         hasBrim={adhesionType === 'brim'}
+        activeAxis={activeAxis}
       />
 
       {/* Left Column Stack */}
@@ -1600,7 +1602,7 @@ export default function Create3DStudio() {
                 <Box className="w-3.5 h-3.5 text-[#B83B2A] shrink-0" />
                 <span className="font-semibold text-xs shrink-0">Kích thước & Scale</span>
                 <span className="text-[11px] font-mono tabular-nums text-[#7A706C] truncate">
-                  ({dimensions.x} × {dimensions.z} × {dimensions.y} mm)
+                  (X: {dimensions.x} · Y: {dimensions.y} · Z: {dimensions.z} mm)
                 </span>
               </div>
               <ChevronDown className="w-3.5 h-3.5 text-[#7A706C] shrink-0" />
@@ -1642,53 +1644,83 @@ export default function Create3DStudio() {
               {/* Axes inputs */}
               <div className="flex items-center gap-2">
                 <div className="flex-1 flex flex-col gap-1 font-mono tabular-nums text-xs">
-                  {/* X */}
-                  <div className="flex items-center justify-between bg-[#F6F3EE] border border-[#E2D9D0] rounded px-2 py-1">
-                    <span className="text-[10px] text-[#B83B2A] font-medium">X (Rộng)</span>
+                  {/* X (Rộng) - Red */}
+                  <div
+                    onMouseEnter={() => { setActiveAxis('x'); setShowBoundingBox(true); }}
+                    onMouseLeave={() => setActiveAxis(null)}
+                    className={`flex items-center justify-between bg-[#F6F3EE] border rounded px-2 py-1 transition-colors ${
+                      activeAxis === 'x' ? 'border-[#ef4444] bg-[#ef4444]/5' : 'border-[#E2D9D0]'
+                    }`}
+                  >
+                    <span className="text-[10px] text-[#ef4444] font-semibold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]" />
+                      X (Rộng)
+                    </span>
                     <div className="flex items-center gap-1">
-                      <button onClick={() => stepDimension('x', -5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">-</button>
+                      <button onClick={() => stepDimension('x', -5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center cursor-pointer">-</button>
                       <input
                         type="text"
                         value={dimInputs.x}
+                        onFocus={() => { setActiveAxis('x'); setShowBoundingBox(true); }}
+                        onBlur={() => { setActiveAxis(null); commitDimension('x'); }}
                         onChange={(e) => handleInputChange('x', e.target.value)}
-                        onBlur={() => commitDimension('x')}
-                        className="w-12 bg-transparent text-right text-xs outline-none text-[#231F1E]"
+                        className="w-12 bg-transparent text-right text-xs outline-none text-[#231F1E] font-mono tabular-nums"
                       />
-                      <button onClick={() => stepDimension('x', 5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">+</button>
+                      <button onClick={() => stepDimension('x', 5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center cursor-pointer">+</button>
                       <span className="text-[10px] text-[#7A706C]">mm</span>
                     </div>
                   </div>
 
-                  {/* Z */}
-                  <div className="flex items-center justify-between bg-[#F6F3EE] border border-[#E2D9D0] rounded px-2 py-1">
-                    <span className="text-[10px] text-[#7A706C] font-medium">Z (Sâu)</span>
+                  {/* Y (Cao) - Green */}
+                  <div
+                    onMouseEnter={() => { setActiveAxis('y'); setShowBoundingBox(true); }}
+                    onMouseLeave={() => setActiveAxis(null)}
+                    className={`flex items-center justify-between bg-[#F6F3EE] border rounded px-2 py-1 transition-colors ${
+                      activeAxis === 'y' ? 'border-[#22c55e] bg-[#22c55e]/5' : 'border-[#E2D9D0]'
+                    }`}
+                  >
+                    <span className="text-[10px] text-[#22c55e] font-semibold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
+                      Y (Cao)
+                    </span>
                     <div className="flex items-center gap-1">
-                      <button onClick={() => stepDimension('z', -5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">-</button>
-                      <input
-                        type="text"
-                        value={dimInputs.z}
-                        onChange={(e) => handleInputChange('z', e.target.value)}
-                        onBlur={() => commitDimension('z')}
-                        className="w-12 bg-transparent text-right text-xs outline-none text-[#231F1E]"
-                      />
-                      <button onClick={() => stepDimension('z', 5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">+</button>
-                      <span className="text-[10px] text-[#7A706C]">mm</span>
-                    </div>
-                  </div>
-
-                  {/* Y */}
-                  <div className="flex items-center justify-between bg-[#F6F3EE] border border-[#E2D9D0] rounded px-2 py-1">
-                    <span className="text-[10px] text-[#4A5D4E] font-medium">Y (Cao)</span>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => stepDimension('y', -5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">-</button>
+                      <button onClick={() => stepDimension('y', -5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center cursor-pointer">-</button>
                       <input
                         type="text"
                         value={dimInputs.y}
+                        onFocus={() => { setActiveAxis('y'); setShowBoundingBox(true); }}
+                        onBlur={() => { setActiveAxis(null); commitDimension('y'); }}
                         onChange={(e) => handleInputChange('y', e.target.value)}
-                        onBlur={() => commitDimension('y')}
-                        className="w-12 bg-transparent text-right text-xs outline-none text-[#231F1E]"
+                        className="w-12 bg-transparent text-right text-xs outline-none text-[#231F1E] font-mono tabular-nums"
                       />
-                      <button onClick={() => stepDimension('y', 5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">+</button>
+                      <button onClick={() => stepDimension('y', 5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center cursor-pointer">+</button>
+                      <span className="text-[10px] text-[#7A706C]">mm</span>
+                    </div>
+                  </div>
+
+                  {/* Z (Sâu) - Blue */}
+                  <div
+                    onMouseEnter={() => { setActiveAxis('z'); setShowBoundingBox(true); }}
+                    onMouseLeave={() => setActiveAxis(null)}
+                    className={`flex items-center justify-between bg-[#F6F3EE] border rounded px-2 py-1 transition-colors ${
+                      activeAxis === 'z' ? 'border-[#3b82f6] bg-[#3b82f6]/5' : 'border-[#E2D9D0]'
+                    }`}
+                  >
+                    <span className="text-[10px] text-[#3b82f6] font-semibold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#3b82f6]" />
+                      Z (Sâu)
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => stepDimension('z', -5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center cursor-pointer">-</button>
+                      <input
+                        type="text"
+                        value={dimInputs.z}
+                        onFocus={() => { setActiveAxis('z'); setShowBoundingBox(true); }}
+                        onBlur={() => { setActiveAxis(null); commitDimension('z'); }}
+                        onChange={(e) => handleInputChange('z', e.target.value)}
+                        className="w-12 bg-transparent text-right text-xs outline-none text-[#231F1E] font-mono tabular-nums"
+                      />
+                      <button onClick={() => stepDimension('z', 5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center cursor-pointer">+</button>
                       <span className="text-[10px] text-[#7A706C]">mm</span>
                     </div>
                   </div>
