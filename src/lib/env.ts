@@ -20,3 +20,8 @@ export const AI_CONSENT_POLICY_VERSION: string =
 export const AI_CONSENT_PURPOSE: string =
   (import.meta.env.VITE_AI_CONSENT_PURPOSE as string) || 'AiModelProcessing';
 
+export const GOOGLE_CLIENT_ID: string =
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) ||
+  '928800899912-81ire3k9j09sibcegq1hriqgg231ahqr.apps.googleusercontent.com';
+
+

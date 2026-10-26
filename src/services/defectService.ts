@@ -23,9 +23,12 @@ export interface DefectEvidenceDto {
 export interface DefectReportDto {
   id: string;
   orderId: string;
-  userId: string;
-  clientRequestId: string;
+  orderCode?: string;
+  customerName?: string;
+  userId?: string | null;
+  clientRequestId?: string;
   reason: string;
+  evidencePhotos?: string[];
   status: 'Open' | 'PendingReview' | 'ReprintApproved' | 'RefundApproved' | 'Rejected' | string;
   resolutionNote?: string | null;
   resolvedByUserId?: string | null;
@@ -33,7 +36,7 @@ export interface DefectReportDto {
   reprintRunId?: string | null;
   createdAtUtc: string;
   resolvedAtUtc?: string | null;
-  evidence: DefectEvidenceDto[];
+  evidence?: DefectEvidenceDto[];
 }
 
 const unwrap = <T>(res: unknown): T => {
@@ -91,9 +94,55 @@ export const resolveDefectReport = async (
   return unwrap<DefectReportDto>(raw);
 };
 
+/**
+ * 3. (Staff/Admin) Lấy danh sách khiếu nại sản phẩm lỗi
+ */
+export const getDefectReports = async (
+  params?: { status?: string; orderId?: string }
+): Promise<DefectReportDto[]> => {
+  const queryParams = new URLSearchParams();
+  if (params?.status && params.status !== 'ALL') {
+    queryParams.append('status', params.status);
+  }
+  if (params?.orderId) {
+    queryParams.append('orderId', params.orderId);
+  }
+  const queryString = queryParams.toString();
+  const url = queryString ? `/api/v2/defect-reports?${queryString}` : '/api/v2/defect-reports';
+  const raw = await api.get(url);
+  const data = unwrap<any>(raw);
+  const items: any[] = Array.isArray(data) ? data : Array.isArray(data?.value) ? data.value : [];
+
+  return items.map((item) => {
+    const evidenceList: string[] = Array.isArray(item.evidencePhotos)
+      ? item.evidencePhotos
+      : Array.isArray(item.evidence)
+      ? item.evidence.map((e: any) => (typeof e === 'string' ? e : e?.storageKey || ''))
+      : [];
+
+    return {
+      id: item.id || item.Id || '',
+      orderId: item.orderId || item.OrderId || '',
+      orderCode: item.orderCode || item.OrderCode || '',
+      customerName: item.customerName || item.CustomerName || 'Khách hàng',
+      reason: item.reason || item.Reason || '',
+      evidencePhotos: evidenceList,
+      status: item.status || item.Status || 'Open',
+      resolutionNote: item.resolutionNote ?? item.ResolutionNote ?? null,
+      createdAtUtc: item.createdAtUtc || item.CreatedAtUtc || new Date().toISOString(),
+      resolvedAtUtc: item.resolvedAtUtc ?? item.ResolvedAtUtc ?? null,
+      userId: item.userId || item.UserId || null,
+      refundId: item.refundId || item.RefundId || null,
+      reprintRunId: item.reprintRunId || item.ReprintRunId || null,
+      evidence: Array.isArray(item.evidence) ? item.evidence : [],
+    };
+  });
+};
+
 export const defectService = {
   createDefectReport,
   resolveDefectReport,
+  getDefectReports,
 };
 
 export default defectService;

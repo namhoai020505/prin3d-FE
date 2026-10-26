@@ -59,7 +59,7 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
         hasDeliveredDate: false,
         isExpired: false,
         label: 'Chính sách bảo hành 7 ngày kể từ khi nhận hàng',
-        badgeColor: 'border-cyan-500/30 bg-cyan-950/40 text-cyan-300',
+        badgeColor: 'border-[#E2D9D0] bg-[#F6F3EE] text-[#7A706C]',
       };
     }
     const deliveredDate = new Date(deliveredAtUtc).getTime();
@@ -72,7 +72,7 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
         hasDeliveredDate: true,
         isExpired: true,
         label: 'Đã quá thời hạn 7 ngày bảo hành đổi trả',
-        badgeColor: 'border-rose-500/30 bg-rose-950/40 text-rose-300',
+        badgeColor: 'border-rose-200 bg-rose-50 text-rose-700',
       };
     }
 
@@ -83,7 +83,7 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
       hasDeliveredDate: true,
       isExpired: false,
       label: `Thời hạn khiếu nại còn: ${daysRemaining} ngày ${hoursRemaining} giờ`,
-      badgeColor: 'border-emerald-500/30 bg-emerald-950/40 text-emerald-300',
+      badgeColor: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     };
   }, [deliveredAtUtc]);
 
@@ -133,11 +133,10 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
       }
 
       setEvidenceList((prev) => [...prev, ...newItems]);
-    } catch (err) {
+    } catch {
       setErrorMessage('Không thể xử lý tệp bằng chứng. Vui lòng thử lại.');
     } finally {
       setIsHashing(false);
-      // Reset input value
       e.target.value = '';
     }
   };
@@ -207,27 +206,28 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl rounded-2xl bg-[#090D14]/95 border border-cyan-500/30 text-white shadow-2xl shadow-cyan-950/60 overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative w-full max-w-2xl rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] text-[#231F1E] shadow-xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="p-5 sm:p-6 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+        <div className="p-5 sm:p-6 border-b border-[#E2D9D0] flex items-center justify-between bg-[#EFEAE2]/30">
           <div className="flex items-center gap-3">
-            <img src={logoTheBoy} alt="Idea2Model Logo" className="w-9 h-9 object-contain drop-shadow" />
+            <img src={logoTheBoy} alt="Idea2Model Logo" className="w-8 h-8 object-contain" />
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">
-                  Bảo hành & Khiếu nại lỗi
+                <span className="text-xs font-bold uppercase tracking-wider text-[#B83B2A]">
+                  Bảo hành &amp; Khiếu nại lỗi
                 </span>
-                <span className="text-xs text-white/50">•</span>
-                <span className="text-xs font-mono font-bold text-white/90">#{orderCode}</span>
+                <span className="text-xs text-[#7A706C]">•</span>
+                <span className="text-xs font-mono font-bold text-[#231F1E]">#{orderCode}</span>
               </div>
-              <h3 className="text-lg font-black text-white">Yêu Cầu Đổi Trả / In Lại Mẫu Phẩm</h3>
+              <h3 className="text-base sm:text-lg font-bold text-[#231F1E]">Yêu Cầu Đổi Trả / In Lại Mẫu Phẩm</h3>
             </div>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            className="p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-lg text-[#7A706C] hover:text-[#231F1E] hover:bg-[#EFEAE2] transition-colors cursor-pointer"
+            aria-label="Đóng cửa sổ"
           >
             <X className="w-5 h-5" />
           </button>
@@ -242,29 +242,29 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
           </div>
 
           {errorMessage && (
-            <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs flex items-center gap-2 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{errorMessage}</span>
             </div>
           )}
 
           {successReport ? (
-            <div className="p-6 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 text-center space-y-4 animate-in zoom-in-95">
-              <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
+            <div className="p-6 rounded-2xl bg-[#F6F3EE] border border-emerald-300 text-center space-y-4 animate-in zoom-in-95">
+              <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto" />
               <div className="space-y-1">
-                <h4 className="text-base font-bold text-white">Khiếu Nại Đã Được Tiếp Nhận</h4>
-                <p className="text-xs text-emerald-200/80 max-w-md mx-auto leading-relaxed">
-                  Yêu cầu của bạn đã được chuyển đến bộ phận QC & Quản trị xưởng in. Chúng tôi sẽ phản hồi phương án in lại (Reprint) hoặc hoàn tiền (Refund) trong vòng 24 giờ làm việc.
+                <h4 className="text-base font-bold text-[#231F1E]">Khiếu Nại Đã Được Tiếp Nhận</h4>
+                <p className="text-xs text-[#7A706C] max-w-md mx-auto leading-relaxed">
+                  Yêu cầu của bạn đã được chuyển đến bộ phận QC &amp; Quản trị xưởng in. Chúng tôi sẽ phản hồi phương án in lại (Reprint) hoặc hoàn tiền (Refund) trong vòng 24 giờ làm việc.
                 </p>
               </div>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs font-mono text-emerald-300">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] text-xs font-mono text-[#231F1E]">
                 <span>Mã khiếu nại: {successReport.id.slice(0, 13)}...</span>
               </div>
               <div className="pt-2">
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-xs uppercase tracking-wider transition-all"
+                  className="px-6 py-2.5 rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-sm"
                 >
                   Đóng cửa sổ
                 </button>
@@ -274,8 +274,8 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Preset Tags */}
               <div className="space-y-2">
-                <label className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                  <ShieldAlert className="w-3.5 h-3.5 text-cyan-400" />
+                <label className="text-xs font-bold text-[#231F1E] flex items-center gap-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5 text-[#B83B2A]" />
                   <span>Chọn nhanh nguyên nhân lỗi phổ biến:</span>
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -284,7 +284,7 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
                       key={preset}
                       type="button"
                       onClick={() => setReason((prev) => (prev ? `${prev}. ${preset}` : preset))}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/[0.04] hover:bg-cyan-500/15 border border-white/10 hover:border-cyan-400/40 text-white/80 hover:text-cyan-300 transition-all text-left"
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#F6F3EE] hover:bg-[#FDF2F0] border border-[#E2D9D0] hover:border-[#B83B2A]/40 text-[#231F1E] hover:text-[#B83B2A] transition-all text-left cursor-pointer"
                     >
                       + {preset}
                     </button>
@@ -295,10 +295,10 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
               {/* Reason Textarea */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-white/90">
-                    Mô tả chi tiết lỗi mẫu phẩm <span className="text-cyan-400">*</span>
+                  <label className="text-xs font-bold text-[#231F1E]">
+                    Mô tả chi tiết lỗi mẫu phẩm <span className="text-[#B83B2A]">*</span>
                   </label>
-                  <span className="text-[11px] text-white/40">{reason.length}/1000 ký tự (tối thiểu 10)</span>
+                  <span className="text-[11px] text-[#7A706C]">{reason.length}/1000 ký tự (tối thiểu 10)</span>
                 </div>
                 <textarea
                   rows={4}
@@ -306,25 +306,25 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Mô tả cụ thể khuyết tật in 3D: cong vênh ở góc nào, kích thước thực tế đo được so với file 3D, mức độ nứt vỡ,..."
-                  className="w-full rounded-xl bg-[#0B0F17] border border-white/10 focus:border-cyan-400 p-3.5 text-xs text-white placeholder-white/30 outline-none transition-all resize-none"
+                  className="w-full rounded-xl bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 p-3.5 text-xs text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none transition-all resize-none"
                 />
               </div>
 
               {/* Evidence Upload Section */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-white/90 flex items-center gap-1.5">
-                    <Paperclip className="w-3.5 h-3.5 text-cyan-400" />
+                  <label className="text-xs font-bold text-[#231F1E] flex items-center gap-1.5">
+                    <Paperclip className="w-3.5 h-3.5 text-[#B83B2A]" />
                     <span>Đính kèm bằng chứng ảnh / video lỗi (Tối đa 5 tệp)</span>
                   </label>
-                  <span className="text-[11px] text-cyan-400/80 font-mono">
+                  <span className="text-[11px] text-[#7A706C] font-mono">
                     {evidenceList.length}/5 bằng chứng
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* File Upload Drop Area */}
-                  <label className="relative flex flex-col items-center justify-center p-4 rounded-xl border border-dashed border-white/20 hover:border-cyan-400/60 bg-white/[0.02] hover:bg-cyan-500/[0.03] transition-all cursor-pointer group">
+                  <label className="relative flex flex-col items-center justify-center p-4 rounded-xl border border-dashed border-[#E2D9D0] hover:border-[#B83B2A]/60 bg-[#F6F3EE]/50 hover:bg-[#FDF2F0]/50 transition-all cursor-pointer group">
                     <input
                       type="file"
                       multiple
@@ -333,27 +333,27 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
                       disabled={isHashing || evidenceList.length >= 5}
                       className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed"
                     />
-                    <UploadCloud className="w-6 h-6 text-cyan-400 group-hover:scale-110 transition-transform mb-1.5" />
-                    <span className="text-xs font-bold text-white">Chọn ảnh / video chụp lỗi</span>
-                    <span className="text-[10px] text-white/40 mt-0.5">Tự động băm SHA-256 đối soát</span>
+                    <UploadCloud className="w-6 h-6 text-[#B83B2A] group-hover:scale-110 transition-transform mb-1.5" />
+                    <span className="text-xs font-bold text-[#231F1E]">Chọn ảnh / video chụp lỗi</span>
+                    <span className="text-[10px] text-[#7A706C] mt-0.5">Tự động băm SHA-256 đối soát</span>
                   </label>
 
                   {/* Direct Storage Key Input */}
-                  <div className="flex flex-col justify-between p-3 rounded-xl bg-white/[0.02] border border-white/10 space-y-2">
-                    <span className="text-[11px] text-white/60">Hoặc dán URL / Storage Key ảnh lỗi:</span>
+                  <div className="flex flex-col justify-between p-3 rounded-xl bg-[#F6F3EE]/50 border border-[#E2D9D0] space-y-2">
+                    <span className="text-[11px] text-[#7A706C]">Hoặc dán URL / Storage Key ảnh lỗi:</span>
                     <div className="flex gap-1.5">
                       <input
                         type="text"
                         value={customStorageKey}
                         onChange={(e) => setCustomStorageKey(e.target.value)}
                         placeholder="https://... hoặc storage/key..."
-                        className="flex-1 rounded-lg bg-black/40 border border-white/10 px-2.5 py-1 text-xs text-white placeholder-white/30 outline-none focus:border-cyan-400"
+                        className="flex-1 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] px-2.5 py-1 text-xs text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none focus:border-[#B83B2A]"
                       />
                       <button
                         type="button"
                         onClick={handleAddCustomKey}
                         disabled={!customStorageKey.trim() || evidenceList.length >= 5}
-                        className="px-3 py-1 rounded-lg bg-white/10 hover:bg-cyan-500/20 text-white hover:text-cyan-300 text-xs font-semibold disabled:opacity-40 transition-colors"
+                        className="px-3 py-1 rounded-lg bg-[#FFFFFF] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#231F1E] hover:text-[#B83B2A] text-xs font-semibold disabled:opacity-40 transition-colors cursor-pointer"
                       >
                         Thêm
                       </button>
@@ -363,7 +363,7 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
 
                 {/* Evidence List */}
                 {isHashing && (
-                  <div className="flex items-center gap-2 p-2 text-xs text-cyan-300">
+                  <div className="flex items-center gap-2 p-2 text-xs text-[#B83B2A]">
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     <span>Đang tính toán mã băm SHA-256 cho tệp...</span>
                   </div>
@@ -374,23 +374,23 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
                     {evidenceList.map((item, index) => (
                       <div
                         key={index}
-                        className="flex items-center justify-between p-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-xs"
+                        className="flex items-center justify-between p-2.5 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0] text-xs"
                       >
                         <div className="flex items-center gap-2.5 min-w-0 pr-2">
                           {item.previewUrl ? (
                             <img
                               src={item.previewUrl}
                               alt="preview"
-                              className="w-8 h-8 rounded object-cover border border-white/10 shrink-0"
+                              className="w-8 h-8 rounded object-cover border border-[#E2D9D0] shrink-0"
                             />
                           ) : (
-                            <Paperclip className="w-4 h-4 text-cyan-400 shrink-0" />
+                            <Paperclip className="w-4 h-4 text-[#B83B2A] shrink-0" />
                           )}
                           <div className="min-w-0">
-                            <p className="font-semibold text-white truncate max-w-xs">{item.fileName || item.storageKey}</p>
+                            <p className="font-semibold text-[#231F1E] truncate max-w-xs">{item.fileName || item.storageKey}</p>
                             {item.sha256Hex && (
-                              <p className="text-[10px] font-mono text-cyan-400 flex items-center gap-1">
-                                <Hash className="w-2.5 h-2.5 shrink-0" />
+                              <p className="text-[10px] font-mono text-[#7A706C] flex items-center gap-1">
+                                <Hash className="w-2.5 h-2.5 shrink-0 text-[#B83B2A]" />
                                 <span>SHA256: {item.sha256Hex.slice(0, 10)}...{item.sha256Hex.slice(-8)}</span>
                               </p>
                             )}
@@ -400,7 +400,7 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleRemoveEvidence(index)}
-                          className="p-1.5 text-white/40 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                          className="p-1.5 text-[#7A706C] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -411,23 +411,23 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
               </div>
 
               {/* Action Buttons */}
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-white/10">
+              <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-[#E2D9D0]">
                 <button
                   type="button"
                   onClick={handleClose}
                   disabled={isSubmitting}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-[#7A706C] hover:text-[#231F1E] hover:bg-[#EFEAE2] transition-colors cursor-pointer"
                 >
                   Hủy bỏ
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting || isHashing || reason.trim().length < 10}
-                  className="btn-pooled-cyan px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider text-black flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-5 py-2.5 rounded-xl font-bold text-xs bg-[#B83B2A] hover:bg-[#9E2F20] text-white flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all"
                 >
                   {isSubmitting ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin text-black" />
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
                       <span>Đang gửi hồ sơ...</span>
                     </>
                   ) : (
@@ -447,4 +447,3 @@ export const DefectReportModal: React.FC<DefectReportModalProps> = ({
 };
 
 export default DefectReportModal;
-

@@ -77,33 +77,13 @@ export default function Home() {
         style={{ objectPosition: '70% center' }}
       />
 
-      {/* Studio Dark Noir Overlays: Dims backdrop into an obsidian dark tone */}
-      {/* 1. Left-to-right dark wash: ensures console, pills, and typography are crisp and ultra-readable */}
+      {/* Studio Light Wabi-Sabi Overlays - Clear Right Side so 3D Character is 100% Crisp & Sharp */}
+      {/* Left-to-right light wash: protects text & console readability on the left (0-45%), then transitions to 100% transparent by 56%, leaving the 3D character completely unobstructed with zero blur and zero fog */}
       <div
         className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 pointer-events-none"
         style={{
           background:
-            'linear-gradient(90deg, #070a0f 0%, rgba(7, 10, 15, 0.92) 32%, rgba(7, 10, 15, 0.5) 54%, transparent 75%)',
-        }}
-        aria-hidden="true"
-      />
-
-      {/* 2. Character Spotlight Vignette */}
-      <div
-        className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(circle at 74% 45%, rgba(7, 10, 15, 0) 25%, rgba(7, 10, 15, 0.2) 60%, rgba(7, 10, 15, 0.8) 100%)',
-        }}
-        aria-hidden="true"
-      />
-
-      {/* 3. Top and bottom cinema edge feathering */}
-      <div
-        className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 pointer-events-none"
-        style={{
-          background:
-            'linear-gradient(180deg, rgba(7, 10, 15, 0.5) 0%, transparent 16%, transparent 80%, #070a0f 100%)',
+            'linear-gradient(90deg, #F6F3EE 0%, rgba(246, 243, 238, 0.98) 35%, rgba(246, 243, 238, 0.65) 45%, rgba(246, 243, 238, 0) 56%, transparent 100%)',
         }}
         aria-hidden="true"
       />
@@ -113,7 +93,7 @@ export default function Home() {
         {/* Mainframe Hero + THE BOYS 3D Upload Console */}
         <HeroCreateSection />
 
-        {/* Section Cách Hoạt Động: Scrollytelling 5 Bước */}
+        {/* Section Cách Hoạt Động: Scrollytelling 3 Bước Tinh Gọn */}
         <ScrollStory />
 
         {/* Community 3D Showcase Section with 3D Tilt */}

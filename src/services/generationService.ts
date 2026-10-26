@@ -164,11 +164,9 @@ export const createImageGeneration = async (
   if (inputOrFormData instanceof FormData) {
     form = inputOrFormData;
   } else {
-    if (!inputOrFormData.image) {
-      throw new Error('Ảnh nguồn là bắt buộc để tạo mô hình 3D.');
-    }
     form = new FormData();
     if (inputOrFormData.image) form.append('image', inputOrFormData.image);
+    if (inputOrFormData.prompt) form.append('prompt', inputOrFormData.prompt);
     form.append('heightMm', String(inputOrFormData.heightMm ?? 100));
     form.append('shouldTexture', String(inputOrFormData.shouldTexture ?? false));
     if (inputOrFormData.modelName) form.append('modelName', inputOrFormData.modelName);
@@ -237,6 +235,23 @@ export const getDownloadUrl = (taskId: string, kind: 'glb' | 'stl' | 'image'): s
   return `${API_BASE_URL}/api/generations/${taskId}/files/${kind}`;
 };
 
+export const getGenerationModelBlobUrl = async (
+  taskId: string,
+  kind: 'glb' | 'stl' | 'image' = 'glb',
+  signal?: AbortSignal
+): Promise<string> => {
+  const res = await api.get(`/api/generations/${taskId}/files/${kind}`, {
+    ...keepStudioOpenOnAuthFailure,
+    responseType: 'blob',
+    signal,
+  });
+  const blob = unwrap<Blob>(res);
+  if (!(blob instanceof Blob)) {
+    throw new Error('Backend không trả về file model hợp lệ.');
+  }
+  return URL.createObjectURL(blob);
+};
+
 export const downloadGenerationFile = async (url: string, fileName: string): Promise<void> => {
   const response = await api.get(url, {
     ...keepStudioOpenOnAuthFailure,
@@ -266,6 +281,7 @@ export const generationService = {
   recoverGeneration,
   getDownloadUrl,
   downloadGenerationFile,
+  getGenerationModelBlobUrl,
 };
 
 export default generationService;

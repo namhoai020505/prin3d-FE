@@ -8,7 +8,7 @@ export default function AboutSection() {
   return (
     <section
       ref={ref}
-      className="relative bg-gradient-to-b from-[#0a0102] via-[#060c0b] to-[#04100d] pt-28 md:pt-36 pb-10 md:pb-14 px-6 overflow-hidden"
+      className="relative bg-gradient-to-b from-[#0A0A0A] via-[#060c0b] to-[#04100d] pt-16 md:pt-24 pb-10 md:pb-14 px-6 overflow-hidden"
     >
       {/* Subtle radial transition glow */}
       <div

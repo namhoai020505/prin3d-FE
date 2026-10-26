@@ -106,8 +106,16 @@ export const reconcileRefund = async (
   return unwrap<{ success: boolean; message: string }>(raw);
 };
 
+export const reconcilePayment = async (
+  attemptId: string,
+  _idempotencyKey?: string,
+): Promise<{ success: boolean; message: string }> => {
+  return reconcilePaymentAttempt(attemptId);
+};
+
 export const paymentService = {
   createPaymentAttempt,
+  reconcilePayment,
   getPaymentAttempts,
   reconcilePaymentAttempt,
   createRefund,

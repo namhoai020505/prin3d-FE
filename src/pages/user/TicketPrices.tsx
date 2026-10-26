@@ -1,227 +1,361 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useVTNavigate as useNavigate } from '../../hooks/useVTNavigate';
 import {
-  Box,
-  CheckCircle,
-  HelpCircle,
-  Printer,
-  ShieldCheck,
   Sparkles,
-  Truck,
   Zap,
+  CheckCircle2,
+  Box,
+  Truck,
+  Layers,
+  ShieldCheck,
+  ArrowRight,
 } from 'lucide-react';
-import {
-  listPricingPackages,
-  type PricingPackage,
-} from '../../services/pricingPackageService';
-import TiltCard from '../../components/ui/TiltCard';
+import CreditTopUpModal from './components/CreditTopUpModal';
+
+interface AiCreditPackage {
+  id: 'starter' | 'creator' | 'studio';
+  name: string;
+  priceVnd: number;
+  credits: number;
+  unitPrice: string;
+  badge?: string;
+  isPopular?: boolean;
+  desc: string;
+}
+
+const AI_PACKAGES: AiCreditPackage[] = [
+  {
+    id: 'starter',
+    name: 'Gói Khởi Đầu',
+    priceVnd: 50000,
+    credits: 3,
+    unitPrice: '~16.6k / lượt',
+    desc: 'Phù hợp thử nghiệm ý tưởng ban đầu và tạo mô hình nhỏ',
+  },
+  {
+    id: 'creator',
+    name: 'Gói Sáng Tạo',
+    priceVnd: 120000,
+    credits: 10,
+    unitPrice: '~12k / lượt',
+    badge: 'Phổ biến nhất',
+    isPopular: true,
+    desc: 'Tiết kiệm 28% chi phí, lý tưởng cho nhà thiết kế cá nhân',
+  },
+  {
+    id: 'studio',
+    name: 'Gói Studio',
+    priceVnd: 290000,
+    credits: 30,
+    unitPrice: '~9.6k / lượt',
+    badge: 'Tiết kiệm 42%',
+    desc: 'Tối ưu chi phí cho xưởng in và dự án sản xuất hàng loạt',
+  },
+];
+
+interface PrintMaterialItem {
+  id: string;
+  name: string;
+  unitPriceVnd: number;
+  tag: string;
+  setupFee: number;
+  highlight: string;
+  features: string[];
+}
+
+const MATERIAL_PRICES: PrintMaterialItem[] = [
+  {
+    id: 'pla',
+    name: 'Nhựa PLA',
+    unitPriceVnd: 2500,
+    tag: 'Tiêu chuẩn',
+    setupFee: 35000,
+    highlight: 'Chi phí tối ưu, thân thiện môi trường',
+    features: [
+      'Công nghệ in FDM tiêu chuẩn',
+      'Độ chính xác ±0.15mm',
+      'Phù hợp decor & mô hình tĩnh',
+      'Đã gồm xử lý support cơ bản',
+    ],
+  },
+  {
+    id: 'abs',
+    name: 'Nhựa ABS / PETG',
+    unitPriceVnd: 3500,
+    tag: 'Chịu lực & nhiệt',
+    setupFee: 40000,
+    highlight: 'Độ bền cơ học cao, chống va đập',
+    features: [
+      'Vật liệu kỹ thuật cao cấp',
+      'Chịu nhiệt độ lên đến 80°C',
+      'Phù hợp linh kiện chức năng & vỏ hộp',
+      'Kiểm định độ bền cấu trúc trước in',
+    ],
+  },
+  {
+    id: 'resin',
+    name: 'Resin SLA',
+    unitPriceVnd: 6500,
+    tag: 'Siêu mịn cao cấp',
+    setupFee: 50000,
+    highlight: 'Độ sắc nét vượt trội, bề mặt láng mịn',
+    features: [
+      'Công nghệ quang hóa Resin 8K',
+      'Độ dày lớp in 0.05mm siêu mịn',
+      'Tối ưu cho figure, trang sức & chi tiết nhỏ',
+      'Khử độc, sấy cứng UV và phủ bóng',
+    ],
+  },
+];
 
 export default function TicketPrices() {
   const navigate = useNavigate();
-  const [packages, setPackages] = useState<PricingPackage[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [isTopUpOpen, setIsTopUpOpen] = useState(false);
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchPackages = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const data = await listPricingPackages();
-        if (isMounted) {
-          setPackages(data);
-        }
-      } catch (err: unknown) {
-        if (isMounted) {
-          const message =
-            err instanceof Error
-              ? err.message
-              : 'Không thể tải danh sách gói in 3D lúc này.';
-          setError(message);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    fetchPackages();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const formatCurrency = (val: number) => val.toLocaleString('vi-VN') + ' đ';
+  const formatVnd = (val: number) => val.toLocaleString('vi-VN') + ' đ';
 
   return (
-    <div className="min-h-screen bg-[#070a0f] text-white selection:bg-cyan-500/30">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden pt-14 pb-16 px-4 sm:px-6 lg:px-8 border-b border-white/10 bg-[#0c1017]/80 backdrop-blur-xl">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-950/30 via-[#0c1017] to-[#070a0f] pointer-events-none" />
-        <div className="relative max-w-5xl mx-auto text-center space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold backdrop-blur-md shadow-[0_0_12px_rgba(0,240,255,0.12)]">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            <span>01 // GÓI GIA CÔNG SẢN XUẤT THỰC TẾ</span>
+    <div className="min-h-screen bg-[#F6F3EE] text-[#231F1E]">
+      {/* Page Header */}
+      <section className="relative overflow-hidden pt-12 pb-12 px-4 sm:px-6 lg:px-8 border-b border-[#E2D9D0] bg-[#FFFFFF]">
+        <div className="max-w-4xl mx-auto text-center space-y-3">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FDF2F0] border border-[#B83B2A]/20 text-[#B83B2A] text-xs font-semibold">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Biểu Phí Minh Bạch &amp; Tiết Kiệm</span>
           </div>
-          <h1
-            className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-white drop-shadow-md"
-            style={{ fontFamily: 'var(--font-heading)' }}
-          >
-            Bảng Giá In 3D &amp; Gói Sản Xuất
+          <h1 className="text-2xl sm:text-4xl font-extrabold text-[#231F1E] tracking-tight">
+            Bảng Giá Dịch Vụ
           </h1>
-          <p className="max-w-2xl mx-auto text-base sm:text-lg text-zinc-200 font-normal leading-relaxed">
-            Biến mô hình 3D AI thành hiện vật thực tế với độ phân giải cao bằng công nghệ in Resin SLA siêu mịn và FDM PLA bền bỉ.
+          <p className="max-w-2xl mx-auto text-xs sm:text-sm text-[#7A706C] leading-relaxed">
+            Hệ thống cung cấp giải pháp toàn diện từ lượt tạo mô hình 3D bằng AI đến dịch vụ gia công in thực tế tận tay.
           </p>
         </div>
       </section>
 
-      {/* Pricing Packages List */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-3">
-            <div className="w-10 h-10 border-3 border-cyan-500/30 border-t-cyan-400 rounded-full animate-spin" />
-            <p className="text-sm text-cyan-200 font-medium">Đang tải biểu phí dịch vụ in 3D...</p>
-          </div>
-        ) : error ? (
-          <div className="max-w-md mx-auto p-6 rounded-2xl bg-[#0c1017] border border-rose-500/30 text-center space-y-3">
-            <HelpCircle className="w-10 h-10 text-rose-400 mx-auto" />
-            <h3 className="font-bold text-base text-white">Lỗi kết nối</h3>
-            <p className="text-xs text-rose-200/80">{error}</p>
+      {/* Main Tables Container */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-14">
+        {/* BẢNG 1: GÓI LƯỢT TẠO AI */}
+        <section className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-[#E2D9D0] pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-[#FDF2F0] border border-[#B83B2A]/20 flex items-center justify-center text-[#B83B2A]">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <h2 className="text-lg sm:text-xl font-bold text-[#231F1E]">
+                  Bảng 1: Gói Lượt Tạo AI
+                </h2>
+              </div>
+              <p className="text-xs text-[#7A706C] mt-1">
+                Tạo mô hình 3D từ ảnh chụp hoặc chữ. Mỗi lượt tạo thành công tương ứng 1 mô hình hoàn chỉnh.
+              </p>
+            </div>
             <button
               type="button"
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 text-xs font-semibold bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all cursor-pointer"
+              onClick={() => setIsTopUpOpen(true)}
+              className="text-xs font-bold text-[#B83B2A] hover:text-[#9E2F20] flex items-center gap-1 cursor-pointer transition-colors"
             >
-              Thử lại
+              <span>Nạp nhanh VietQR</span>
+              <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {packages.map((pkg, idx) => {
-              const isSla = pkg.name.toLowerCase().includes('sla') || pkg.material.toLowerCase().includes('resin');
-              return (
-                <TiltCard
-                  key={pkg.id || idx}
-                  maxTilt={5}
-                  scale={1.015}
-                  className={`relative rounded-3xl border transition-all duration-300 p-6 sm:p-8 flex flex-col justify-between backdrop-blur-2xl ${
-                    isSla
-                      ? 'bg-gradient-to-b from-[#0f1d33]/90 via-[#0a1424]/95 to-[#060a12]/98 border-cyan-400/50 shadow-[0_25px_60px_rgba(0,0,0,0.9),0_0_40px_rgba(0,240,255,0.2),inset_0_1px_1px_rgba(255,255,255,0.25)]'
-                      : 'bg-gradient-to-b from-[#0d1624]/90 via-[#090f1a]/95 to-[#050810]/98 border-white/15 hover:border-cyan-400/40 shadow-[0_25px_60px_rgba(0,0,0,0.85),inset_0_1px_1px_rgba(255,255,255,0.15)]'
-                  }`}
-                >
-                  {isSla && (
-                    <div className="absolute -top-3.5 right-6 px-3 py-1 rounded-full bg-cyan-400 text-black text-[11px] font-black shadow-lg shadow-cyan-950/60 tracking-wider uppercase font-mono">
-                      Khuyên Dùng • SLA Cao Cấp
-                    </div>
-                  )}
 
-                  <div className="space-y-6">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border ${
-                        isSla ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300 shadow-[0_0_15px_rgba(0,240,255,0.2)]' : 'bg-white/10 border-white/20 text-white'
-                      }`}>
-                        {isSla ? <Sparkles className="w-7 h-7 text-cyan-400" /> : <Printer className="w-7 h-7 text-white" />}
-                      </div>
-                      <div>
-                        <h2 className="text-2xl font-bold text-white">{pkg.name}</h2>
-                        <p className="text-xs text-zinc-300 font-medium mt-0.5">
-                          Chất liệu: <span className="text-cyan-300 font-bold">{pkg.material}</span>
-                        </p>
-                      </div>
-                    </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {AI_PACKAGES.map((pkg) => (
+              <div
+                key={pkg.id}
+                className={`relative rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 border ${
+                  pkg.isPopular
+                    ? 'bg-[#FFFFFF] border-[#B83B2A] shadow-md ring-1 ring-[#B83B2A]/30'
+                    : 'bg-[#FFFFFF] border-[#E2D9D0] shadow-sm hover:border-[#B83B2A]/40'
+                }`}
+              >
+                {pkg.badge && (
+                  <div
+                    className={`absolute -top-3 right-5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                      pkg.isPopular
+                        ? 'bg-[#B83B2A] text-white shadow-sm'
+                        : 'bg-[#EFEAE2] text-[#7A706C] border border-[#E2D9D0]'
+                    }`}
+                  >
+                    {pkg.badge}
+                  </div>
+                )}
 
-                    <div className="pt-2 pb-4 border-b border-white/10">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-4xl sm:text-5xl font-extrabold text-white tracking-tight font-mono">
-                          {formatCurrency(pkg.priceVnd)}
-                        </span>
-                        <span className="text-xs text-zinc-400 font-medium">/ 1 mẫu phẩm</span>
-                      </div>
-                      <p className="text-xs text-cyan-300 font-medium mt-1">
-                        ✓ Đã bao gồm kiểm định mesh &amp; tạo Support kỹ thuật tự động
-                      </p>
-                    </div>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-base font-bold text-[#231F1E]">{pkg.name}</h3>
+                    <p className="text-xs text-[#7A706C] mt-0.5">{pkg.desc}</p>
+                  </div>
 
-                    <div className="space-y-3">
-                      <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider font-mono">Thông số &amp; Cam kết chất lượng</h4>
-                      <ul className="space-y-3 text-sm text-zinc-200">
-                        <li className="flex items-center gap-3">
-                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                          <span>Chiều cao tương thích: <strong className="text-white font-mono">{pkg.heightRangeCm || `${pkg.minHeightMm}-${pkg.maxHeightMm} mm`}</strong></span>
-                        </li>
-                        <li className="flex items-center gap-3">
-                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                          <span>Độ dày lớp in: <strong className="text-white">{isSla ? '0.05 mm (Siêu chi tiết)' : '0.12 mm (Tiêu chuẩn)'}</strong></span>
-                        </li>
-                        <li className="flex items-center gap-3">
-                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                          <span>Khối kín nước 100% Watertight, chịu lực và chống cong vênh</span>
-                        </li>
-                        <li className="flex items-center gap-3">
-                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                          <span>Được bảo vệ bằng mã băm Hash cấu hình SHA-256 bất biến</span>
-                        </li>
-                      </ul>
+                  <div className="py-3 border-y border-[#E2D9D0]">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-2xl sm:text-3xl font-extrabold text-[#B83B2A] font-mono tabular-nums">
+                        {formatVnd(pkg.priceVnd)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs mt-1 text-[#7A706C]">
+                      <span className="font-semibold text-[#231F1E]">{pkg.credits} lượt tạo AI</span>
+                      <span className="font-mono">{pkg.unitPrice}</span>
                     </div>
                   </div>
 
-                  <div className="pt-6 mt-6 border-t border-white/10 space-y-3">
-                    <button
-                      type="button"
-                      onClick={() => navigate('/create')}
-                      className={`w-full h-12 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                        isSla
-                          ? 'btn-pooled-cyan shadow-[0_0_20px_rgba(0,240,255,0.25)] hover:scale-[1.01]'
-                          : 'liquid-glass text-white hover:text-cyan-300 border border-white/20 hover:border-cyan-400/50 hover:scale-[1.01]'
-                      }`}
-                    >
-                      <Zap className="w-4 h-4 text-cyan-300" />
-                      <span>Tạo Mô Hình &amp; Đặt In Ngay</span>
-                    </button>
-                    <p className="text-[11px] text-center text-zinc-400 font-medium">Thời gian gia công: 24 - 48 giờ làm việc</p>
-                  </div>
-                </TiltCard>
-              );
-            })}
+                  <ul className="space-y-2 text-xs text-[#7A706C]">
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Không giới hạn thời gian sử dụng</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Xuất định dạng file OBJ, GLB, STL</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Hỗ trợ tạo trực tiếp từ ảnh chụp 2D</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="pt-5 mt-5">
+                  <button
+                    type="button"
+                    onClick={() => setIsTopUpOpen(true)}
+                    className={`w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      pkg.isPopular
+                        ? 'bg-[#B83B2A] hover:bg-[#9E2F20] text-white shadow-sm'
+                        : 'bg-[#F6F3EE] hover:bg-[#EFEAE2] text-[#231F1E] border border-[#E2D9D0]'
+                    }`}
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Nạp gói này</span>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
-        )}
+        </section>
 
-        {/* Feature Highlights: 3D Tilt Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-16 pt-12 border-t border-white/10">
-          <TiltCard maxTilt={4} className="flex flex-col items-center text-center p-6 rounded-2xl bg-gradient-to-b from-[#0c1422]/90 via-[#080d16]/95 to-[#05080f]/98 border border-white/10 hover:border-cyan-400/40 shadow-[0_15px_35px_rgba(0,0,0,0.7),inset_0_1px_1px_rgba(255,255,255,0.1)] space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.15)]">
-              <ShieldCheck className="w-6 h-6 text-cyan-400" />
+        {/* BẢNG 2: ĐƠN GIÁ VẬT LIỆU IN 3D */}
+        <section className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-[#E2D9D0] pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-[#FDF2F0] border border-[#B83B2A]/20 flex items-center justify-center text-[#B83B2A]">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <h2 className="text-lg sm:text-xl font-bold text-[#231F1E]">
+                  Bảng 2: Đơn Giá Vật Liệu In 3D
+                </h2>
+              </div>
+              <p className="text-xs text-[#7A706C] mt-1">
+                Chi phí sản xuất thực tế tại xưởng tính theo thể tích và vật liệu sử dụng.
+              </p>
             </div>
-            <h3 className="font-bold text-base text-white">Kiểm tra kích thước tự động</h3>
-            <p className="text-xs text-zinc-300 leading-relaxed font-normal">
-              Hệ thống tự động tính toán thể tích và kích thước hộp bao Bounding Box để báo giá chuẩn xác tức thì.
-            </p>
-          </TiltCard>
+            <button
+              type="button"
+              onClick={() => navigate('/create')}
+              className="text-xs font-bold text-[#B83B2A] hover:text-[#9E2F20] flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <span>Vào Studio tính giá tự động</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-          <TiltCard maxTilt={4} className="flex flex-col items-center text-center p-6 rounded-2xl bg-gradient-to-b from-[#0c1422]/90 via-[#080d16]/95 to-[#05080f]/98 border border-white/10 hover:border-cyan-400/40 shadow-[0_15px_35px_rgba(0,0,0,0.7),inset_0_1px_1px_rgba(255,255,255,0.1)] space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.15)]">
-              <Box className="w-6 h-6 text-cyan-400" />
-            </div>
-            <h3 className="font-bold text-base text-white">Hỗ trợ file STL / GLB</h3>
-            <p className="text-xs text-zinc-300 leading-relaxed font-normal">
-              Tải trực tiếp file mô hình 3D về máy để tự in hoặc chỉnh sửa trên Blender tùy ý sau khi kiểm duyệt.
-            </p>
-          </TiltCard>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {MATERIAL_PRICES.map((mat) => (
+              <div
+                key={mat.id}
+                className="rounded-2xl p-6 bg-[#FFFFFF] border border-[#E2D9D0] shadow-sm hover:border-[#B83B2A]/40 flex flex-col justify-between transition-all duration-200"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-base font-bold text-[#231F1E]">{mat.name}</h3>
+                      <p className="text-xs text-[#7A706C] mt-0.5">{mat.highlight}</p>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-[#EFEAE2] text-[#7A706C] font-semibold border border-[#E2D9D0]">
+                      {mat.tag}
+                    </span>
+                  </div>
 
-          <TiltCard maxTilt={4} className="flex flex-col items-center text-center p-6 rounded-2xl bg-gradient-to-b from-[#0c1422]/90 via-[#080d16]/95 to-[#05080f]/98 border border-white/10 hover:border-cyan-400/40 shadow-[0_15px_35px_rgba(0,0,0,0.7),inset_0_1px_1px_rgba(255,255,255,0.1)] space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shadow-[0_0_12px_rgba(0,240,255,0.15)]">
-              <Truck className="w-6 h-6 text-cyan-400" />
+                  <div className="py-3 border-y border-[#E2D9D0]">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl sm:text-3xl font-extrabold text-[#B83B2A] font-mono tabular-nums">
+                        {formatVnd(mat.unitPriceVnd)}
+                      </span>
+                      <span className="text-xs text-[#7A706C]">/ cm³</span>
+                    </div>
+                    <div className="text-[11px] text-[#7A706C] mt-1 font-mono">
+                      Phí thiết lập xưởng: {formatVnd(mat.setupFee)}
+                    </div>
+                  </div>
+
+                  <ul className="space-y-2 text-xs text-[#7A706C]">
+                    {mat.features.map((feat, idx) => (
+                      <li key={idx} className="flex items-center gap-2">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{feat}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="pt-5 mt-5">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/create')}
+                    className="w-full py-2.5 rounded-xl bg-[#F6F3EE] hover:bg-[#EFEAE2] text-[#231F1E] hover:text-[#B83B2A] border border-[#E2D9D0] font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Box className="w-3.5 h-3.5" />
+                    <span>Chọn in vật liệu này</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 3 Summary Features */}
+        <section className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-6 border-t border-[#E2D9D0]">
+          <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#E2D9D0] flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-[#FDF2F0] text-[#B83B2A] flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5" />
             </div>
-            <h3 className="font-bold text-base text-white">Đóng gói an toàn &amp; Giao hàng</h3>
-            <p className="text-xs text-zinc-300 leading-relaxed font-normal">
-              Mẫu vật được khử độc, bọc xốp chống sốc đa tầng và giao đến tận nơi theo địa chỉ bạn đăng ký.
-            </p>
-          </TiltCard>
-        </div>
-      </section>
+            <div>
+              <h4 className="text-xs font-bold text-[#231F1E]">Kiểm Tra Kỹ Thuật Tự Động</h4>
+              <p className="text-[11px] text-[#7A706C] mt-0.5">Quét độ dày thành và độ kín khối trước khi in.</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#E2D9D0] flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-[#FDF2F0] text-[#B83B2A] flex items-center justify-center shrink-0">
+              <Truck className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-[#231F1E]">Giao Hàng Toàn Quốc</h4>
+              <p className="text-[11px] text-[#7A706C] mt-0.5">Đóng gói chống sốc và giao nhanh trong 2-3 ngày.</p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#E2D9D0] flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-[#FDF2F0] text-[#B83B2A] flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-[#231F1E]">Bảo Hành Thành Phẩm</h4>
+              <p className="text-[11px] text-[#7A706C] mt-0.5">Hỗ trợ in lại hoặc hoàn tiền trong 7 ngày nếu lỗi xưởng.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* Credit Top-Up Modal */}
+      {isTopUpOpen && (
+        <CreditTopUpModal
+          isOpen={isTopUpOpen}
+          onClose={() => setIsTopUpOpen(false)}
+        />
+      )}
     </div>
   );
 }

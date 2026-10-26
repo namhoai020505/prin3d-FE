@@ -54,6 +54,7 @@ const refreshClient = axios.create({
  */
 const PUBLIC_AUTH_PATHS = [
   '/api/auth/login',
+  '/api/auth/google-login',
   '/api/auth/register',
   '/api/auth/refresh',
   '/api/auth/refresh-token',
@@ -137,7 +138,11 @@ api.interceptors.request.use(
     const requestUrl = config.url || '';
 
     if (token && !isPublicAuthEndpoint(requestUrl) && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`;
+      if (typeof config.headers.set === 'function') {
+        config.headers.set('Authorization', `Bearer ${token}`);
+      } else {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
 
     const contentType = (config.headers?.['Content-Type'] as string) || '';

@@ -29,19 +29,25 @@ async function setup(page: Page, role?: string, tasks: unknown[] = []) {
   });
 }
 
+async function openStudio(page: Page, right = true) {
+  await page.getByTitle('Mở bảng tạo hình', { exact: true }).click();
+  if (right) await page.getByTitle('Tài sản & Lớp (Mở bảng thông số)', { exact: true }).click();
+}
+
 test('legacy login opens the unified modal after navigation', async ({ page }) => {
   await setup(page);
   await page.goto('/login');
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByPlaceholder('name@example.com hoặc admin@123')).toBeVisible();
+  await expect(page.getByPlaceholder('email@domain.com', { exact: true })).toBeVisible();
   await page.screenshot({ path: path.join(qaDir, 'merge-login.png') });
 });
 
 test('main Studio retains file modes and PayOS modals on desktop and mobile', async ({ page }) => {
-  await setup(page);
+  await setup(page, 'cus', [task]);
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/create');
+  await openStudio(page);
   await expect(page.getByRole('heading', { name: 'Tạo hình 3D', exact: true })).toBeVisible();
   await expect(page.locator('canvas')).toBeVisible();
   await page.getByRole('button', { name: 'File 3D', exact: true }).click();
@@ -51,14 +57,18 @@ test('main Studio retains file modes and PayOS modals on desktop and mobile', as
   await expect(page.getByRole('heading', { name: 'Nạp Thêm Lượt Tạo 3D' })).toBeVisible();
   await page.screenshot({ path: path.join(qaDir, 'merge-topup.png') });
   await page.goto('/create');
-  await page.getByRole('button', { name: 'Đặt in 3D ngay →', exact: true }).click();
-  await expect(page.getByText('Đặt In 3D Chi Tiết', { exact: true })).toBeVisible();
+  await openStudio(page);
+  await page.getByText('Merge Model', { exact: true }).click();
+  await page.getByRole('button', { name: 'Chốt Mẫu & Đặt In →', exact: true }).click();
+  await expect(page.getByText('Đặt in 3D', { exact: true })).toBeVisible();
   await page.goto('/create');
+  await openStudio(page);
   await expect(page.getByRole('heading', { name: 'Tạo hình 3D', exact: true })).toBeVisible();
   await expect(page.locator('canvas')).toBeVisible();
   await page.screenshot({ path: path.join(qaDir, 'merge-studio-desktop.png') });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
+  await openStudio(page, false);
   await expect(page.getByRole('heading', { name: 'Tạo hình 3D', exact: true })).toBeVisible();
   const panelBounds = await page.getByRole('heading', { name: 'Tạo hình 3D', exact: true }).boundingBox();
   expect(panelBounds && panelBounds.x + panelBounds.width).toBeLessThanOrEqual(390);
@@ -103,6 +113,7 @@ test('Studio preserves Staff approval and invalidates it when print configuratio
     await fulfill(route, { id: 'approval', versionId: task.versionId, configurationHash: 'approved-hash' });
   });
   await page.goto('/create');
+  await openStudio(page);
   await page.getByText('Merge Model', { exact: true }).click();
   await page.getByRole('button', { name: 'Xác nhận chốt mẫu in 3D', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Đã chốt cấu hình in 3D', exact: true })).toBeVisible();

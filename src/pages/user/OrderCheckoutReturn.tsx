@@ -19,7 +19,6 @@ import logoBoy from '../../assets/LOGOTheBoy.png';
 import { orderService, type OrderV2Dto } from '../../services/orderService';
 import { paymentService, type PaymentAttemptDto } from '../../services/paymentService';
 import { getRoleFromAccessToken, isAdminRole, isManagerRole, isStaffRole } from '../../lib/auth';
-import { IdempotencyManager } from '../../lib/idempotency';
 import TiltCard from '../../components/ui/TiltCard';
 
 export default function OrderCheckoutReturn() {
@@ -99,171 +98,166 @@ export default function OrderCheckoutReturn() {
 
       setOrder(orderData);
       setPaymentAttempts(attemptsData);
-      return orderData;
-    } catch {
-      // Order might not be found or network error
-      return null;
+    } catch (err: unknown) {
+      console.error('Lỗi tải dữ liệu biên lai:', err);
     } finally {
       setIsLoading(false);
     }
   }, [orderId]);
 
-  // Initial load
   useEffect(() => {
-    void fetchOrderData().then((fetched) => {
-      // If not cancelled and not paid, trigger polling
-      if (fetched && fetched.orderPaymentStatus !== 'Paid' && !isCancelledFlow) {
-        setIsPollingActive(true);
-      }
-    });
-  }, [fetchOrderData, isCancelledFlow]);
+    void fetchOrderData();
+  }, [fetchOrderData]);
 
-  // Auto-polling mechanism: up to 6 times (every 2 seconds)
+  // Handle PayOS return polling loop
   useEffect(() => {
-    if (!isPollingActive || !orderId || isCancelledFlow) return;
+    if (!orderId || !order) return;
 
-    if (pollCount >= 6) {
+    if (order.orderPaymentStatus === 'Paid') {
       setIsPollingActive(false);
       return;
     }
 
-    const timer = setTimeout(async () => {
-      setPollCount((prev) => prev + 1);
-      try {
-        const updated = await orderService.getOrderById(orderId);
-        setOrder(updated);
-
-        if (updated.orderPaymentStatus === 'Paid') {
-          setIsPollingActive(false);
-          toast.success('Thanh toán thành công! Đơn hàng đã được xác nhận.');
-        }
-      } catch {
-        // Continue polling
-      }
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [isPollingActive, pollCount, orderId, isCancelledFlow]);
-
-  // Manual Refresh
-  const handleManualRefresh = async () => {
-    setPollCount(0);
-    setIsPollingActive(true);
-    await fetchOrderData();
-  };
-
-  // Staff / Admin Reconcile action
-  const handleReconcile = async () => {
-    if (!latestAttempt) {
-      toast.warn('Chưa có lượt thanh toán nào để đối soát.');
+    if (isCancelledFlow) {
+      setIsPollingActive(false);
       return;
     }
 
+    setIsPollingActive(true);
+    let attempts = 0;
+    const maxAttempts = 6;
+
+    const interval = setInterval(async () => {
+      attempts += 1;
+      setPollCount(attempts);
+
+      try {
+        const freshOrder = await orderService.getOrderById(orderId);
+        if (freshOrder.orderPaymentStatus === 'Paid') {
+          setOrder(freshOrder);
+          setIsPollingActive(false);
+          clearInterval(interval);
+          toast.success('Đã nhận xác nhận thanh toán thành công!');
+          return;
+        }
+
+        const freshAttempts = await paymentService.getPaymentAttempts(orderId).catch(() => []);
+        setPaymentAttempts(freshAttempts);
+
+        if (attempts >= maxAttempts) {
+          setIsPollingActive(false);
+          clearInterval(interval);
+        }
+      } catch {
+        if (attempts >= maxAttempts) {
+          setIsPollingActive(false);
+          clearInterval(interval);
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [orderId, order?.orderPaymentStatus, isCancelledFlow]);
+
+  // Handle staff manual reconcile
+  const handleReconcile = async () => {
+    if (!orderId) return;
     setIsReconciling(true);
     try {
-      await paymentService.reconcilePaymentAttempt(latestAttempt.id);
-      toast.success('Đối soát thành công! Đơn hàng đã chuyển sang trạng thái Đã Thanh Toán.');
+      const targetAttemptId = paymentAttempts[0]?.id || orderId;
+      await paymentService.reconcilePaymentAttempt(targetAttemptId);
       await fetchOrderData();
+      toast.success('Đã đối soát và xác nhận thanh toán thành công (Quyền Quản Trị)!');
     } catch (err: unknown) {
-      const errorObj = err as { response?: { data?: { detail?: string; message?: string } } };
-      const msg = errorObj.response?.data?.detail || errorObj.response?.data?.message || 'Không thể đối soát.';
+      const msg = err instanceof Error ? err.message : 'Đối soát thanh toán thất bại.';
       toast.error(msg);
     } finally {
       setIsReconciling(false);
     }
   };
 
-  // Re-create Payment Attempt
+  // Handle retry payment attempt
   const handleCreateNewPayment = async () => {
-    if (!order) return;
+    if (!orderId) return;
     setIsRetryingPayment(true);
     try {
-      IdempotencyManager.refreshKey(`payment:attempt:${order.id}`);
       const newAttempt = await paymentService.createPaymentAttempt(
-        order.id,
-        `Thanh toán lại đơn hàng ${order.orderCode} qua PayOS`,
+        orderId,
+        `Thanh toan lai don in 3D ${order?.orderCode || ''}`
       );
       setPaymentAttempts((prev) => [newAttempt, ...prev]);
-      toast.success('Đã tạo phiên thanh toán mới!');
 
       if (newAttempt.checkoutUrl) {
-        if (
-          newAttempt.checkoutUrl.includes('vietqr') ||
-          newAttempt.checkoutUrl.endsWith('.png') ||
-          newAttempt.checkoutUrl.endsWith('.jpg')
-        ) {
+        if (isQrImage(newAttempt.checkoutUrl)) {
           setActiveQrModal(newAttempt.checkoutUrl);
         } else {
-          window.open(newAttempt.checkoutUrl, '_blank');
+          window.location.href = newAttempt.checkoutUrl;
         }
+      } else {
+        toast.info('Đã tạo phiên thanh toán mới, vui lòng kiểm tra mã QR.');
       }
     } catch (err: unknown) {
-      const errorObj = err as { response?: { data?: { detail?: string; message?: string } } };
-      const msg = errorObj.response?.data?.detail || errorObj.response?.data?.message || 'Không thể tạo phiên thanh toán.';
+      const msg = err instanceof Error ? err.message : 'Không thể tạo phiên thanh toán mới.';
       toast.error(msg);
     } finally {
       setIsRetryingPayment(false);
     }
   };
 
-  // Helper check if checkoutUrl is image
-  const isQrImage = (url?: string | null) => {
-    if (!url) return false;
-    const lower = url.toLowerCase();
-    return (
-      lower.includes('vietqr') ||
-      lower.endsWith('.png') ||
-      lower.endsWith('.jpg') ||
-      lower.includes('/img/')
-    );
+  const handleManualRefresh = async () => {
+    setIsLoading(true);
+    await fetchOrderData();
+    setIsLoading(false);
+    toast.info('Đã làm mới thông tin đơn hàng.');
   };
 
-  const formatDateSafe = (iso?: string | null) => {
-    if (!iso) return '—';
+  const formatVndSafe = (val?: number) => {
+    if (val === undefined || val === null) return '0';
+    return Number(val).toLocaleString('vi-VN');
+  };
+
+  const formatDateSafe = (dStr?: string | null) => {
+    if (!dStr) return '—';
     try {
-      const d = new Date(iso);
-      return isNaN(d.getTime()) ? '—' : d.toLocaleString('vi-VN');
+      return new Date(dStr).toLocaleString('vi-VN');
     } catch {
-      return '—';
+      return dStr;
     }
   };
 
-  const formatVndSafe = (val?: number | null) => {
-    if (typeof val !== 'number' || isNaN(val)) return '0';
-    return val.toLocaleString('vi-VN');
+  const isQrImage = (url?: string | null) => {
+    if (!url) return false;
+    return url.startsWith('data:image/') || url.includes('.png') || url.includes('.jpg') || url.includes('.svg');
   };
 
-  // Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#090d14] flex flex-col items-center justify-center p-4 text-white">
-        <Loader2 className="w-10 h-10 animate-spin text-cyan-400 mb-3" />
-        <h3 className="text-base font-bold text-white tracking-wide">
-          Đang truy vấn trạng thái đơn hàng...
-        </h3>
-        <p className="text-xs text-slate-400 mt-1 font-mono">Đồng bộ dữ liệu từ cổng PayOS V2</p>
+      <div className="min-h-screen bg-[#F6F3EE] flex flex-col items-center justify-center p-4 text-[#231F1E]">
+        <div className="w-10 h-10 border-2 border-[#B83B2A]/30 border-t-[#B83B2A] rounded-full animate-spin mb-3" />
+        <p className="text-xs text-[#7A706C] font-mono">Đang kiểm tra kết quả giao dịch PayOS...</p>
       </div>
     );
   }
 
-  // Not found state
   if (!order) {
     return (
-      <div className="min-h-screen bg-[#090d14] flex flex-col items-center justify-center p-4 text-white text-center">
-        <div className="w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-slate-400 mb-4">
-          <AlertTriangle className="w-8 h-8 text-amber-400" />
+      <div className="min-h-screen bg-[#F6F3EE] flex flex-col items-center justify-center p-4 text-[#231F1E] text-center">
+        <div className="p-8 rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] shadow-sm max-w-md w-full flex flex-col items-center">
+          <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 mb-4">
+            <AlertTriangle className="w-7 h-7" />
+          </div>
+          <h2 className="text-base sm:text-lg font-bold text-[#231F1E]">Không tìm thấy thông tin đơn hàng</h2>
+          <p className="text-xs text-[#7A706C] mt-1 mb-6 leading-relaxed">
+            Mã đơn hàng không hợp lệ hoặc bạn không có quyền truy cập đơn hàng này.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/create')}
+            className="w-full py-2.5 rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] text-white font-bold text-xs shadow-sm transition-colors cursor-pointer"
+          >
+            Quay lại 3D Studio
+          </button>
         </div>
-        <h2 className="text-lg font-bold text-white">Không tìm thấy thông tin đơn hàng</h2>
-        <p className="text-xs text-slate-400 max-w-sm mt-1 mb-6 leading-relaxed">
-          Mã đơn hàng không hợp lệ hoặc bạn không có quyền truy cập đơn hàng này.
-        </p>
-        <button
-          type="button"
-          onClick={() => navigate('/create')}
-          className="btn-pooled-cyan px-6 py-2.5 text-xs font-bold"
-        >
-          Quay lại 3D Studio
-        </button>
       </div>
     );
   }
@@ -271,22 +265,22 @@ export default function OrderCheckoutReturn() {
   const isPaid = order.orderPaymentStatus === 'Paid';
 
   return (
-    <div className="min-h-screen bg-[#090d14] py-8 px-4 sm:px-6 lg:px-8 text-white text-left selection:bg-cyan-500/30">
+    <div className="min-h-screen bg-[#F6F3EE] py-8 px-4 sm:px-6 lg:px-8 text-[#231F1E] text-left selection:bg-[#B83B2A]/15 selection:text-[#B83B2A]">
       <div className="max-w-3xl mx-auto space-y-6">
         {/* Header Bar */}
-        <div className="flex items-center justify-between pb-4 border-b border-white/10">
+        <div className="flex items-center justify-between pb-4 border-b border-[#E2D9D0]">
           <div className="flex items-center gap-3">
-            <img src={logoBoy} alt="THE BOYS" className="w-9 h-9 rounded-xl shadow-md" />
+            <img src={logoBoy} alt="THE BOYS" className="w-9 h-9 rounded-xl shadow-sm object-contain" />
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-bold text-white tracking-wide">
+                <h1 className="text-base sm:text-lg font-bold text-[#231F1E] tracking-wide">
                   Kết Quả Thanh Toán Đơn Hàng In 3D
                 </h1>
-                <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 text-[10px] font-mono font-semibold">
-                  PayOS V2
+                <span className="px-2 py-0.5 rounded-full bg-[#FDF2F0] text-[#B83B2A] border border-[#B83B2A]/20 text-[10px] font-mono font-semibold">
+                  PayOS VietQR
                 </span>
               </div>
-              <span className="text-xs text-slate-400 font-mono">
+              <span className="text-xs text-[#7A706C] font-mono">
                 Đơn hàng: #{order?.orderCode || ''} · Ngày tạo: {formatDateSafe(order?.createdAtUtc)}
               </span>
             </div>
@@ -295,62 +289,57 @@ export default function OrderCheckoutReturn() {
           <button
             type="button"
             onClick={() => navigate('/create')}
-            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFFFFF] border border-[#E2D9D0] text-xs font-semibold text-[#7A706C] hover:text-[#231F1E] hover:bg-[#EFEAE2] transition-colors cursor-pointer"
           >
             <span>Về 3D Studio</span>
           </button>
         </div>
 
-        {/* ====================================================
-            TRẠNG THÁI 1: ĐANG THĂM DÒ (POLLING RADAR SPINNER)
-            ==================================================== */}
+        {/* TRẠNG THÁI 1: ĐANG THĂM DÒ (POLLING RADAR SPINNER) */}
         {isPollingActive && !isPaid && (
-          <div className="p-6 rounded-2xl bg-cyan-950/20 border border-cyan-500/30 text-center flex flex-col items-center justify-center gap-3 shadow-[0_0_30px_rgba(0,240,255,0.1)]">
-            <div className="relative flex items-center justify-center w-14 h-14">
-              <div className="absolute inset-0 rounded-full border-2 border-cyan-400/30 animate-ping" />
-              <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
+          <div className="p-6 rounded-2xl bg-[#FFFFFF] border border-[#E2D9D0] text-center flex flex-col items-center justify-center gap-3 shadow-sm">
+            <div className="relative flex items-center justify-center w-12 h-12">
+              <Loader2 className="w-8 h-8 animate-spin text-[#B83B2A]" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-cyan-300 tracking-wide">
+              <h3 className="text-sm font-bold text-[#231F1E] tracking-wide">
                 Đang đồng bộ biên lai từ Cổng PayOS...
               </h3>
-              <p className="text-xs text-slate-400 mt-1 font-mono">
+              <p className="text-xs text-[#7A706C] mt-1 font-mono">
                 Lần kiểm tra {pollCount}/6 · Hệ thống đang lắng nghe webhook chuyển khoản VietQR
               </p>
             </div>
-            <div className="w-full max-w-xs h-1.5 bg-black/50 rounded-full overflow-hidden border border-white/10">
+            <div className="w-full max-w-xs h-1.5 bg-[#EFEAE2] rounded-full overflow-hidden border border-[#E2D9D0]">
               <div
-                className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-500"
+                className="h-full bg-[#B83B2A] transition-all duration-500"
                 style={{ width: `${(pollCount / 6) * 100}%` }}
               />
             </div>
           </div>
         )}
 
-        {/* ====================================================
-            TRẠNG THÁI 2: THANH TOÁN THÀNH CÔNG (PAID RECEIPT)
-            ==================================================== */}
+        {/* TRẠNG THÁI 2: THANH TOÁN THÀNH CÔNG (PAID RECEIPT) */}
         {isPaid ? (
           <TiltCard
             maxTilt={3}
             perspective={1100}
-            className="p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-[#0a1e17]/90 via-[#08151c]/92 to-[#060c14]/96 border border-emerald-400/40 shadow-[0_25px_60px_rgba(0,0,0,0.85),0_0_40px_rgba(16,185,129,0.2),inset_0_1px_1px_rgba(255,255,255,0.2)] backdrop-blur-2xl space-y-6"
+            className="p-6 sm:p-8 rounded-3xl bg-[#FFFFFF] border border-emerald-300 shadow-sm space-y-6"
           >
             {/* Top Congratulations Card */}
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left" style={{ transform: 'translateZ(20px)' }}>
-              <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.3)] shrink-0">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shadow-sm shrink-0">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
               <div className="flex-1">
                 <div className="flex items-center justify-center sm:justify-start gap-2">
-                  <h2 className="text-lg sm:text-xl font-bold text-white">
+                  <h2 className="text-lg sm:text-xl font-bold text-[#231F1E]">
                     Thanh Toán Đơn Hàng Thành Công!
                   </h2>
-                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-xs font-mono font-bold">
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-mono font-bold">
                     PAID
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                <p className="text-xs text-[#7A706C] mt-1 leading-relaxed">
                   Cảm ơn bạn! Đơn hàng đã được thanh toán hoàn tất và chuyển tự động sang phân xưởng in 3D.
                 </p>
               </div>
@@ -358,59 +347,59 @@ export default function OrderCheckoutReturn() {
 
             {/* Chi tiết Biên lai Điện Tử (Grid) */}
             <div
-              className="p-4 sm:p-5 rounded-2xl bg-black/40 border border-white/8 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono shadow-[inset_0_2px_6px_rgba(0,0,0,0.5)]"
+              className="p-4 sm:p-5 rounded-2xl bg-[#F6F3EE] border border-[#E2D9D0] grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono shadow-inner"
               style={{ transform: 'translateZ(14px)' }}
             >
               <div className="space-y-1">
-                <span className="text-[11px] text-slate-400 font-sans">Mã đơn hàng:</span>
-                <div className="text-sm font-bold text-white flex items-center gap-2">
+                <span className="text-[11px] text-[#7A706C] font-sans">Mã đơn hàng:</span>
+                <div className="text-sm font-bold text-[#231F1E] flex items-center gap-2">
                   <span>#{order.orderCode}</span>
                   <button
                     type="button"
                     onClick={() => handleCopy(order.orderCode, 'orderCode')}
-                    className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-300 cursor-pointer"
+                    className="p-1 rounded hover:bg-[#EFEAE2] text-[#7A706C] hover:text-[#231F1E] cursor-pointer"
                   >
-                    {copiedField === 'orderCode' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    {copiedField === 'orderCode' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
                   </button>
                 </div>
               </div>
 
               <div className="space-y-1">
-                <span className="text-[11px] text-slate-400 font-sans">Tổng tiền đã thanh toán:</span>
-                <div className="text-sm font-bold text-emerald-300">
+                <span className="text-[11px] text-[#7A706C] font-sans">Tổng tiền đã thanh toán:</span>
+                <div className="text-sm font-bold text-emerald-700">
                   {formatVndSafe(order?.totalAmount)} đ
                 </div>
               </div>
 
               <div className="space-y-1">
-                <span className="text-[11px] text-slate-400 font-sans">Quy cách in 3D:</span>
-                <div className="text-white">
+                <span className="text-[11px] text-[#7A706C] font-sans">Quy cách in 3D:</span>
+                <div className="text-[#231F1E]">
                   {order.materialSnapshot} · Cao {order.heightMmSnapshot} mm · SL: {order.quantity} bản
                 </div>
               </div>
 
               <div className="space-y-1">
-                <span className="text-[11px] text-slate-400 font-sans">Trạng thái sản xuất:</span>
-                <div className="text-cyan-300 font-semibold flex items-center gap-1.5">
-                  <Box className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-[11px] text-[#7A706C] font-sans">Trạng thái sản xuất:</span>
+                <div className="text-[#B83B2A] font-semibold flex items-center gap-1.5">
+                  <Box className="w-3.5 h-3.5 text-[#B83B2A]" />
                   <span>{order.fulfillmentStatus || 'AwaitingAssignment'} (Chờ phân xưởng)</span>
                 </div>
               </div>
 
-              <div className="sm:col-span-2 pt-2 border-t border-white/5 space-y-1 font-sans">
-                <span className="text-[11px] text-slate-400">Địa chỉ giao hàng:</span>
-                <div className="text-slate-200 text-xs">
-                  <strong>{order?.address?.receiverName ?? (order as any)?.receiverName ?? 'Khách hàng'}</strong> ({order?.address?.receiverPhone ?? (order as any)?.receiverPhone ?? '—'}) — {order?.address?.streetAddress ?? (order as any)?.streetAddress ?? ''}, {order?.address?.district ?? (order as any)?.district ?? ''}, {order?.address?.city ?? (order as any)?.city ?? ''}
+              <div className="sm:col-span-2 pt-2 border-t border-[#E2D9D0] space-y-1 font-sans">
+                <span className="text-[11px] text-[#7A706C]">Địa chỉ giao hàng:</span>
+                <div className="text-[#231F1E] text-xs">
+                  <strong>{order?.address?.receiverName ?? (order as unknown as Record<string, unknown>)?.receiverName as string ?? 'Khách hàng'}</strong> ({order?.address?.receiverPhone ?? (order as unknown as Record<string, unknown>)?.receiverPhone as string ?? '—'}) — {order?.address?.streetAddress ?? (order as unknown as Record<string, unknown>)?.streetAddress as string ?? ''}, {order?.address?.district ?? (order as unknown as Record<string, unknown>)?.district as string ?? ''}, {order?.address?.city ?? (order as unknown as Record<string, unknown>)?.city as string ?? ''}
                 </div>
               </div>
             </div>
 
-            {/* Action Buttons: 2 nút đồng đều hoàn hảo về kích thước, chiều cao, visual weight */}
+            {/* Action Buttons */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2" style={{ transform: 'translateZ(20px)' }}>
               <button
                 type="button"
                 onClick={() => navigate('/create')}
-                className="h-12 w-full px-5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 hover:border-cyan-400/40 text-slate-200 hover:text-white text-xs sm:text-sm font-bold transition-all flex items-center justify-center cursor-pointer backdrop-blur-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] active:scale-95"
+                className="h-12 w-full px-5 rounded-xl bg-[#FFFFFF] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#231F1E] text-xs sm:text-sm font-bold transition-all flex items-center justify-center cursor-pointer shadow-sm active:scale-98"
               >
                 Tạo Thêm Mô Hình 3D
               </button>
@@ -418,7 +407,7 @@ export default function OrderCheckoutReturn() {
               <button
                 type="button"
                 onClick={() => navigate('/my-bookings')}
-                className="btn-pooled-cyan h-12 w-full px-5 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_22px_rgba(0,240,255,0.35)] rounded-xl active:scale-95 transition-all"
+                className="h-12 w-full px-5 rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-98 transition-all"
               >
                 <span>Xem Hành Trình Đơn Hàng</span>
                 <ArrowRight className="w-4 h-4 shrink-0" />
@@ -426,35 +415,33 @@ export default function OrderCheckoutReturn() {
             </div>
           </TiltCard>
         ) : isCancelledFlow ? (
-          /* ====================================================
-             TRẠNG THÁI 4: HỦY THANH TOÁN (CANCELLED FLOW)
-             ==================================================== */
-          <div className="p-6 sm:p-8 rounded-3xl bg-[#0a0f18]/95 border border-amber-500/30 backdrop-blur-2xl space-y-6">
+          /* TRẠNG THÁI 4: HỦY THANH TOÁN (CANCELLED FLOW) */
+          <div className="p-6 sm:p-8 rounded-3xl bg-[#FFFFFF] border border-amber-300 shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
-              <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.2)] shrink-0">
+              <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shadow-sm shrink-0">
                 <Clock className="w-8 h-8" />
               </div>
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-bold text-white">
+                <h2 className="text-lg sm:text-xl font-bold text-[#231F1E]">
                   Phiên Thanh Toán Chưa Hoàn Tất
                 </h2>
-                <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                <p className="text-xs text-[#7A706C] mt-1 leading-relaxed">
                   Bạn đã hủy giao dịch trên cổng PayOS hoặc phiên quét mã bị gián đoạn. Đơn hàng #{order.orderCode} của bạn vẫn được lưu giữ an toàn ở trạng thái Chờ thanh toán.
                 </p>
               </div>
             </div>
 
             {/* Bảng tóm tắt đơn chờ */}
-            <div className="p-4 rounded-xl bg-black/40 border border-white/8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono">
+            <div className="p-4 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono">
               <div>
-                <span className="text-slate-400">Số tiền cần thanh toán:</span>
-                <span className="ml-2 font-bold text-cyan-300 text-sm">
+                <span className="text-[#7A706C]">Số tiền cần thanh toán:</span>
+                <span className="ml-2 font-bold text-[#B83B2A] text-sm">
                   {formatVndSafe(order?.totalAmount)} đ
                 </span>
               </div>
               <div>
-                <span className="text-slate-400">Trạng thái hiện tại:</span>
-                <span className="ml-2 font-semibold text-amber-300">Chờ thanh toán (Unpaid)</span>
+                <span className="text-[#7A706C]">Trạng thái hiện tại:</span>
+                <span className="ml-2 font-semibold text-amber-700">Chờ thanh toán (Unpaid)</span>
               </div>
             </div>
 
@@ -462,8 +449,8 @@ export default function OrderCheckoutReturn() {
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => navigate('/orders')}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                onClick={() => navigate('/my-bookings')}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#FFFFFF] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-xs font-semibold transition-colors cursor-pointer"
               >
                 Xem danh sách đơn hàng
               </button>
@@ -472,10 +459,10 @@ export default function OrderCheckoutReturn() {
                 type="button"
                 disabled={isRetryingPayment}
                 onClick={handleCreateNewPayment}
-                className="btn-pooled-cyan w-full sm:w-auto py-2.5 px-6 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(0,240,255,0.25)] disabled:opacity-50"
+                className="w-full sm:w-auto py-2.5 px-6 rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-all disabled:opacity-50"
               >
                 {isRetryingPayment ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
                 ) : (
                   <QrCode className="w-4 h-4" />
                 )}
@@ -484,44 +471,42 @@ export default function OrderCheckoutReturn() {
             </div>
           </div>
         ) : (
-          /* ====================================================
-             TRẠNG THÁI 3: CHƯA NHẬN ĐƯỢC XÁC NHẬN / ĐỐI SOÁT
-             ==================================================== */
-          <div className="p-6 sm:p-8 rounded-3xl bg-[#0a0f18]/95 border border-cyan-500/30 backdrop-blur-2xl space-y-6">
+          /* TRẠNG THÁI 3: CHƯA NHẬN ĐƯỢC XÁC NHẬN / ĐỐI SOÁT */
+          <div className="p-6 sm:p-8 rounded-3xl bg-[#FFFFFF] border border-[#E2D9D0] shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
-              <div className="w-14 h-14 rounded-2xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-300 shadow-[0_0_25px_rgba(0,240,255,0.2)] shrink-0">
+              <div className="w-14 h-14 rounded-2xl bg-[#FDF2F0] border border-[#B83B2A]/20 flex items-center justify-center text-[#B83B2A] shadow-sm shrink-0">
                 <Clock className="w-8 h-8" />
               </div>
               <div className="flex-1">
-                <h2 className="text-lg sm:text-xl font-bold text-white">
+                <h2 className="text-lg sm:text-xl font-bold text-[#231F1E]">
                   Chưa Nhận Được Xác Nhận Thanh Toán Tức Thì
                 </h2>
-                <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                <p className="text-xs text-[#7A706C] mt-1 leading-relaxed">
                   {payOsCode === '00' || payOsStatus === 'PAID'
-                    ? 'Cổng PayOS đã chuyển hướng về thành công! Do hệ thống đang chạy trong môi trường thử nghiệm (Localhost), máy chủ backend đang chờ xác nhận giao dịch hoặc cần một chạm đối soát.'
+                    ? 'Cổng PayOS đã chuyển hướng về thành công! Hệ thống đang chờ đồng bộ biên lai từ ngân hàng.'
                     : 'Nếu bạn vừa quét mã VietQR và trừ tiền trong tài khoản ngân hàng, vui lòng chờ 5-10 giây để cổng PayOS truyền biên lai webhook.'}
                 </p>
               </div>
             </div>
 
             {/* Thông tin đơn */}
-            <div className="p-4 rounded-xl bg-black/40 border border-white/8 space-y-2 text-xs font-mono">
-              <div className="flex justify-between items-center text-slate-300">
+            <div className="p-4 rounded-xl bg-[#F6F3EE] border border-[#E2D9D0] space-y-2 text-xs font-mono">
+              <div className="flex justify-between items-center text-[#7A706C]">
                 <span>Mã đơn hàng:</span>
-                <span className="text-white font-bold">#{order.orderCode}</span>
+                <span className="text-[#231F1E] font-bold">#{order.orderCode}</span>
               </div>
-              <div className="flex justify-between items-center text-slate-300">
+              <div className="flex justify-between items-center text-[#7A706C]">
                 <span>Số tiền đơn hàng:</span>
-                <span className="text-cyan-300 font-bold">{formatVndSafe(order?.totalAmount)} đ</span>
+                <span className="text-[#B83B2A] font-bold">{formatVndSafe(order?.totalAmount)} đ</span>
               </div>
-              <div className="flex justify-between items-center text-slate-300">
+              <div className="flex justify-between items-center text-[#7A706C]">
                 <span>Trạng thái đơn:</span>
-                <span className="text-amber-300 font-semibold">{order.orderPaymentStatus}</span>
+                <span className="text-amber-700 font-semibold">{order.orderPaymentStatus}</span>
               </div>
               {latestAttempt && (
-                <div className="flex justify-between items-center text-slate-400 pt-1 border-t border-white/5 text-[11px]">
+                <div className="flex justify-between items-center text-[#7A706C] pt-1 border-t border-[#E2D9D0] text-[11px]">
                   <span>Mã tham chiếu PayOS:</span>
-                  <span className="text-white/80">{latestAttempt.merchantReference}</span>
+                  <span className="text-[#231F1E] font-medium">{latestAttempt.merchantReference}</span>
                 </div>
               )}
             </div>
@@ -532,7 +517,7 @@ export default function OrderCheckoutReturn() {
                 <button
                   type="button"
                   onClick={handleManualRefresh}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#FFFFFF] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Kiểm tra lại trạng thái</span>
@@ -548,7 +533,7 @@ export default function OrderCheckoutReturn() {
                         window.open(latestAttempt.checkoutUrl!, '_blank');
                       }
                     }}
-                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#FDF2F0] hover:bg-[#fce8e5] text-[#B83B2A] border border-[#B83B2A]/20 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <QrCode className="w-3.5 h-3.5" />
                     <span>Mở lại mã QR</span>
@@ -562,12 +547,12 @@ export default function OrderCheckoutReturn() {
                   type="button"
                   disabled={isReconciling}
                   onClick={handleReconcile}
-                  className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.2)] disabled:opacity-50"
+                  className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm disabled:opacity-50"
                 >
                   {isReconciling ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-700" />
                   ) : (
-                    <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                    <Zap className="w-3.5 h-3.5 text-emerald-700" />
                   )}
                   <span>⚡ [Quyền Staff/Admin] Đối soát xác nhận Đã Thanh Toán</span>
                 </button>
@@ -579,27 +564,27 @@ export default function OrderCheckoutReturn() {
         {/* Modal Xem lại mã QR (nếu mở lại từ nút) */}
         {activeQrModal && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
             role="dialog"
             aria-modal="true"
           >
-            <div className="relative bg-[#0c1017] border border-cyan-500/40 rounded-2xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl animate-in zoom-in-95">
-              <div className="flex items-center justify-between pb-2 border-b border-white/10">
-                <span className="text-xs font-bold text-white">Quét mã VietQR Thanh Toán</span>
+            <div className="relative bg-[#FFFFFF] border border-[#E2D9D0] rounded-2xl p-6 max-w-sm w-full text-center space-y-4 shadow-xl animate-in zoom-in-95">
+              <div className="flex items-center justify-between pb-2 border-b border-[#E2D9D0]">
+                <span className="text-xs font-bold text-[#231F1E]">Quét mã VietQR Thanh Toán</span>
                 <button
                   type="button"
                   onClick={() => setActiveQrModal(null)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-white"
+                  className="p-1 rounded-lg text-[#7A706C] hover:text-[#231F1E] cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="p-3 bg-white rounded-2xl mx-auto inline-block shadow-md">
+              <div className="p-3 bg-[#FFFFFF] border border-[#E2D9D0] rounded-2xl mx-auto inline-block shadow-sm">
                 <img src={activeQrModal} alt="VietQR" className="w-56 h-56 object-contain" />
               </div>
 
-              <p className="text-[11px] text-slate-300">
+              <p className="text-[11px] text-[#7A706C]">
                 Mở ứng dụng Ngân hàng của bạn và quét mã QR để chuyển khoản chính xác số tiền.
               </p>
 
@@ -609,7 +594,7 @@ export default function OrderCheckoutReturn() {
                   setActiveQrModal(null);
                   void handleManualRefresh();
                 }}
-                className="btn-pooled-cyan w-full py-2.5 text-xs font-bold"
+                className="w-full py-2.5 rounded-xl bg-[#B83B2A] hover:bg-[#9E2F20] text-white font-bold text-xs shadow-sm cursor-pointer transition-colors"
               >
                 Tôi đã chuyển khoản xong
               </button>

@@ -1,5 +1,6 @@
 import api from '../lib/api';
 import { IdempotencyManager } from '../lib/idempotency';
+import { listPricingPackages, type PricingPackage } from './pricingPackageService';
 
 export type AdminUserItem = {
   id: string;
@@ -11,13 +12,17 @@ export type AdminUserItem = {
   purchasedRemaining: number;
 };
 
+export type AdminPricingPackage = PricingPackage & {
+  isActive?: boolean;
+};
+
 export type UpdateUserRolePayload = {
   role: string;
 };
 
 export type AddUserCreditsPayload = {
   amount: number;
-  reason: string;
+  reason?: string;
 };
 
 export type UpdatePricingPackagePayload = {
@@ -26,8 +31,8 @@ export type UpdatePricingPackagePayload = {
 };
 
 export const adminService = {
-  getUsers: async (page = 1): Promise<AdminUserItem[]> => {
-    const response = await api.get(`/api/admin/users?page=${page}`);
+  getUsers: async (page = 1, signal?: AbortSignal): Promise<AdminUserItem[]> => {
+    const response = await api.get(`/api/admin/users?page=${page}`, { signal });
     return response as unknown as AdminUserItem[];
   },
 
@@ -39,24 +44,35 @@ export const adminService = {
   addUserCredits: async (
     id: string,
     amount: number,
-    reason: string,
-  ): Promise<{ id: string; freeTrialRemaining: number; purchasedRemaining: number }> => {
-    const key = IdempotencyManager.getOrCreateKey(`admin:credits:${id}`);
+    reason = 'Quản trị viên cấp bổ sung lượt tạo 3D',
+    idempotencyKey?: string,
+  ): Promise<{ id: string; freeTrialRemaining?: number; purchasedRemaining?: number }> => {
+    const key =
+      idempotencyKey ||
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : IdempotencyManager.getOrCreateKey(`admin:credits:${id}`));
     const response = await api.post(
-      `/api/admin/users/${id}/credits`,
+      `/api/admin/users/credits`,
       { userId: id, amount, reason, idempotencyKey: key },
       { headers: { 'Idempotency-Key': key } },
     );
     IdempotencyManager.clearKey(`admin:credits:${id}`);
     return response as unknown as {
       id: string;
-      freeTrialRemaining: number;
-      purchasedRemaining: number;
+      freeTrialRemaining?: number;
+      purchasedRemaining?: number;
     };
   },
 
-  addCredits: async (id: string, amount: number, reason: string) =>
-    adminService.addUserCredits(id, amount, reason),
+  addCredits: async (
+    id: string,
+    amount: number,
+    reason = 'Quản trị viên cấp bổ sung lượt tạo 3D',
+    idempotencyKey?: string,
+  ): Promise<{ id: string; freeTrialRemaining?: number; purchasedRemaining?: number }> => {
+    return adminService.addUserCredits(id, amount, reason, idempotencyKey);
+  },
 
   lockUser: async (id: string, reason: string): Promise<{ message: string; targetUserId?: string }> => {
     const response = await api.post(`/api/admin/users/${id}/lock`, { reason });
@@ -66,6 +82,15 @@ export const adminService = {
   unlockUser: async (id: string): Promise<{ message: string; targetUserId?: string }> => {
     const response = await api.post(`/api/admin/users/${id}/unlock`, {});
     return response as unknown as { message: string; targetUserId?: string };
+  },
+
+  getPricingPackages: async (): Promise<AdminPricingPackage[]> => {
+    try {
+      const response = await api.get('/api/admin/pricing-packages');
+      return response as unknown as AdminPricingPackage[];
+    } catch {
+      return (await listPricingPackages()) as unknown as AdminPricingPackage[];
+    }
   },
 
   updatePricingPackage: async (

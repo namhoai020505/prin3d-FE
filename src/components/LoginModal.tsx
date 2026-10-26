@@ -15,10 +15,11 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { useGoogleLogin } from '@react-oauth/google';
 import logoTheBoy from '../assets/images/LOGOTheBoy.png';
-import TiltCard from './ui/TiltCard';
 import {
   login,
+  googleLogin,
   register,
   verifyEmail,
   resendVerificationOtp,
@@ -159,6 +160,48 @@ export default function LoginModal({
       setIsLoading(false);
     }
   };
+
+  // Xử lý Đăng Nhập qua Google OAuth2 với hook useGoogleLogin chính thức (Click trực tiếp vào button, không lệch hitbox)
+  const triggerGoogleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      if (!tokenResponse.access_token) {
+        toast.error('Không nhận được mã xác thực từ Google.');
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const response = await googleLogin(undefined, tokenResponse.access_token);
+        const user = response?.user;
+        toast.success(
+          user?.fullName
+            ? `Đăng nhập Google thành công! Chào mừng ${user.fullName}.`
+            : 'Đăng nhập Google thành công!'
+        );
+        handleClose();
+        onLoginSuccess?.();
+
+        const role = user?.role || getRoleFromAccessToken();
+        const normalizedRole = normalizeRole(role);
+        if (normalizedRole === 'admin' || normalizedRole === 'staff' || normalizedRole === 'manager') {
+          const targetUrl = getPostLoginRedirect(role);
+          navigate(targetUrl, { replace: true });
+        }
+      } catch (err: unknown) {
+        const error = err as { response?: { data?: { message?: string; detail?: string } } };
+        const msg =
+          error.response?.data?.detail ||
+          error.response?.data?.message ||
+          'Đăng nhập qua tài khoản Google thất bại.';
+        toast.error(msg);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    onError: () => {
+      toast.error('Đăng nhập Google bị gián đoạn hoặc thất bại. Vui lòng thử lại.');
+    },
+  });
 
   // Xử lý Đăng Ký
   const handleSignUpSubmit = async (e: FormEvent) => {
@@ -332,81 +375,67 @@ export default function LoginModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
     >
-      <TiltCard
-        maxTilt={4}
-        perspective={1200}
-        scale={1.01}
-        className="w-full max-w-[450px] glass-card-3d p-7 sm:p-8 text-white relative shadow-[0_30px_70px_rgba(0,0,0,0.85)]"
-      >
+      <div className="w-full max-w-[440px] bg-[#FFFFFF] border border-[#E2D9D0] rounded-2xl p-7 sm:p-8 text-[#231F1E] relative shadow-[0_20px_60px_rgba(35,31,30,0.14)]">
         {/* Nút Đóng Modal */}
         <button
           type="button"
           onClick={handleClose}
-          style={{ transform: 'translateZ(24px)' }}
-          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 border border-white/25 text-slate-300 hover:text-white backdrop-blur-md flex items-center justify-center transition-all cursor-pointer group z-20"
+          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#EFEAE2]/60 hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] flex items-center justify-center transition-all cursor-pointer group z-20"
           aria-label="Đóng bảng đăng nhập"
         >
-          <X className="w-4 h-4 group-hover:rotate-90 transition-transform text-slate-300 group-hover:text-cyan-300" />
+          <X className="w-4 h-4 group-hover:rotate-90 transition-transform" />
         </button>
 
-        {/* Logo & Tiêu Đề Layered 3D */}
+        {/* Logo & Tiêu Đề */}
         <div className="flex flex-col items-center mb-6">
-          <div
-            className="w-14 h-14 rounded-2xl bg-gradient-to-br from-white/25 via-white/10 to-transparent border border-white/35 backdrop-blur-xl p-2 flex items-center justify-center shadow-[0_8px_25px_rgba(0,0,0,0.4),inset_0_1px_2px_rgba(255,255,255,0.6)] mb-3"
-            style={{ transform: 'translateZ(22px)' }}
-          >
+          <div className="w-12 h-12 rounded-2xl bg-[#FDF2F0] border border-[#B83B2A]/20 p-2 flex items-center justify-center shadow-sm mb-3">
             <img src={logoTheBoy} alt="THE BOYS Logo" className="w-full h-full object-contain" />
           </div>
 
-          <h2
-            className="text-xl sm:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-cyan-100 to-cyan-400 tracking-tight text-center"
-            style={{ transform: 'translateZ(18px)' }}
-          >
-            {mode === 'login' && 'Đăng Nhập Tài Khoản'}
-            {mode === 'signup' && 'Khởi Tạo Tài Khoản'}
-            {mode === 'verify-otp' && 'Xác Thực Email OTP'}
-            {mode === 'forgot-password' && 'Khôi Phục Mật Khẩu'}
-            {mode === 'reset-password' && 'Đặt Lại Mật Khẩu Mới'}
+          <h2 className="text-xl sm:text-2xl font-black text-[#231F1E] tracking-tight text-center">
+            {mode === 'login' && 'Đăng nhập'}
+            {mode === 'signup' && 'Tạo tài khoản'}
+            {mode === 'verify-otp' && 'Xác thực OTP'}
+            {mode === 'forgot-password' && 'Khôi phục mật khẩu'}
+            {mode === 'reset-password' && 'Đặt lại mật khẩu'}
           </h2>
 
-          <p
-            className="text-xs text-slate-400 mt-1 text-center"
-            style={{ transform: 'translateZ(14px)' }}
-          >
-            {mode === 'login' && 'Nền tảng Sáng tạo 3D AI & Đặt in đa chiều THE BOYS'}
-            {mode === 'signup' && 'Nhận ngay 2 lượt tạo 3D AI miễn phí khi kích hoạt'}
-            {mode === 'verify-otp' && `Nhập mã 6 chữ số gửi đến ${targetEmail || email}`}
-            {mode === 'forgot-password' && 'Nhập email của bạn để nhận mã token OTP qua email'}
-            {mode === 'reset-password' && `Nhập token xác nhận gửi tới ${targetEmail || email} và thiết lập mật khẩu mới`}
-          </p>
+          {mode !== 'login' && (
+            <p className="text-xs text-[#7A706C] mt-1 text-center">
+              {mode === 'signup' && 'Nhận ngay 2 lượt tạo 3D miễn phí'}
+              {mode === 'verify-otp' && `Nhập mã 6 chữ số gửi đến ${targetEmail || email}`}
+              {mode === 'forgot-password' && 'Nhập email để nhận mã xác thực OTP'}
+              {mode === 'reset-password' && `Nhập mã xác nhận gửi tới ${targetEmail || email}`}
+            </p>
+          )}
         </div>
 
         {/* 1. MÀN HÌNH ĐĂNG NHẬP */}
         {mode === 'login' && (
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email / Tên đăng nhập</label>
+              <label className="block text-xs font-semibold text-[#231F1E] mb-1.5">Email</label>
               <div className="relative flex items-center">
                 <input
                   type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com hoặc admin@123"
+                  placeholder="email@domain.com"
                   required
-                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-3 pl-11 text-sm text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <Mail className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
               </div>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-slate-300">Mật khẩu</label>
+                <label className="text-xs font-semibold text-[#231F1E]">Mật khẩu</label>
                 <button
                   type="button"
                   onClick={() => {
@@ -415,7 +444,7 @@ export default function LoginModal({
                     setOtpToken('');
                     setMode('forgot-password');
                   }}
-                  className="text-xs text-cyan-400 hover:text-cyan-300 hover:underline transition-colors cursor-pointer"
+                  className="text-xs text-[#B83B2A] hover:text-[#9E2F20] hover:underline transition-colors cursor-pointer"
                 >
                   Quên mật khẩu?
                 </button>
@@ -427,13 +456,13 @@ export default function LoginModal({
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"
                   required
-                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 pr-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-3 pl-11 pr-11 text-sm text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <Lock className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-3.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  className="absolute right-3.5 text-[#7A706C] hover:text-[#231F1E] cursor-pointer"
                   title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -444,22 +473,58 @@ export default function LoginModal({
             <button
               type="submit"
               disabled={isLoading}
-              style={{ transform: 'translateZ(20px)' }}
-              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all mt-2"
+              className="w-full h-12 rounded-xl font-bold text-sm bg-[#B83B2A] hover:bg-[#9E2F20] text-white flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-98 transition-all mt-2"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
-                <span>Đăng Nhập</span>
+                <span>Đăng nhập</span>
               )}
             </button>
 
+            {/* Phân cách hoặc tiếp tục với Google */}
+            <div className="relative my-3 flex items-center justify-center">
+              <div className="border-t border-[#E2D9D0] w-full" />
+              <span className="bg-[#FFFFFF] px-2.5 text-[11px] font-semibold text-[#7A706C] uppercase tracking-wider shrink-0">
+                Hoặc
+              </span>
+              <div className="border-t border-[#E2D9D0] w-full" />
+            </div>
+
+            {/* Nút Đăng Nhập Google */}
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => triggerGoogleLogin()}
+              className="w-full h-12 rounded-xl font-semibold text-sm bg-[#FFFFFF] hover:bg-[#F6F3EE] border border-[#E2D9D0] text-[#231F1E] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-98 transition-all"
+            >
+              <svg className="w-4.5 h-4.5 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24Z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.97 0 12c0 2.03.45 3.84 1.25 5.42l4.03-3.15Z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98Z"
+                />
+              </svg>
+              <span>Đăng nhập bằng Google</span>
+            </button>
+
             <div className="text-center pt-2">
-              <span className="text-xs text-slate-400">Chưa có tài khoản? </span>
+              <span className="text-xs text-[#7A706C]">Chưa có tài khoản? </span>
               <button
                 type="button"
                 onClick={() => setMode('signup')}
-                className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 hover:underline transition-colors cursor-pointer"
+                className="text-xs font-semibold text-[#B83B2A] hover:text-[#9E2F20] hover:underline transition-colors cursor-pointer"
               >
                 Đăng ký ngay
               </button>
@@ -471,7 +536,7 @@ export default function LoginModal({
         {mode === 'signup' && (
           <form onSubmit={handleSignUpSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Họ và tên của bạn</label>
+              <label className="block text-xs font-semibold text-[#231F1E] mb-1.5">Họ và tên</label>
               <div className="relative flex items-center">
                 <input
                   type="text"
@@ -479,30 +544,30 @@ export default function LoginModal({
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Nguyễn Văn A"
                   required
-                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-3 pl-11 text-sm text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <User className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <User className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email nhận tài khoản</label>
+              <label className="block text-xs font-semibold text-[#231F1E] mb-1.5">Email</label>
               <div className="relative flex items-center">
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
+                  placeholder="email@domain.com"
                   required
-                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-3 pl-11 text-sm text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <Mail className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Mật khẩu <span className="text-slate-400 font-normal">(tối thiểu 10 ký tự)</span>
+              <label className="block text-xs font-semibold text-[#231F1E] mb-1.5">
+                Mật khẩu <span className="text-[#7A706C] font-normal">(tối thiểu 10 ký tự)</span>
               </label>
               <div className="relative flex items-center">
                 <input
@@ -512,13 +577,13 @@ export default function LoginModal({
                   placeholder="Tối thiểu 10 ký tự bảo mật"
                   required
                   minLength={10}
-                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 pr-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-3 pl-11 pr-11 text-sm text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <Lock className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-3.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  className="absolute right-3.5 text-[#7A706C] hover:text-[#231F1E] cursor-pointer"
                   title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -529,22 +594,58 @@ export default function LoginModal({
             <button
               type="submit"
               disabled={isLoading}
-              style={{ transform: 'translateZ(20px)' }}
-              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all mt-2"
+              className="w-full h-12 rounded-xl font-bold text-sm bg-[#B83B2A] hover:bg-[#9E2F20] text-white flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-98 transition-all mt-2"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
-                <span>Đăng Ký & Nhận 2 Lượt Free</span>
+                <span>Tạo tài khoản</span>
               )}
             </button>
 
+            {/* Phân cách hoặc tiếp tục với Google */}
+            <div className="relative my-3 flex items-center justify-center">
+              <div className="border-t border-[#E2D9D0] w-full" />
+              <span className="bg-[#FFFFFF] px-2.5 text-[11px] font-semibold text-[#7A706C] uppercase tracking-wider shrink-0">
+                Hoặc
+              </span>
+              <div className="border-t border-[#E2D9D0] w-full" />
+            </div>
+
+            {/* Nút Đăng Ký Google */}
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => triggerGoogleLogin()}
+              className="w-full h-12 rounded-xl font-semibold text-sm bg-[#FFFFFF] hover:bg-[#F6F3EE] border border-[#E2D9D0] text-[#231F1E] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-98 transition-all"
+            >
+              <svg className="w-4.5 h-4.5 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24Z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.97 0 12c0 2.03.45 3.84 1.25 5.42l4.03-3.15Z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98Z"
+                />
+              </svg>
+              <span>Đăng ký bằng Google</span>
+            </button>
+
             <div className="text-center pt-2">
-              <span className="text-xs text-slate-400">Đã có tài khoản? </span>
+              <span className="text-xs text-[#7A706C]">Đã có tài khoản? </span>
               <button
                 type="button"
                 onClick={() => setMode('login')}
-                className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 hover:underline transition-colors cursor-pointer"
+                className="text-xs font-semibold text-[#B83B2A] hover:text-[#9E2F20] hover:underline transition-colors cursor-pointer"
               >
                 Đăng nhập
               </button>
@@ -556,8 +657,8 @@ export default function LoginModal({
         {mode === 'verify-otp' && (
           <form onSubmit={handleVerifyOtpSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Mã OTP xác thực 6 ký tự
+              <label className="block text-xs font-semibold text-[#231F1E] mb-1.5">
+                Mã OTP 6 ký tự
               </label>
               <div className="relative flex items-center">
                 <input
@@ -568,33 +669,32 @@ export default function LoginModal({
                   placeholder="VD: 8BF4A2"
                   required
                   autoFocus
-                  className="w-full tracking-[0.3em] font-mono font-bold bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-cyan-300 placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full tracking-[0.3em] font-mono font-bold bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-3 pl-11 text-sm text-[#B83B2A] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <KeyRound className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
               </div>
             </div>
 
             <button
               type="submit"
               disabled={isLoading || otpToken.length < 6}
-              style={{ transform: 'translateZ(20px)' }}
-              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all"
+              className="w-full h-12 rounded-xl font-bold text-sm bg-[#B83B2A] hover:bg-[#9E2F20] text-white flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-98 transition-all"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Xác Nhận Kích Hoạt</span>
+                  <span>Kích hoạt tài khoản</span>
                 </>
               )}
             </button>
 
-            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-between text-xs text-[#7A706C] pt-2 border-t border-[#E2D9D0]">
               <button
                 type="button"
                 onClick={() => setMode('login')}
-                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
+                className="flex items-center gap-1 hover:text-[#231F1E] transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Quay lại</span>
@@ -604,49 +704,48 @@ export default function LoginModal({
                 type="button"
                 onClick={handleResendOtp}
                 disabled={isLoading || countdown > 0}
-                className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 disabled:text-slate-500 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 text-[#B83B2A] hover:text-[#9E2F20] disabled:text-[#7A706C]/60 transition-colors cursor-pointer disabled:cursor-not-allowed"
               >
                 <RotateCcw className={`w-3.5 h-3.5 ${countdown > 0 ? 'animate-spin' : ''}`} />
-                <span>{countdown > 0 ? `Gửi lại sau ${countdown}s` : 'Gửi lại mã OTP'}</span>
+                <span>{countdown > 0 ? `Gửi lại sau ${countdown}s` : 'Gửi lại mã'}</span>
               </button>
             </div>
           </form>
         )}
 
-        {/* 4. MÀN HÌNH QUÊN MẬT KHẨU (BƯỚC 1: CHỈ NHẬP EMAIL ĐỂ GỬI /api/auth/forgot-password) */}
+        {/* 4. MÀN HÌNH QUÊN MẬT KHẨU */}
         {mode === 'forgot-password' && (
           <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Nhập Email tài khoản cần khôi phục
+              <label className="block text-xs font-semibold text-[#231F1E] mb-1.5">
+                Email tài khoản
               </label>
               <div className="relative flex items-center">
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
+                  placeholder="email@domain.com"
                   required
                   autoFocus
-                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-3 pl-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-3 pl-11 text-sm text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <Mail className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
               </div>
-              <p className="text-[11px] text-slate-400 mt-1.5">
-                Hệ thống sẽ gửi mã token OTP xác thực 6 ký tự đến địa chỉ email này.
+              <p className="text-[11px] text-[#7A706C] mt-1.5">
+                Hệ thống sẽ gửi mã OTP 6 ký tự đến địa chỉ email này.
               </p>
             </div>
 
             <button
               type="submit"
               disabled={isLoading || !email.trim()}
-              style={{ transform: 'translateZ(20px)' }}
-              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all mt-2"
+              className="w-full h-12 rounded-xl font-bold text-sm bg-[#B83B2A] hover:bg-[#9E2F20] text-white flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-98 transition-all mt-2"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
-                <span>Gửi Mã Xác Nhận OTP</span>
+                <span>Gửi mã OTP</span>
               )}
             </button>
 
@@ -654,29 +753,29 @@ export default function LoginModal({
               <button
                 type="button"
                 onClick={() => setMode('login')}
-                className="text-xs text-slate-400 hover:text-white transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                className="text-xs text-[#7A706C] hover:text-[#231F1E] transition-colors flex items-center justify-center gap-1 mx-auto cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Nhớ mật khẩu? Quay lại đăng nhập</span>
+                <span>Quay lại đăng nhập</span>
               </button>
             </div>
           </form>
         )}
 
-        {/* 5. MÀN HÌNH ĐẶT LẠI MẬT KHẨU (BƯỚC 2: TOKEN TỪ EMAIL + 2 Ô MẬT KHẨU MỚI & XÁC NHẬN + NÚT GỬI LẠI SAU 60S) */}
+        {/* 5. MÀN HÌNH ĐẶT LẠI MẬT KHẨU */}
         {mode === 'reset-password' && (
           <form onSubmit={handleResetPasswordSubmit} className="space-y-3.5">
             {/* Thẻ hiển thị Email đã gửi mã */}
-            <div className="p-3 rounded-xl bg-white/[0.08] border border-cyan-400/40 backdrop-blur-xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] flex items-center justify-between text-xs backdrop-blur-md">
+            <div className="p-3 rounded-xl bg-[#FDF2F0] border border-[#B83B2A]/25 flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 truncate">
-                <Mail className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span className="text-slate-300">Đã gửi mã tới: </span>
-                <span className="text-cyan-300 font-semibold truncate font-mono">{targetEmail || email}</span>
+                <Mail className="w-4 h-4 text-[#B83B2A] shrink-0" />
+                <span className="text-[#7A706C]">Đã gửi mã tới: </span>
+                <span className="text-[#B83B2A] font-semibold truncate font-mono">{targetEmail || email}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setMode('forgot-password')}
-                className="text-cyan-400 hover:text-cyan-300 font-medium shrink-0 cursor-pointer ml-2 hover:underline"
+                className="text-[#B83B2A] hover:text-[#9E2F20] font-medium shrink-0 cursor-pointer ml-2 hover:underline"
               >
                 Đổi email
               </button>
@@ -684,8 +783,8 @@ export default function LoginModal({
 
             {/* 1. Khung nhập Token OTP */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Mã Token OTP xác thực (6 ký tự)
+              <label className="block text-xs font-semibold text-[#231F1E] mb-1">
+                Mã OTP (6 ký tự)
               </label>
               <div className="relative flex items-center">
                 <input
@@ -696,16 +795,16 @@ export default function LoginModal({
                   placeholder="VD: 8BF4A2"
                   required
                   autoFocus
-                  className="w-full tracking-[0.35em] font-mono font-bold bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-2.5 pl-11 text-sm text-cyan-300 placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full tracking-[0.35em] font-mono font-bold bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-2.5 pl-11 text-sm text-[#B83B2A] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <KeyRound className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
               </div>
             </div>
 
             {/* 2. Ô Mật khẩu mới */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Mật khẩu mới <span className="text-slate-400 font-normal">(≥ 10 ký tự)</span>
+              <label className="block text-xs font-semibold text-[#231F1E] mb-1">
+                Mật khẩu mới <span className="text-[#7A706C] font-normal">(≥ 10 ký tự)</span>
               </label>
               <div className="relative flex items-center">
                 <input
@@ -715,13 +814,13 @@ export default function LoginModal({
                   placeholder="Nhập mật khẩu mới an toàn"
                   required
                   minLength={10}
-                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-2.5 pl-11 pr-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-2.5 pl-11 pr-11 text-sm text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <Lock className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
                 <button
                   type="button"
                   onClick={() => setShowNewPassword((prev) => !prev)}
-                  className="absolute right-3.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  className="absolute right-3.5 text-[#7A706C] hover:text-[#231F1E] cursor-pointer"
                   title={showNewPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                 >
                   {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -731,7 +830,7 @@ export default function LoginModal({
 
             {/* 3. Ô Xác nhận mật khẩu mới */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-[#231F1E] mb-1">
                 Xác nhận mật khẩu mới
               </label>
               <div className="relative flex items-center">
@@ -742,20 +841,20 @@ export default function LoginModal({
                   placeholder="Nhập lại mật khẩu mới"
                   required
                   minLength={10}
-                  className="w-full bg-white/[0.08] hover:bg-white/[0.12] focus:bg-white/[0.15] border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 rounded-xl px-4 py-2.5 pl-11 pr-11 text-sm text-white placeholder:text-slate-500 outline-none transition-all"
+                  className="w-full bg-[#FFFFFF] hover:bg-[#F6F3EE]/60 focus:bg-[#FFFFFF] border border-[#E2D9D0] focus:border-[#B83B2A] focus:ring-1 focus:ring-[#B83B2A]/30 rounded-xl px-4 py-2.5 pl-11 pr-11 text-sm text-[#231F1E] placeholder:text-[#7A706C]/60 outline-none transition-all"
                 />
-                <ShieldCheck className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+                <ShieldCheck className="w-4 h-4 text-[#7A706C] absolute left-3.5 pointer-events-none" />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword((prev) => !prev)}
-                  className="absolute right-3.5 text-slate-400 hover:text-slate-200 cursor-pointer"
+                  className="absolute right-3.5 text-[#7A706C] hover:text-[#231F1E] cursor-pointer"
                   title={showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                 >
                   {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
               {confirmPassword && newPassword !== confirmPassword && (
-                <p className="text-[11px] text-rose-400 mt-1">Mật khẩu xác nhận chưa khớp.</p>
+                <p className="text-[11px] text-rose-500 mt-1">Mật khẩu xác nhận chưa khớp.</p>
               )}
             </div>
 
@@ -763,25 +862,24 @@ export default function LoginModal({
             <button
               type="submit"
               disabled={isLoading || otpToken.length < 6 || newPassword.length < 10 || newPassword !== confirmPassword}
-              style={{ transform: 'translateZ(20px)' }}
-              className="btn-pooled-cyan w-full h-12 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,240,255,0.25)] active:scale-98 transition-all mt-2"
+              className="w-full h-12 rounded-xl font-bold text-sm bg-[#B83B2A] hover:bg-[#9E2F20] text-white flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-sm active:scale-98 transition-all mt-2"
             >
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Xác Nhận &amp; Đặt Lại Mật Khẩu</span>
+                  <span>Cập nhật mật khẩu</span>
                 </>
               )}
             </button>
 
             {/* Hàng điều hướng: Quay lại & Nút gửi lại mail sau 60s */}
-            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-between text-xs text-[#7A706C] pt-2 border-t border-[#E2D9D0]">
               <button
                 type="button"
                 onClick={() => setMode('forgot-password')}
-                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
+                className="flex items-center gap-1 hover:text-[#231F1E] transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Quay lại</span>
@@ -791,16 +889,16 @@ export default function LoginModal({
                 type="button"
                 onClick={handleResendResetOtp}
                 disabled={isLoading || countdown > 0}
-                className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 disabled:text-slate-500 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 text-[#B83B2A] hover:text-[#9E2F20] disabled:text-[#7A706C]/60 transition-colors cursor-pointer disabled:cursor-not-allowed"
                 title={countdown > 0 ? `Vui lòng đợi ${countdown} giây để gửi lại` : 'Gửi lại mã xác nhận qua email'}
               >
                 <RotateCcw className={`w-3.5 h-3.5 ${countdown > 0 ? 'animate-spin' : ''}`} />
-                <span>{countdown > 0 ? `Gửi lại sau ${countdown}s` : 'Gửi lại mã qua email'}</span>
+                <span>{countdown > 0 ? `Gửi lại sau ${countdown}s` : 'Gửi lại mã'}</span>
               </button>
             </div>
           </form>
         )}
-      </TiltCard>
+      </div>
     </div>
   );
 }

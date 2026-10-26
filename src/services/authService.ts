@@ -107,6 +107,20 @@ export const login = async (input: LoginInput): Promise<AuthResponse> => {
   return response;
 };
 
+// 1.1. Đăng nhập bằng Google (hỗ trợ cả ID Token hoặc Access Token từ useGoogleLogin)
+export const googleLogin = async (idToken?: string, accessToken?: string): Promise<AuthResponse> => {
+  invalidateCurrentUserCache();
+  const raw = await api.post('/api/auth/google-login', { idToken, accessToken });
+  const response = unwrap<AuthResponse>(raw);
+  if (response?.accessToken) {
+    setAuthSession({
+      accessToken: response.accessToken,
+      fullName: response.user?.fullName || response.user?.email?.split('@')[0] || 'User',
+    });
+  }
+  return response;
+};
+
 // 2. Đăng ký tài khoản (Nhận userId, email và thông báo kiểm tra OTP)
 export const register = async (
   input: RegisterInput,

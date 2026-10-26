@@ -28,10 +28,13 @@ const Profile = lazy(() => import('./pages/user/Profile'));
 const OrderCheckoutReturn = lazy(() => import('./pages/user/OrderCheckoutReturn'));
 
 // Admin pages
-const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
+const DashboardPage = lazy(() => import('./pages/admin/dashboard/DashboardPage'));
 const OrdersPage = lazy(() => import('./pages/admin/orders/OrdersPage'));
 const ReviewsPage = lazy(() => import('./pages/admin/reviews/ReviewsPage'));
 const AdminFulfillmentPage = lazy(() => import('./pages/admin/fulfillment/AdminFulfillmentPage'));
+const FinancePage = lazy(() => import('./pages/admin/finance/FinancePage'));
+const WarrantyPage = lazy(() => import('./pages/admin/warranty/WarrantyPage'));
+const SystemAdminPage = lazy(() => import('./pages/admin/system/SystemAdminPage'));
 
 // Staff pages
 const StaffLayout = lazy(() => import('./components/staff/StaffLayout'));
@@ -40,16 +43,16 @@ const StaffFulfillmentKanbanPage = lazy(() => import('./pages/staff/StaffFulfill
 const StaffOrdersPage = lazy(() => import('./pages/staff/StaffOrdersPage'));
 const StaffDefectsPage = lazy(() => import('./pages/staff/StaffDefectsPage'));
 
-// Fallback spinner while lazy chunks are loading - Cyberpunk Dark Obsidian & Neon Cyan
+// Fallback spinner while lazy chunks are loading - Light Wabi-Sabi & Vermilion Red
 const PageLoader = () => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#090d14' }}>
-    <div style={{ width: 40, height: 40, border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#00f0ff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#F6F3EE' }}>
+    <div style={{ width: 40, height: 40, border: '3px solid rgba(35,31,30,0.1)', borderTopColor: '#B83B2A', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
   </div>
 );
 
 const customerRoles = ['customer', 'cus', 'staff', 'admin'];
-const adminRoles = ['admin'];
+const adminRoles = ['admin', 'staff'];
 const staffRoles = ['staff', 'admin'];
 
 const RootLayout = () => {
@@ -99,13 +102,23 @@ const router = createBrowserRouter([
             element: <AdminLayout />,
             children: [
               { index: true, element: <Navigate to="orders" replace /> },
+              { path: 'dashboard', element: <DashboardPage /> },
               { path: 'orders', element: <OrdersPage /> },
               { path: 'orders/:id', element: <OrdersPage /> },
               { path: 'reviews', element: <ReviewsPage /> },
               { path: 'reviews/:generationId', element: <ReviewsPage /> },
               { path: 'fulfillment', element: <AdminFulfillmentPage /> },
               { path: 'fulfillment/:orderId', element: <AdminFulfillmentPage /> },
-              { path: 'dashboard', element: <Dashboard /> },
+              { path: 'finance', element: <FinancePage /> },
+              { path: 'warranty', element: <WarrantyPage /> },
+              {
+                path: 'system',
+                element: (
+                  <RequireAuth allowedRoles={['admin']} verifyAdmin>
+                    <SystemAdminPage />
+                  </RequireAuth>
+                ),
+              },
               { path: '*', element: <Navigate to="orders" replace /> },
             ],
           },

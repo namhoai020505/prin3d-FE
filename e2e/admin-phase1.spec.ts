@@ -31,19 +31,27 @@ test.describe('Admin Portal Phase 1 E2E Suite', () => {
     await submitBtn.click();
 
     // 3. Admin must be automatically redirected to /admin/orders
-    await page.waitForURL('**/admin/orders', { timeout: 20000 });
+    await page.waitForURL('**/admin/orders', { timeout: 20000, waitUntil: 'domcontentloaded' });
     expect(page.url()).toContain('/admin/orders');
 
     // 4. Verify Admin Sidebar Clean-up
     const sidebar = page.locator('aside');
     await expect(sidebar).toBeVisible();
 
-    // Must have Tab 2 (Reviews) and Tab 3 (Orders) enabled
-    await expect(sidebar.locator('a[href="/admin/reviews"]')).toBeVisible();
-    await expect(sidebar.locator('a[href="/admin/orders"]')).toBeVisible();
-
-    // Other subsystems must be disabled with "Sắp có" badge
-    await expect(sidebar.locator('text=Sắp có').first()).toBeVisible();
+    // In Phase 3 & 4, all 7 subsystems are implemented and enabled (no 'Sắp có' badge)
+    const adminTabs = [
+      '/admin/dashboard',
+      '/admin/reviews',
+      '/admin/orders',
+      '/admin/fulfillment',
+      '/admin/finance',
+      '/admin/warranty',
+      '/admin/system',
+    ];
+    for (const tab of adminTabs) {
+      await expect(sidebar.locator(`a[href="${tab}"]`)).toBeVisible();
+    }
+    await expect(sidebar.locator('text=Sắp có')).toHaveCount(0);
 
     // Must NOT have links to customer studio, pricing, or bookings
     await expect(sidebar.locator('a[href="/create"]')).toHaveCount(0);
@@ -56,7 +64,7 @@ test.describe('Admin Portal Phase 1 E2E Suite', () => {
 
     // 5. Navigate back to client homepage
     await backToClientLink.click();
-    await page.waitForURL('http://localhost:5173/', { timeout: 10000 });
+    await page.waitForURL('http://localhost:5173/', { timeout: 10000, waitUntil: 'domcontentloaded' });
 
     // Open user account menu and verify "Trung tâm quản trị" button exists
     const accountBtn = page.locator('button[title*="Tài khoản"]').first();

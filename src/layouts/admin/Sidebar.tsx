@@ -32,7 +32,7 @@ const navItemsConfig: NavItemConfig[] = [
     label: 'Tổng quan & Chỉ số',
     description: 'Báo cáo thời gian thực & Vận hành hệ thống',
     icon: <FaChartLine />,
-    enabled: false,
+    enabled: true,
   },
   {
     to: '/admin/reviews',
@@ -56,22 +56,25 @@ const navItemsConfig: NavItemConfig[] = [
     enabled: true,
   },
   {
+    to: '/admin/finance',
     label: 'Giao dịch & Hoàn tiền',
     description: 'Đối soát thanh toán & Xử lý hoàn tiền',
     icon: <FaCreditCard />,
-    enabled: false,
+    enabled: true,
   },
   {
+    to: '/admin/warranty',
     label: 'Bảo hành & Khiếu nại',
     description: 'Tiếp nhận khiếu nại & Đền bù sản phẩm',
     icon: <FaShieldAlt />,
-    enabled: false,
+    enabled: true,
   },
   {
+    to: '/admin/system',
     label: 'Quản trị hệ thống',
     description: 'Quản lý tài khoản, quyền hạn & cấu hình',
     icon: <FaUsersCog />,
-    enabled: false,
+    enabled: true,
     adminOnly: true,
   },
 ];

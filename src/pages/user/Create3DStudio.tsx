@@ -29,6 +29,7 @@ import {
   createImageGeneration,
   downloadGenerationFile,
   getGeneration,
+  getGenerationModelBlobUrl,
   listGenerations,
   parseGenerationError,
   type GenerationStatus,
@@ -89,8 +90,8 @@ const toAsset = (task: GenerationTask): GeneratedAsset => ({
   errorMessage: task.errorMessage,
   glbUrl: task.glbUrl,
   stlUrl: task.stlUrl,
-  isApprovedForPrinting: task.isApprovedForPrinting,
-  reviewStatus: task.reviewStatus,
+  isApprovedForPrinting: task.isApprovedForPrinting || task.latestPrintReview?.decision === 'Approved',
+  reviewStatus: task.reviewStatus || task.latestPrintReview?.decision,
   reviewNote: task.reviewNote,
   isWatertight: task.isWatertight,
   printabilityStatus: task.printabilityStatus,
@@ -141,8 +142,8 @@ export default function Create3DStudio() {
   const [promptText, setPromptText] = useState('');
   const [generationError, setGenerationError] = useState('');
   const [nsfwError, setNsfwError] = useState<string | null>(null);
-  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth > 900);
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(false);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
 
   // Local 3D File loading & metrics states
   const [local3DFiles, setLocal3DFiles] = useState<File[] | null>(null);
@@ -179,7 +180,7 @@ export default function Create3DStudio() {
 
   // 3D Model Dimensions, Scale & Bounding Box Inspector States (Default clean presentation)
   const [showBoundingBox, setShowBoundingBox] = useState(false);
-  const [isDimensionsPanelOpen, setIsDimensionsPanelOpen] = useState(true);
+  const [isDimensionsPanelOpen, setIsDimensionsPanelOpen] = useState(false);
   const [isUniformScale, setIsUniformScale] = useState(true);
   const [scalePercent, setScalePercent] = useState(100);
   const [baseDimensions, setBaseDimensions] = useState({ x: 85, y: 120, z: 85 });
@@ -497,33 +498,47 @@ export default function Create3DStudio() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [assets, setAssets] = useState<GeneratedAsset[]>([]);
   const [activeModelMesh, setActiveModelMesh] = useState<GeneratedAsset | null>(null);
+  const [activeModelBlobUrl, setActiveModelBlobUrl] = useState<string | null>(null);
 
-  // Fallback asset guaranteeing active model is always present in Tab 'Tài sản'
-  const activeCurrentAsset: GeneratedAsset = useMemo(() => {
-    if (activeModelMesh) return activeModelMesh;
-    return {
-      id: 'active-viewport-mesh',
-      name: 'Mô hình 3D (Hiện tại)',
-      status: 'succeeded',
-      progress: 100,
-      stage: 'Hoàn tất',
-      date: 'Hôm nay',
-      glbUrl: '',
-      stlUrl: '',
-      fileType: activeFileType,
-      localFiles: local3DFiles,
-      customFaces: displayFaceCount,
-    };
-  }, [activeModelMesh, activeFileType, local3DFiles, displayFaceCount]);
+  useEffect(() => {
+    if (!activeModelMesh?.id || activeModelMesh.id.startsWith('local-') || activeModelMesh.id.startsWith('sample-') || activeModelMesh.id === 'active-viewport-mesh') {
+      void Promise.resolve().then(() => setActiveModelBlobUrl(null));
+      return;
+    }
 
-  // Unified assets list: guarantees active model is always present in Tab 'Tài sản'
+    if (activeModelMesh.glbUrl) {
+      let isMounted = true;
+      const abortController = new AbortController();
+
+      void getGenerationModelBlobUrl(activeModelMesh.id, 'glb', abortController.signal)
+        .then((blobUrl) => {
+          if (isMounted) {
+            setActiveModelBlobUrl(blobUrl);
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setActiveModelBlobUrl(activeModelMesh.glbUrl || null);
+          }
+        });
+
+      return () => {
+        isMounted = false;
+        abortController.abort();
+      };
+    } else {
+      void Promise.resolve().then(() => setActiveModelBlobUrl(null));
+    }
+  }, [activeModelMesh?.id, activeModelMesh?.glbUrl]);
+
+    // Unified assets list: only contains genuine loaded or generated 3D models
   const displayAssets = useMemo(() => {
     const list = [...assets];
-    if (!list.some((a) => a.id === activeCurrentAsset.id)) {
-      list.unshift(activeCurrentAsset);
+    if (activeModelMesh && !list.some((a) => a.id === activeModelMesh.id)) {
+      list.unshift(activeModelMesh);
     }
     return list;
-  }, [assets, activeCurrentAsset]);
+  }, [assets, activeModelMesh]);
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
   const [authSessionRevision, setAuthSessionRevision] = useState(0);
   const pollTimers = useRef<number[]>([]);
@@ -898,9 +913,6 @@ export default function Create3DStudio() {
     const token = getAccessToken();
     if (!token || isAccessTokenExpired(token)) {
       setGenerationError('Hãy đăng nhập trước khi tạo mô hình 3D.');
-      window.dispatchEvent(
-        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
-      );
       return;
     }
 
@@ -959,7 +971,6 @@ export default function Create3DStudio() {
         image: fileToUpload,
         modelName: modelTaskName,
         shouldTexture,
-        heightMm: Math.min(120, Math.max(100, Math.round(dimensions.y || 100))),
       });
 
       void fetchUserCredit();
@@ -1019,7 +1030,7 @@ export default function Create3DStudio() {
       return;
     }
 
-    void listGenerations(1, true)
+    void listGenerations()
       .then((tasks) => {
         const loadedAssets = tasks.map(toAsset);
         setAssets(loadedAssets);
@@ -1072,7 +1083,7 @@ export default function Create3DStudio() {
         onToggleGroundGrid={() => setGroundGridEnabled((prev) => !prev)}
         isLeftPanelOpen={isLeftPanelOpen}
         isRightPanelOpen={isRightPanelOpen}
-        activeModelGlbUrl={activeModelMesh?.glbUrl}
+        activeModelGlbUrl={activeModelBlobUrl || (activeModelMesh?.glbUrl && !activeModelMesh.glbUrl.startsWith('/api/') ? activeModelMesh.glbUrl : null)}
         activeModelName={activeModelMesh?.name}
         activeModelFiles={activeModelMesh?.localFiles || local3DFiles}
         activeModelFileType={activeModelMesh?.fileType || activeFileType}
@@ -1100,11 +1111,11 @@ export default function Create3DStudio() {
 
       {/* Left Column Stack */}
       <div className="absolute top-5 left-4 z-20 flex flex-col gap-2.5 w-[330px] max-w-[calc(100%-2rem)] max-h-[calc(100vh-2.5rem)] overflow-y-auto no-scrollbar pointer-events-auto pb-8 pt-1">
-        {/* Panel 1: Tạo hình mô hình 3D */}
+        {/* Panel 1: Tạo hình mô hình 3D (Thu gọn, không scroll cuộn) */}
         {isLeftPanelOpen ? (
           <div
             ref={leftPanelRef}
-            className="w-full shrink-0 max-h-[48vh] overflow-y-auto no-scrollbar bg-[#FFFFFF] border border-[#E2D9D0] rounded-xl px-3.5 pt-3 pb-3.5 shadow-sm text-[#231F1E] flex flex-col gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            className="w-full shrink-0 bg-[#FFFFFF] border border-[#E2D9D0] rounded-xl px-3 pt-2.5 pb-3 shadow-md text-[#231F1E] flex flex-col gap-2 transition-all duration-200"
           >
             {/* Header - Sticky with solid white bg and top padding to prevent any clipping */}
             <div className="sticky top-0 bg-[#FFFFFF] z-10 -mx-3.5 px-3.5 pt-1 pb-2 flex items-center justify-between border-b border-[#E2D9D0]">
@@ -1216,7 +1227,7 @@ export default function Create3DStudio() {
                       handleLoad3DFiles(e.dataTransfer.files);
                     }
                   }}
-                  className={`bg-[#F6F3EE] border border-dashed rounded-lg p-3 flex flex-col items-center justify-center min-h-[110px] transition-all cursor-pointer ${
+                  className={`bg-[#F6F3EE] border border-dashed rounded-lg p-3 flex flex-col items-center justify-center py-2.5 min-h-[68px] transition-all cursor-pointer ${
                     isDraggingFile
                       ? 'border-[#B83B2A] bg-[#FDF2F0]'
                       : 'border-[#E2D9D0] hover:border-[#B83B2A]'
@@ -1272,7 +1283,7 @@ export default function Create3DStudio() {
                 )}
               </div>
             ) : generationMode === 'text' ? (
-              <div className="bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg p-2.5 flex flex-col justify-between min-h-[130px] focus-within:border-[#B83B2A] transition-colors">
+              <div className="bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg p-2.5 flex flex-col justify-between min-h-[75px] focus-within:border-[#B83B2A] transition-colors">
                 <textarea
                   value={promptText}
                   onChange={(e) => {
@@ -1312,7 +1323,7 @@ export default function Create3DStudio() {
                       setNsfwError(null);
                     }
                   }}
-                  className={`bg-[#F6F3EE] border border-dashed rounded-lg p-3 flex flex-col items-center justify-center min-h-[125px] transition-all ${
+                  className={`bg-[#F6F3EE] border border-dashed rounded-lg p-3 flex flex-col items-center justify-center py-2.5 min-h-[64px] transition-all ${
                     isDraggingFile
                       ? 'border-[#B83B2A] bg-[#FDF2F0]'
                       : 'border-[#E2D9D0] hover:border-[#B83B2A]'
@@ -1326,7 +1337,7 @@ export default function Create3DStudio() {
                     className="hidden"
                   />
                   {uploadedImage ? (
-                    <div className="relative w-full h-24 rounded overflow-hidden group">
+                    <div className="relative w-full h-16 rounded overflow-hidden group">
                       <img src={uploadedImage} alt="Input" className="w-full h-full object-contain bg-[#F6F3EE]" />
                       <button
                         onClick={() => {
@@ -1410,68 +1421,71 @@ export default function Create3DStudio() {
             {/* AI Model, Texture & Face Count Settings - Only for Image/Text AI Generation */}
             {generationMode !== 'file' && (
               <>
-                {/* Model Selection Dropdown */}
-                <div className="relative flex flex-col gap-1 pt-0.5">
-                  <span className="text-[11px] text-[#7A706C] font-medium">Mô hình AI</span>
-                  <button
-                    type="button"
-                    onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                    className="w-full px-2.5 py-1.5 bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg text-xs text-[#231F1E] flex items-center justify-between hover:border-[#B83B2A] transition-colors cursor-pointer"
-                  >
-                    <span className="truncate">{selectedModel}</span>
-                    <ChevronDown className={`w-3.5 h-3.5 text-[#7A706C] transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
+                {/* Single Row: Mô hình AI + Texture màu sắc */}
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  {/* Model Selection Dropdown (Left ~65%) */}
+                  <div className="relative flex-1 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                      className="w-full px-2 py-1 bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg text-xs text-[#231F1E] flex items-center justify-between hover:border-[#B83B2A] transition-colors cursor-pointer"
+                      title="Chọn mô hình AI"
+                    >
+                      <span className="truncate text-[11px] font-medium">{selectedModel}</span>
+                      <ChevronDown className={`w-3 h-3 text-[#7A706C] shrink-0 transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
 
-                  {isModelDropdownOpen && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-[#FFFFFF] border border-[#E2D9D0] rounded-lg shadow-xl py-1 z-30 max-h-48 overflow-y-auto no-scrollbar">
-                      {AI_MODELS.map((model) => (
-                        <button
-                          key={model.id}
-                          onClick={() => {
-                            setSelectedModel(model.name);
-                            setIsModelDropdownOpen(false);
-                          }}
-                          className="w-full text-left px-2.5 py-1.5 text-xs text-[#7A706C] hover:text-[#231F1E] hover:bg-[#F6F3EE] flex flex-col gap-0.5 cursor-pointer border-b border-[#E2D9D0] last:border-b-0"
-                        >
-                          <div className="flex items-center justify-between w-full">
-                            <span className="font-medium text-[#231F1E]">{model.name}</span>
-                            {selectedModel === model.name && <Check className="w-3.5 h-3.5 text-[#B83B2A]" />}
-                          </div>
-                          <span className="text-[9.5px] text-[#7A706C] line-clamp-1">{model.description}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                    {isModelDropdownOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-[#FFFFFF] border border-[#E2D9D0] rounded-lg shadow-xl py-1 z-30 max-h-48 overflow-y-auto no-scrollbar">
+                        {AI_MODELS.map((model) => (
+                          <button
+                            key={model.id}
+                            onClick={() => {
+                              setSelectedModel(model.name);
+                              setIsModelDropdownOpen(false);
+                            }}
+                            className="w-full text-left px-2 py-1 text-xs text-[#7A706C] hover:text-[#231F1E] hover:bg-[#F6F3EE] flex flex-col gap-0.5 cursor-pointer border-b border-[#E2D9D0] last:border-b-0"
+                          >
+                            <div className="flex items-center justify-between w-full">
+                              <span className="font-medium text-[#231F1E]">{model.name}</span>
+                              {selectedModel === model.name && <Check className="w-3.5 h-3.5 text-[#B83B2A]" />}
+                            </div>
+                            <span className="text-[9.5px] text-[#7A706C] line-clamp-1">{model.description}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-                {/* Texture Switch */}
-                <div className="flex items-center justify-between pt-0.5">
-                  <span className="text-[11px] text-[#7A706C] font-medium">Texture màu sắc</span>
-                  <button
-                    type="button"
-                    onClick={() => setShouldTexture(!shouldTexture)}
-                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
-                      shouldTexture ? 'bg-[#B83B2A]' : 'bg-[#EFEAE2] border border-[#E2D9D0]'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform shadow-sm ${
-                        shouldTexture ? 'translate-x-3.5' : 'translate-x-0.5'
+                  {/* Texture Switch (Right ~35%) */}
+                  <div className="flex items-center gap-1.5 shrink-0 px-2 py-1 bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg">
+                    <span className="text-[10px] text-[#7A706C] font-medium whitespace-nowrap">Texture</span>
+                    <button
+                      type="button"
+                      onClick={() => setShouldTexture(!shouldTexture)}
+                      className={`relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
+                        shouldTexture ? 'bg-[#B83B2A]' : 'bg-[#EFEAE2] border border-[#E2D9D0]'
                       }`}
-                    />
-                  </button>
+                    >
+                      <span
+                        className={`inline-block h-2 w-2 transform rounded-full bg-white transition-transform shadow-sm ${
+                          shouldTexture ? 'translate-x-2.5' : 'translate-x-0.5'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Model Face Count */}
-                <div className="flex flex-col gap-1 pt-0.5">
-                  <span className="text-[11px] text-[#7A706C] font-medium">Lưới (Mesh)</span>
-                  <div className="bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg p-0.5 flex items-center justify-between text-xs">
+                {/* Model Face Count - Compact Row */}
+                <div className="flex items-center justify-between gap-1 pt-0.5">
+                  <span className="text-[10.5px] text-[#7A706C] font-medium shrink-0">Lưới</span>
+                  <div className="bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg p-0.5 flex items-center gap-1 text-xs">
                     {FACE_COUNTS.map((count) => (
                       <button
                         key={count}
                         type="button"
                         onClick={() => setFaceCount(count)}
-                        className={`flex-1 py-0.5 text-center rounded text-[11px] font-mono tabular-nums transition-all cursor-pointer ${
+                        className={`px-1.5 py-0.5 text-center rounded text-[10px] font-mono tabular-nums transition-all cursor-pointer ${
                           faceCount === count
                             ? 'bg-[#B83B2A] text-white font-semibold shadow-sm'
                             : 'text-[#7A706C] hover:text-[#231F1E]'
@@ -1555,8 +1569,9 @@ export default function Create3DStudio() {
             >
               <div className="flex items-center gap-2">
                 <Box className="w-3.5 h-3.5 text-[#B83B2A]" />
-                <span className="text-xs font-mono tabular-nums">
-                  {dimensions.x} × {dimensions.z} × {dimensions.y} mm ({scalePercent}%)
+                <span className="font-semibold text-xs">Kích thước & Scale</span>
+                <span className="text-[11px] font-mono tabular-nums text-[#7A706C]">
+                  ({dimensions.x} × {dimensions.z} × {dimensions.y} mm)
                 </span>
               </div>
               <ChevronDown className="w-3.5 h-3.5 text-[#7A706C]" />
@@ -1565,10 +1580,14 @@ export default function Create3DStudio() {
             <div className="w-full bg-[#FFFFFF] border border-[#E2D9D0] rounded-xl p-3 shadow-md text-[#231F1E] flex flex-col gap-2.5">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-[#E2D9D0] pb-2">
-                <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsDimensionsPanelOpen(false)}
+                  className="flex items-center gap-1.5 cursor-pointer text-left hover:opacity-80 transition-opacity"
+                >
                   <Box className="w-3.5 h-3.5 text-[#B83B2A]" />
                   <span className="text-xs font-semibold text-[#231F1E]">Kích thước & Scale</span>
-                </div>
+                </button>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
@@ -1698,9 +1717,9 @@ export default function Create3DStudio() {
         </div>
       </div>
 
-      {/* Right Floating / Docked Panel: Assets & Inspector */}
+      {/* Right Floating Card: Assets & Inspector (Thu gọn, w-72, max-h-[420px]) */}
       {isRightPanelOpen ? (
-        <div className="absolute top-0 right-0 bottom-0 w-[290px] max-w-[85vw] bg-[#FFFFFF] border-l border-[#E2D9D0] flex flex-col z-20 shadow-xl transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] text-[#231F1E]">
+        <div className="absolute top-4 right-4 w-72 max-w-[88vw] max-h-[420px] bg-[#FFFFFF] border border-[#E2D9D0] rounded-xl flex flex-col z-20 shadow-lg text-[#231F1E] overflow-hidden transition-all duration-200">
           {/* Header Tabs */}
           <div className="p-2.5 pb-2 flex items-center justify-between gap-1 border-b border-[#E2D9D0]">
             <div className="flex items-center gap-1">
@@ -1793,6 +1812,10 @@ export default function Create3DStudio() {
             >
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
+            <div className="w-[1px] h-3.5 bg-[#E2D9D0] mx-0.5" />
+            <span className="text-[10px] text-[#B83B2A] font-mono px-1">
+              3D Orbit
+            </span>
           </div>
 
           {/* Tab Body */}
@@ -1813,6 +1836,7 @@ export default function Create3DStudio() {
                     return (
                       <div
                         key={asset.id}
+                        data-testid={`asset-card-${asset.id}`}
                         onClick={() => {
                           setActiveModelMesh(asset);
                           if (asset.localFiles) {
@@ -1839,6 +1863,11 @@ export default function Create3DStudio() {
                               {isCurrent && (
                                 <span className="shrink-0 px-1.5 py-0.2 rounded bg-[#B83B2A]/10 border border-[#B83B2A]/30 text-[9.5px] text-[#B83B2A] font-medium">
                                   Đang xem
+                                </span>
+                              )}
+                              {(asset.isApprovedForPrinting || asset.reviewStatus === 'Approved') && (
+                                <span className="shrink-0 px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 text-[9px] font-mono font-bold tracking-wider">
+                                  VERIFIED
                                 </span>
                               )}
                             </div>
@@ -1876,7 +1905,7 @@ export default function Create3DStudio() {
                                 className="inline-flex items-center gap-1 rounded bg-[#B83B2A] hover:bg-[#9E2F20] px-2 py-0.5 text-[10px] text-white font-medium cursor-pointer shadow-xs"
                               >
                                 <Sparkles className="h-3 w-3 text-white" />
-                                <span>Đặt in 3D</span>
+                                <span>Chốt Mẫu & Đặt In</span>
                               </button>
                             )}
                             {asset.fileType && (
@@ -2119,7 +2148,7 @@ export default function Create3DStudio() {
               }}
               className="w-full py-2.5 px-3 rounded-lg bg-[#B83B2A] hover:bg-[#9E2F20] text-xs font-semibold text-white flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.99] cursor-pointer"
             >
-              <span>Đặt in 3D ngay →</span>
+              <span>Chốt Mẫu & Đặt In →</span>
             </button>
           </div>
         </div>
@@ -2127,7 +2156,7 @@ export default function Create3DStudio() {
         <button
           onClick={() => setIsRightPanelOpen(true)}
           className="absolute top-4 right-4 z-20 p-2 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] shadow-sm cursor-pointer"
-          title="Mở bảng thông số"
+          title="Tài sản & Lớp (Mở bảng thông số)"
         >
           <PanelRight className="w-4 h-4 text-[#B83B2A]" />
         </button>

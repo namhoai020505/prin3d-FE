@@ -1243,53 +1243,6 @@ export default function Studio3DViewport({
     { id: 'iso', label: 'Iso', title: 'Đặt lại Isometric' },
   ];
 
-  // Mesh resolution specs based on FaceCount
-  const getMeshSpecs = (count: FaceCount) => {
-    switch (count) {
-      case '50k':
-        return {
-          detail: 2,
-          radius: 1.4,
-          subdivisions: 12,
-          facesDisplay: '50,240',
-          vertsDisplay: '25,122',
-          desc: 'Tối ưu Realtime & Game Engine (Low-Poly Stylized)',
-          manifold: '100% Manifold',
-        };
-      case '500k':
-        return {
-          detail: 4,
-          radius: 1.4,
-          subdivisions: 24,
-          facesDisplay: '498,600',
-          vertsDisplay: '249,302',
-          desc: 'Chuẩn dựng cảnh & kiểm duyệt hình khối',
-          manifold: 'Watertight Solid',
-        };
-      case '1M':
-        return {
-          detail: 5,
-          radius: 1.4,
-          subdivisions: 36,
-          facesDisplay: '1,012,400',
-          vertsDisplay: '506,202',
-          desc: 'Siêu chi tiết, độ cong mượt mà cao cấp',
-          manifold: 'Chuẩn in FDM/SLA mịn',
-        };
-      case '1.5M':
-      default:
-        return {
-          detail: 6,
-          radius: 1.4,
-          subdivisions: 48,
-          facesDisplay: '1,524,800',
-          vertsDisplay: '762,402',
-          desc: 'Lưới đa giác dày đặc chuẩn in SLA Resin siêu nét',
-          manifold: 'SLA Micro-slice Ready',
-        };
-    }
-  };
-
   // 1. Initialize Three.js Scene, Camera, Renderer, Lighting & OrbitControls
   useEffect(() => {
     const container = mountRef.current;
@@ -1632,104 +1585,6 @@ export default function Studio3DViewport({
       targetGroup.updateMatrixWorld(true);
     };
 
-    const buildProceduralGeometry = (targetMeshGroup: THREE.Group) => {
-      // Build a multi-part stylized 3D mascot / robotic crystal sculpture
-      const currentSpecs = getMeshSpecs(faceCount);
-      const sub = currentSpecs.subdivisions;
-
-      // Outer TorusKnot / Crystal Mesh
-      const geometry = new THREE.TorusKnotGeometry(0.85, 0.28, sub * 4, sub);
-      geometry.computeVertexNormals();
-
-      // Ground geometry: base at Y = 0, centered in X and Z
-      geometry.computeBoundingBox();
-      const gBox = geometry.boundingBox!;
-      const gSize = gBox.getSize(new THREE.Vector3());
-      const gCenter = gBox.getCenter(new THREE.Vector3());
-      geometry.translate(-gCenter.x, -gBox.min.y, -gCenter.z);
-
-      // Materials based on shadingMode & shouldTexture
-      let mainMat: THREE.Material;
-
-      if (shadingMode === 'sla-resin') {
-        // High-end Matte Warm Grey SLA 3D Print Resin
-        mainMat = new THREE.MeshStandardMaterial({
-          color: 0x8c8881,
-          roughness: 0.45,
-          metalness: 0.05,
-          flatShading: faceCount === '50k',
-        });
-      } else if (shouldTexture) {
-        // Vibrant Cyber iridescent material
-        mainMat = new THREE.MeshPhysicalMaterial({
-          color: 0x4a5d4e,
-          emissive: 0x022c35,
-          roughness: 0.2,
-          metalness: 0.85,
-          clearcoat: 1.0,
-          clearcoatRoughness: 0.1,
-          flatShading: faceCount === '50k',
-        });
-      } else {
-        // Dark Clay / Cast Iron Tactile Wabi-Sabi CAD Look
-        mainMat = new THREE.MeshStandardMaterial({
-          color: 0x22221f,
-          roughness: 0.5,
-          metalness: 0.2,
-          flatShading: faceCount === '50k',
-        });
-      }
-
-      const mainMesh = new THREE.Mesh(geometry, mainMat);
-      mainMesh.position.set(0, 0, 0);
-      mainMesh.castShadow = true;
-      mainMesh.receiveShadow = true;
-      targetMeshGroup.add(mainMesh);
-
-      // Wireframe overlay for 'solid-wire' or pure 'wireframe'
-      if (shadingMode === 'wireframe') {
-        mainMesh.material = new THREE.MeshStandardMaterial({
-          color: 0x1c1c1e,
-          roughness: 0.9,
-          metalness: 0.1,
-          polygonOffset: true,
-          polygonOffsetFactor: 1,
-          polygonOffsetUnits: 1,
-        });
-        const wireMat = new THREE.MeshBasicMaterial({
-          color: 0xd6cfc7,
-          wireframe: true,
-          transparent: true,
-          opacity: 0.22,
-          depthWrite: false,
-        });
-        const wireMesh = new THREE.Mesh(geometry, wireMat);
-        wireMesh.name = 'Wireframe_Overlay';
-        mainMesh.add(wireMesh);
-      } else if (shadingMode === 'solid-wire') {
-        const wireMat = new THREE.MeshBasicMaterial({
-          color: 0xd6cfc7,
-          wireframe: true,
-          transparent: true,
-          opacity: 0.2,
-          depthWrite: false,
-        });
-        const wireMesh = new THREE.Mesh(geometry, wireMat);
-        wireMesh.name = 'Wireframe_Overlay';
-        mainMesh.add(wireMesh);
-      }
-
-      // Add a floating glowing inner core at exact vertical center
-      const coreGeo = new THREE.IcosahedronGeometry(0.38, currentSpecs.detail >= 4 ? 3 : 1);
-      const coreMat = new THREE.MeshBasicMaterial({
-        color: 0xe2dfd7,
-        wireframe: true,
-      });
-      const coreMesh = new THREE.Mesh(coreGeo, coreMat);
-      coreMesh.position.set(0, gSize.y / 2, 0);
-      targetMeshGroup.add(coreMesh);
-    };
-
     const clearMeshGroupChildren = (group: THREE.Group) => {
       while (group.children.length > 0) {
         const child = group.children[0];
@@ -1789,7 +1644,6 @@ export default function Studio3DViewport({
           setIsModelLoading(false);
           clearMeshGroupChildren(meshGroup);
           loadedModelRef.current = null;
-          buildProceduralGeometry(meshGroup);
           updateBoundingBoxAndDimensions(meshGroup);
         },
       });
@@ -1799,10 +1653,9 @@ export default function Studio3DViewport({
       };
     }
 
-    // Otherwise, build procedural 3D Mesh reflecting Face Count
+    // When no model is loaded, keep the 3D print bed completely clean and empty
     clearMeshGroupChildren(meshGroup);
     loadedModelRef.current = null;
-    buildProceduralGeometry(meshGroup);
     updateBoundingBoxAndDimensions(meshGroup);
   }, [faceCount, activeModelGlbUrl, activeModelFiles, activeModelFileType]);
 
@@ -1953,7 +1806,7 @@ export default function Studio3DViewport({
 
       const dist = Math.max(2.0, camera.position.distanceTo(target));
 
-      let targetPos = new THREE.Vector3();
+      const targetPos = new THREE.Vector3();
       switch (view) {
         case 'front': // Trục Z: Nhìn chính diện
           targetPos.set(target.x, target.y, target.z + dist);
@@ -2428,7 +2281,7 @@ export default function Studio3DViewport({
             title={isAutoRotate ? 'Tạm dừng tự xoay (Phím R)' : 'Bật tự động xoay (Phím R)'}
           >
             {isAutoRotate ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-            <span className="text-[10.5px] font-medium hidden md:inline">
+            <span className="text-[10.5px] font-medium">
               {isAutoRotate ? 'Dừng' : 'Xoay'}
             </span>
           </button>
