@@ -17,7 +17,7 @@ export type UpdateUserRolePayload = {
 
 export type AddUserCreditsPayload = {
   amount: number;
-  reason?: string;
+  reason: string;
 };
 
 export type UpdatePricingPackagePayload = {
@@ -39,7 +39,7 @@ export const adminService = {
   addUserCredits: async (
     id: string,
     amount: number,
-    reason = 'Quản trị viên cấp bổ sung lượt tạo 3D',
+    reason: string,
   ): Promise<{ id: string; freeTrialRemaining: number; purchasedRemaining: number }> => {
     const key = IdempotencyManager.getOrCreateKey(`admin:credits:${id}`);
     const response = await api.post(
@@ -54,6 +54,9 @@ export const adminService = {
       purchasedRemaining: number;
     };
   },
+
+  addCredits: async (id: string, amount: number, reason: string) =>
+    adminService.addUserCredits(id, amount, reason),
 
   lockUser: async (id: string, reason: string): Promise<{ message: string; targetUserId?: string }> => {
     const response = await api.post(`/api/admin/users/${id}/lock`, { reason });

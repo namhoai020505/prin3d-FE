@@ -196,34 +196,9 @@ export const useLoginController = () => {
     }
   };
 
-  const handleGoogleLogin = async (idToken: string) => {
+  const handleGoogleLogin = async (_idToken?: string) => {
     resetFeedback();
-    setIsLoading(true);
-
-    try {
-      const response = unwrapApiResponse<AuthResponseData>(
-        await api.post('/api/auth/google-login', { idToken }),
-      );
-      const authData = response.data;
-      const token = authData?.accessToken || authData?.token;
-
-      if (!token) {
-        setError('Đăng nhập Google thành công nhưng backend không trả về access token.');
-        return;
-      }
-
-      setAuthSession({
-        accessToken: token,
-        refreshToken: authData?.refreshToken || null,
-        fullName: authData?.fullName || 'Người dùng',
-      });
-
-      navigate(getPostLoginRedirect(getRoleFromAccessToken(token)));
-    } catch (err: unknown) {
-      setError(parseApiError(err).message);
-    } finally {
-      setIsLoading(false);
-    }
+    setError('Tính năng đăng nhập Google đang phát triển (Sắp ra mắt). Vui lòng đăng nhập bằng Email và Mật khẩu.');
   };
 
   const handleRegister = async () => {
@@ -283,8 +258,7 @@ export const useLoginController = () => {
     try {
       const response = unwrapApiResponse(
         await api.post('/api/auth/verify-email', {
-          email: verificationEmail,
-          otp,
+          token: otp,
         }),
       );
 
@@ -316,7 +290,7 @@ export const useLoginController = () => {
 
     try {
       const response = unwrapApiResponse<RegisterResponseData>(
-        await api.post('/api/auth/resend-verification-otp', {
+        await api.post('/api/auth/resend-verification', {
           email: verificationEmail,
         }),
       );
@@ -379,8 +353,7 @@ export const useLoginController = () => {
     try {
       const response = unwrapApiResponse(
         await api.post('/api/auth/reset-password', {
-          email: passwordResetEmail,
-          otp,
+          token: otp,
           newPassword,
         }),
       );

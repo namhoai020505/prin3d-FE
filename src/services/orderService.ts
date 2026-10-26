@@ -134,8 +134,18 @@ const unwrap = <T>(res: unknown): T => {
 };
 
 // V1 API Implementations
-export const normalizeOrderV2 = (data: any): OrderV2Dto => {
-  if (!data) return data;
+export const normalizeOrderV2 = (value: unknown): OrderV2Dto => {
+  const data = (value || {}) as Partial<OrderV2Dto> & {
+    orderId?: string;
+    paymentStatus?: string;
+    unitPriceVnd?: number;
+    subtotalVnd?: number;
+    shippingFeeVnd?: number;
+    totalVnd?: number;
+    material?: string;
+    heightMm?: number;
+    statusHistories?: OrderV2HistoryDto[];
+  };
   return {
     ...data,
     id: data.id || data.orderId || '',
@@ -216,7 +226,7 @@ export const checkoutQuote = async (
     },
   );
   IdempotencyManager.clearKey(`order:checkout:${quoteId}`);
-  const order = normalizeOrderV2(unwrap<any>(raw));
+  const order = normalizeOrderV2(unwrap<unknown>(raw));
   if (typeof window !== 'undefined' && order?.id) {
     sessionStorage.setItem('idea2model_last_order_id', order.id);
   }
@@ -228,7 +238,7 @@ export const checkoutQuote = async (
  */
 export const getOrderById = async (orderId: string): Promise<OrderV2Dto> => {
   const raw = await api.get(`/api/v2/orders/${orderId}`);
-  return normalizeOrderV2(unwrap<any>(raw));
+  return normalizeOrderV2(unwrap<unknown>(raw));
 };
 
 /**
@@ -275,3 +285,196 @@ export const orderService = {
 };
 
 export default orderService;
+
+export type ShippingAddress = {
+  receiverName: string;
+  receiverPhone: string;
+  streetAddress: string;
+  district: string;
+  city: string;
+  customerNote?: string | null;
+};
+
+export type CustomerApproval = {
+  id: string;
+  userId: string;
+  versionId: string;
+  configurationHash: string;
+  configurationJson: string;
+  policyVersion: string;
+  createdAtUtc: string;
+};
+
+export type CreateApprovalInput = {
+  versionId: string;
+  configuration: Record<string, unknown>;
+  policyVersion?: string;
+};
+
+export type Quote = {
+  id: string;
+  userId: string;
+  versionId: string;
+  configurationHash: string;
+  approvalId: string;
+  reviewId: string;
+  pricingPackageId: string;
+  packageCode: string;
+  packageName: string;
+  quantity: number;
+  unitPriceVnd: number;
+  shippingFeeVnd: number;
+  totalVnd: number;
+  address: ShippingAddress;
+  snapshotJson: string;
+  expiresAtUtc: string;
+  createdAtUtc: string;
+  isExpired: boolean;
+};
+
+export type CreateQuoteInput = {
+  versionId: string;
+  configuration: Record<string, unknown>;
+  pricingPackageId: string;
+  quantity: number;
+  address: ShippingAddress;
+};
+
+export type OrderItemV2 = {
+  id: string;
+  lineNumber: number;
+  versionId: string;
+  configurationHash: string;
+  quantity: number;
+  unitPriceVnd: number;
+  materialSnapshot: string;
+  heightMm: number;
+  engravingText?: string | null;
+  partnerUnitBudgetVnd: number;
+};
+
+export type OrderStatusHistoryV2 = {
+  id: string;
+  axis: string;
+  fromStatus: string;
+  toStatus: string;
+  actorUserId?: string | null;
+  source: string;
+  reason?: string | null;
+  operationKey?: string | null;
+  createdAtUtc: string;
+};
+
+export type OrderV2 = {
+  id: string;
+  orderCode: string;
+  userId: string;
+  quoteId: string;
+  fulfillmentStatus: string;
+  orderPaymentStatus: string;
+  quantity: number;
+  unitPriceSnapshot: number;
+  subTotalVnd: number;
+  finalShippingFee: number;
+  totalAmount: number;
+  currency: string;
+  address: ShippingAddress;
+  materialSnapshot: string;
+  heightMmSnapshot: number;
+  createdAtUtc: string;
+  items: OrderItemV2[];
+  histories: OrderStatusHistoryV2[];
+};
+
+export type CheckoutOrderV2Input = {
+  quoteId: string;
+};
+
+export type PaymentAttempt = {
+  id: string;
+  orderId: string;
+  gateway: string;
+  merchantReference: string;
+  providerTransactionId?: string | null;
+  status: string;
+  amountVnd: number;
+  currency: string;
+  expiresAtUtc: string;
+  createdAtUtc: string;
+  capturedAtUtc?: string | null;
+  checkoutUrl?: string | null;
+  failureReason?: string | null;
+  qrCode?: string | null;
+};
+
+export type CreatePaymentAttemptInput = {
+  note?: string;
+};
+
+// ==================== Legacy V1 Endpoints ====================
+
+export const createApproval = async (input: CreateApprovalInput): Promise<CustomerApproval> => {
+  const response = await api.post('/api/v2/approvals', {
+    versionId: input.versionId,
+    configuration: input.configuration,
+    policyVersion: input.policyVersion || 'v1.0',
+  });
+  return response as unknown as CustomerApproval;
+};
+
+export const createQuote = async (input: CreateQuoteInput): Promise<Quote> => {
+  const response = await api.post('/api/v2/quotes', input);
+  return response as unknown as Quote;
+};
+
+export const checkoutOrderV2 = async (input: CheckoutOrderV2Input): Promise<OrderV2> => {
+  const response = await api.post('/api/v2/orders', input, {
+    headers: {
+      'Idempotency-Key': crypto.randomUUID(),
+    },
+  });
+  return response as unknown as OrderV2;
+};
+
+export const createPaymentAttempt = async (
+  orderId: string,
+  input?: CreatePaymentAttemptInput,
+): Promise<PaymentAttempt> => {
+  const response = await api.post(
+    `/api/v2/orders/${orderId}/payment-attempts`,
+    input ?? { note: 'Thanh toán đơn in 3D PayOS' },
+    {
+      headers: {
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+    },
+  );
+  return response as unknown as PaymentAttempt;
+};
+
+export const getPaymentAttempts = async (orderId: string): Promise<PaymentAttempt[]> => {
+  const response = await api.get(`/api/v2/orders/${orderId}/payment-attempts`);
+  return response as unknown as PaymentAttempt[];
+};
+
+// ==================== Top-Up Payment Endpoints ====================
+
+export type TopUpPackageId = 'starter' | 'creator' | 'studio';
+
+export type TopUpPaymentResponse = {
+  success: boolean;
+  packageId: TopUpPackageId;
+  amountVnd: number;
+  credits: number;
+  merchantReference: string;
+  checkoutUrl?: string | null;
+  qrCode?: string | null;
+};
+
+export const createTopUpPayment = async (
+  input: TopUpPackageId | { packageId: TopUpPackageId },
+): Promise<TopUpPaymentResponse> => {
+  const packageId = typeof input === 'string' ? input : input.packageId;
+  const response = await api.post('/api/v2/payments/topup', { packageId });
+  return response as unknown as TopUpPaymentResponse;
+};

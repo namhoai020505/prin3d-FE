@@ -20,43 +20,34 @@ import {
   Lock,
   Unlock,
   SlidersHorizontal,
-  CheckCircle2,
   AlertTriangle,
   RotateCcw,
   Scissors,
-  Play,
-  Pause,
-  Clock,
-  ShieldCheck,
-  Activity,
-  Scale,
-  Flame,
   Zap,
-  Loader2,
 } from 'lucide-react';
-import { toast } from 'react-toastify';
 import {
-  approvalAndReviewService,
-  buildCanonicalPrintConfig,
-  type CanonicalPrintConfig,
-  type CustomerApprovalDto,
-} from '../../services/approvalAndReviewService';
+  createImageGeneration,
+  downloadGenerationFile,
+  getGeneration,
+  listGenerations,
+  parseGenerationError,
+  type GenerationStatus,
+  type GenerationTask,
+} from '../../services/generationService';
+import { AUTH_SESSION_EVENT, getAccessToken, isAccessTokenExpired } from '../../lib/auth';
+import { getMe } from '../../services/authService';
+import { AI_MODELS, FACE_COUNTS, type FaceCount } from '../../constants/models';
+import Studio3DViewport, { type ModelMetrics } from './components/Studio3DViewport';
+import PrintOrderModal from './components/PrintOrderModal';
+import CreditTopUpModal from './components/CreditTopUpModal';
+import { toast } from 'react-toastify';
+import { Loader2, ShieldCheck } from 'lucide-react';
+import { approvalAndReviewService, buildCanonicalPrintConfig, type CanonicalPrintConfig, type CustomerApprovalDto } from '../../services/approvalAndReviewService';
 import { IdempotencyManager } from '../../lib/idempotency';
 import { AI_CONSENT_POLICY_VERSION } from '../../lib/env';
 import QuoteModalV2 from '../../components/QuoteModalV2';
-import { createImageGeneration, downloadGenerationFile, getGeneration, listGenerations, type GenerationStatus, type GenerationTask } from '../../services/generationService';
-import {
-  AUTH_SESSION_EVENT,
-  getAccessToken,
-  isAccessTokenExpired,
-  getRoleFromAccessToken,
-  isAdminRole,
-  isStaffRole,
-  isManagerRole,
-} from '../../lib/auth';
-import { AI_MODELS, FACE_COUNTS, type FaceCount } from '../../constants/models';
+import { getRoleFromAccessToken, isAdminRole, isStaffRole, isManagerRole } from '../../lib/auth';
 import type { LatestPrintReview } from '../../services/generationService';
-import Studio3DViewport from './components/Studio3DViewport';
 
 interface GeneratedAsset {
   id: string;
@@ -76,33 +67,15 @@ interface GeneratedAsset {
   isWatertight?: boolean;
   printabilityStatus?: string;
   requestedHeightMm?: number;
+  fileType?: 'glb' | 'gltf' | 'fbx' | 'obj';
+  localFiles?: File[] | null;
+  customFaces?: string;
 }
 
 interface ApprovedConfig {
   approvalDto: CustomerApprovalDto;
   config: CanonicalPrintConfig;
 }
-
-const getFriendlyErrorMessage = (error?: string | null): string => {
-  if (!error) return "";
-  const lower = error.toLowerCase();
-  if (lower.includes("unauthorized") || lower.includes("cam policies") || lower.includes("access keys") || lower.includes("system policy")) {
-    return "Lỗi xác thực API nhà cung cấp AI 3D.";
-  }
-  if (lower.includes("cần kiểm tra kết quả") || lower.includes("staff có thể tiếp tục")) {
-    return "Đang chờ xử lý thêm từ nhà cung cấp AI.";
-  }
-  if (lower.includes("meshcheckfailed") || lower.includes("watertight") || lower.includes("độ kín nước")) {
-    return "Mẫu 3D chưa đạt chuẩn kín nước hoặc độ dày in.";
-  }
-  if (lower.includes("tasknotsucceeded")) {
-    return "Tác vụ tạo 3D chưa hoàn tất.";
-  }
-  if (error.length > 50) {
-    return error.slice(0, 48) + "...";
-  }
-  return error;
-};
 
 const toAsset = (task: GenerationTask): GeneratedAsset => ({
   id: task.id,
@@ -122,6 +95,7 @@ const toAsset = (task: GenerationTask): GeneratedAsset => ({
   isWatertight: task.isWatertight,
   printabilityStatus: task.printabilityStatus,
   requestedHeightMm: task.requestedHeightMm,
+  fileType: 'glb',
 });
 
 const isTerminalStatus = (status: GenerationStatus) =>
@@ -162,23 +136,35 @@ export default function Create3DStudio() {
     faceCount?: FaceCount;
   } | null;
 
+  // Mode selection: 'image' | 'text' | 'file'
+  const [generationMode, setGenerationMode] = useState<'image' | 'text' | 'file'>('image');
+  const [promptText, setPromptText] = useState('');
+  const [generationError, setGenerationError] = useState('');
+  const [nsfwError, setNsfwError] = useState<string | null>(null);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth > 900);
+
+  // Local 3D File loading & metrics states
+  const [local3DFiles, setLocal3DFiles] = useState<File[] | null>(null);
+  const [activeFileType, setActiveFileType] = useState<'glb' | 'gltf' | 'fbx' | 'obj'>('glb');
+  const [modelRealMetrics, setModelRealMetrics] = useState<ModelMetrics | null>(null);
+  const [isDragging3D, setIsDragging3D] = useState(false);
+  const file3DInputRef = useRef<HTMLInputElement>(null);
 
   // Model settings
   const [selectedModel, setSelectedModel] = useState(
     locationState?.modelName || AI_MODELS[0].name
   );
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
-  const shouldTexture = false;
+  const [shouldTexture, setShouldTexture] = useState(false);
   const [faceCount, setFaceCount] = useState<FaceCount>(() =>
     locationState?.faceCount && FACE_COUNTS.includes(locationState.faceCount)
       ? locationState.faceCount
       : FACE_COUNTS[0]
   );
 
-  // Ground Grid & Viewport settings
-  const [groundGridEnabled, setGroundGridEnabled] = useState(true);
+  // Ground Grid & Viewport settings (Default hidden for clean PBR model presentation)
+  const [groundGridEnabled, setGroundGridEnabled] = useState(false);
 
   // Image upload
   const [uploadedImage, setUploadedImage] = useState<string | null>(
@@ -191,9 +177,9 @@ export default function Create3DStudio() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const leftPanelRef = useRef<HTMLDivElement>(null);
 
-  // 3D Model Dimensions, Scale & Bounding Box Inspector States
-  const [showBoundingBox, setShowBoundingBox] = useState(true);
-  const [isDimensionsPanelOpen, setIsDimensionsPanelOpen] = useState(false);
+  // 3D Model Dimensions, Scale & Bounding Box Inspector States (Default clean presentation)
+  const [showBoundingBox, setShowBoundingBox] = useState(false);
+  const [isDimensionsPanelOpen, setIsDimensionsPanelOpen] = useState(true);
   const [isUniformScale, setIsUniformScale] = useState(true);
   const [scalePercent, setScalePercent] = useState(100);
   const [baseDimensions, setBaseDimensions] = useState({ x: 85, y: 120, z: 85 });
@@ -204,6 +190,43 @@ export default function Create3DStudio() {
     z: '85',
   });
   const [meshScale, setMeshScale] = useState({ x: 1, y: 1, z: 1 });
+
+  // 3D Print Order & PayOS VietQR Modal States
+  const [isPrintOrderModalOpen, setIsPrintOrderModalOpen] = useState(false);
+  const [orderTargetAsset, setOrderTargetAsset] = useState<GeneratedAsset | null>(null);
+
+  // Credit Quota & Top-Up States
+  const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+
+  const fetchUserCredit = useCallback(async () => {
+    try {
+      const token = getAccessToken();
+      if (!token || isAccessTokenExpired(token)) {
+        setCreditBalance(null);
+        return;
+      }
+      const me = await getMe();
+      if (me) {
+        const total = (me.freeTrialRemaining ?? 0) + (me.purchasedRemaining ?? 0);
+        setCreditBalance(total);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    void Promise.resolve().then(fetchUserCredit);
+  }, [fetchUserCredit]);
+
+  useEffect(() => {
+    const handleAuthChanged = () => {
+      void fetchUserCredit();
+    };
+    window.addEventListener(AUTH_SESSION_EVENT, handleAuthChanged);
+    return () => window.removeEventListener(AUTH_SESSION_EVENT, handleAuthChanged);
+  }, [fetchUserCredit]);
 
   const onBaseDimensionsCalculated = useCallback((dims: { x: number; y: number; z: number }) => {
     setBaseDimensions(dims);
@@ -321,9 +344,63 @@ export default function Create3DStudio() {
     setMeshScale({ x: 1, y: 1, z: 1 });
   }, [baseDimensions]);
 
-  const volumeCm3 = Math.max(1, Math.round(((dimensions.x * dimensions.y * dimensions.z) * 0.35) / 1000));
-  const estimatedGrams = Math.max(1, Math.round(volumeCm3 * 1.24 * 0.35));
-  const isWithinStandardPrintBed = dimensions.x <= 220 && dimensions.z <= 220 && dimensions.y <= 250;
+  const scaleRatio = scalePercent / 100;
+
+  const boxVolumeCm3 = useMemo(() => {
+    return Math.max(1, Math.round((dimensions.x * dimensions.y * dimensions.z) / 1000));
+  }, [dimensions]);
+
+  const volumeCm3 = useMemo(() => {
+    const currentBoxVol = Math.max(1, (dimensions.x * dimensions.y * dimensions.z) / 1000);
+    if (modelRealMetrics?.volumeCm3) {
+      const scaled = modelRealMetrics.volumeCm3 * Math.pow(scaleRatio, 3);
+      // Realistic volume boundary: 15% - 45% of bounding box (~250 - 450 cm³ for 116x120x113mm)
+      if (scaled > currentBoxVol * 0.55 || scaled < currentBoxVol * 0.1) {
+        return Math.max(1, Math.round(currentBoxVol * 0.28));
+      }
+      return Math.max(1, Math.round(scaled));
+    }
+    return Math.max(1, Math.round(boxVolumeCm3 * 0.28));
+  }, [modelRealMetrics, scaleRatio, dimensions, boxVolumeCm3]);
+
+  // Material Selection State for Quick Picker & Pricing
+  const [selectedMaterial, setSelectedMaterial] = useState<'PLA' | 'Resin SLA' | 'ABS'>('PLA');
+
+  // Surface area estimation (cm²)
+  const surfaceAreaCm2 = useMemo(() => {
+    if (modelRealMetrics?.surfaceAreaCm2) {
+      return Math.max(1, Math.round(modelRealMetrics.surfaceAreaCm2 * Math.pow(scaleRatio, 2)));
+    }
+    return Math.max(1, Math.round(2 * ((dimensions.x * dimensions.y) + (dimensions.y * dimensions.z) + (dimensions.x * dimensions.z)) * 0.75 / 100));
+  }, [modelRealMetrics, scaleRatio, dimensions]);
+
+  const displayFaceCount = useMemo(() => {
+    if (modelRealMetrics?.faces) {
+      const f = modelRealMetrics.faces;
+      if (f >= 1000000) return `${(f / 1000000).toFixed(1)}M`;
+      if (f >= 1000) return `${Math.round(f / 1000)}k`;
+      return `${f}`;
+    }
+    return faceCount;
+  }, [modelRealMetrics, faceCount]);
+
+  const materialConfig = useMemo(() => {
+    switch (selectedMaterial) {
+      case 'Resin SLA':
+        return { name: 'Resin SLA', tag: 'Chi tiết cao', setupFee: 50000, infill: 0.85, density: 1.15, pricePerCm3: 6500, surfaceRate: 300, desc: 'Bề mặt siêu mịn, không lộ vân in.' };
+      case 'ABS':
+        return { name: 'Nhựa Kỹ Thuật ABS', tag: 'Bền cơ học', setupFee: 40000, infill: 0.40, density: 1.05, pricePerCm3: 3500, surfaceRate: 200, desc: 'Chịu lực va đập và nhiệt tốt.' };
+      case 'PLA':
+      default:
+        return { name: 'PLA Tiêu Chuẩn', tag: 'Phổ biến', setupFee: 35000, infill: 0.25, density: 1.25, pricePerCm3: 2500, surfaceRate: 150, desc: 'Thân thiện, chi tiết sắc nét.' };
+    }
+  }, [selectedMaterial]);
+
+  const liveTotalPriceVnd = Math.round(
+    materialConfig.setupFee +
+    (volumeCm3 * materialConfig.infill * materialConfig.pricePerCm3) +
+    (surfaceAreaCm2 * materialConfig.surfaceRate)
+  );
 
   // Paste image from clipboard support (Ctrl+V)
   useEffect(() => {
@@ -336,7 +413,9 @@ export default function Create3DStudio() {
           if (file) {
             setUploadedFile(file);
             setUploadedImage(URL.createObjectURL(file));
+            setGenerationMode('image');
             setGenerationError('');
+            setNsfwError(null);
             break;
           }
         }
@@ -356,11 +435,11 @@ export default function Create3DStudio() {
   const [infillDensity, setInfillDensity] = useState(20);
   const [isSimulatingPrint, setIsSimulatingPrint] = useState(false);
 
-  // 3D Printing Support & Adhesion Stability States
-  const [isSupportActive, setIsSupportActive] = useState(true);
-  const [supportType, setSupportType] = useState<'tree' | 'lattice'>('tree');
-  const [supportStrength, setSupportStrength] = useState<'heavy' | 'standard' | 'light'>('heavy');
-  const [adhesionType, setAdhesionType] = useState<'raft' | 'brim' | 'skirt'>('raft');
+  // 3D Printing Support & Adhesion Stability Defaults (Default hidden in preview)
+  const [isSupportActive, setIsSupportActive] = useState(false);
+  const [supportType] = useState<'tree' | 'lattice'>('tree');
+  const [supportStrength] = useState<'heavy' | 'standard' | 'light'>('heavy');
+  const [adhesionType] = useState<'raft' | 'brim' | 'skirt'>('raft');
 
   // Time-lapse print simulation loop
   useEffect(() => {
@@ -408,53 +487,43 @@ export default function Create3DStudio() {
     totalLayers,
     Math.max(1, Math.round((slicingProgress / 100) * totalLayers))
   );
-  const currentHeightMm = (slicingProgress / 100) * dimensions.y;
   const estPrintMinutes = Math.max(5, Math.round((totalLayers * 0.22) + (volumeCm3 * 1.1) * (infillDensity / 20)));
   const estHours = Math.floor(estPrintMinutes / 60);
   const estMins = estPrintMinutes % 60;
   const printTimeFormatted = estHours > 0 ? `${estHours}h ${estMins}m` : `${estMins} phút`;
-  const filamentGrams = Math.max(1, Math.round(estimatedGrams * (0.8 + (infillDensity / 100) * 0.4)));
-
-  // Calculate support sacrificial plastic
-  const supportFactor = !isSupportActive
-    ? 0
-    : supportStrength === 'heavy'
-    ? 0.24
-    : supportStrength === 'light'
-    ? 0.09
-    : 0.16;
-  const supportGrams = Math.round(filamentGrams * supportFactor);
-
-  // Calculate bed adhesion sacrificial plastic (Raft / Brim / Skirt)
-  const adhesionGrams = adhesionType === 'raft'
-    ? Math.max(12, Math.round(filamentGrams * 0.11))
-    : adhesionType === 'brim'
-    ? Math.max(4, Math.round(filamentGrams * 0.035))
-    : 1;
-
-  const totalWasteGrams = supportGrams + (adhesionType !== 'skirt' ? adhesionGrams : 0);
-  const totalFilamentGrams = filamentGrams + totalWasteGrams;
-  const totalFilamentMeters = (totalFilamentGrams / 3).toFixed(1);
-  const totalEstimatedCostVnd = Math.round(totalFilamentGrams * 350).toLocaleString('vi-VN');
-  const wasteCostVnd = Math.round(totalWasteGrams * 350).toLocaleString('vi-VN');
-  const wasteRatioPercent = Math.max(1, Math.round((totalWasteGrams / totalFilamentGrams) * 100));
-  const netProductPercent = 100 - wasteRatioPercent;
-
-  // Mechanical Tipping Stability Score
-  const stabilityScore = !isSupportActive
-    ? 15
-    : adhesionType === 'raft'
-    ? (supportStrength === 'heavy' ? 98 : 92)
-    : adhesionType === 'brim'
-    ? (supportStrength === 'heavy' ? 88 : supportStrength === 'standard' ? 80 : 65)
-    : 42;
 
   // Generation status
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [assets, setAssets] = useState<GeneratedAsset[]>([]);
   const [activeModelMesh, setActiveModelMesh] = useState<GeneratedAsset | null>(null);
-  const [generationError, setGenerationError] = useState('');
+
+  // Fallback asset guaranteeing active model is always present in Tab 'Tài sản'
+  const activeCurrentAsset: GeneratedAsset = useMemo(() => {
+    if (activeModelMesh) return activeModelMesh;
+    return {
+      id: 'active-viewport-mesh',
+      name: 'Mô hình 3D (Hiện tại)',
+      status: 'succeeded',
+      progress: 100,
+      stage: 'Hoàn tất',
+      date: 'Hôm nay',
+      glbUrl: '',
+      stlUrl: '',
+      fileType: activeFileType,
+      localFiles: local3DFiles,
+      customFaces: displayFaceCount,
+    };
+  }, [activeModelMesh, activeFileType, local3DFiles, displayFaceCount]);
+
+  // Unified assets list: guarantees active model is always present in Tab 'Tài sản'
+  const displayAssets = useMemo(() => {
+    const list = [...assets];
+    if (!list.some((a) => a.id === activeCurrentAsset.id)) {
+      list.unshift(activeCurrentAsset);
+    }
+    return list;
+  }, [assets, activeCurrentAsset]);
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
   const [authSessionRevision, setAuthSessionRevision] = useState(0);
   const pollTimers = useRef<number[]>([]);
@@ -469,7 +538,7 @@ export default function Create3DStudio() {
       return {};
     }
   });
-  const [printMaterial, setPrintMaterial] = useState<'Resin' | 'PLA'>('Resin');
+  const printMaterial = selectedMaterial === 'Resin SLA' ? 'Resin' : selectedMaterial;
   const [isApprovingPrint, setIsApprovingPrint] = useState(false);
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
 
@@ -481,7 +550,15 @@ export default function Create3DStudio() {
     }
   }, [approvedConfigMap]);
 
-  const activeApproved = activeModelMesh?.versionId ? approvedConfigMap[activeModelMesh.versionId] : undefined;
+  const currentPrintConfig = buildCanonicalPrintConfig({
+    material: printMaterial,
+    heightMm: dimensions.y || 100,
+    scale: scalePercent / 100,
+  });
+  const savedApproval = activeModelMesh?.versionId ? approvedConfigMap[activeModelMesh.versionId] : undefined;
+  const activeApproved = savedApproval && JSON.stringify(savedApproval.config) === JSON.stringify(currentPrintConfig)
+    ? savedApproval
+    : undefined;
 
   const handleCustomerApproval = async (autoOpenQuote = false) => {
     if (!activeModelMesh) return;
@@ -544,10 +621,8 @@ export default function Create3DStudio() {
     }
   };
 
-  const isStaffOrAdmin = useMemo(() => {
-    const role = getRoleFromAccessToken();
-    return isAdminRole(role) || isStaffRole(role) || isManagerRole(role);
-  }, []);
+  const currentRole = getRoleFromAccessToken();
+  const isStaffOrAdmin = isAdminRole(currentRole) || isStaffRole(currentRole) || isManagerRole(currentRole);
 
   const [isStaffReviewing, setIsStaffReviewing] = useState(false);
   const handleQuickStaffApprove = async () => {
@@ -659,6 +734,7 @@ export default function Create3DStudio() {
       setUploadedFile(file);
       setUploadedImage(URL.createObjectURL(file));
       setGenerationError('');
+      setNsfwError(null);
     }
   };
 
@@ -682,6 +758,7 @@ export default function Create3DStudio() {
 
       if (isTerminalStatus(task.status)) {
         setIsGenerating(false);
+        void fetchUserCredit();
         if (task.status !== 'succeeded') {
           setGenerationError(task.errorMessage || 'Không thể tạo mô hình. Vui lòng thử lại.');
         }
@@ -692,12 +769,132 @@ export default function Create3DStudio() {
       pollTimers.current.push(timer);
     } catch {
       setIsGenerating(false);
-      setGenerationError('Không thể cập nhật trạng thái tạo mô hình. Vui lòng tải lại trang.');
+      setGenerationError('Không thể cập nhật trạng thái tạo mô hình.');
     }
   };
 
+  const handleModelMetricsCalculated = useCallback(
+    (metrics: ModelMetrics) => {
+      setModelRealMetrics(metrics);
+      if (metrics.dimensions) {
+        onBaseDimensionsCalculated(metrics.dimensions);
+      }
+    },
+    [onBaseDimensionsCalculated]
+  );
+
+  const handleLoad3DFiles = useCallback((files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    const primaryFile =
+      fileArray.find((f) => f.name.toLowerCase().endsWith('.glb')) ||
+      fileArray.find((f) => f.name.toLowerCase().endsWith('.gltf')) ||
+      fileArray.find((f) => f.name.toLowerCase().endsWith('.fbx')) ||
+      fileArray.find((f) => f.name.toLowerCase().endsWith('.obj'));
+
+    if (!primaryFile) {
+      setGenerationError('Vui lòng chọn ít nhất 1 file định dạng .glb, .gltf, .fbx hoặc .obj.');
+      return;
+    }
+
+    const rawExt = primaryFile.name.split('.').pop()?.toLowerCase() || 'glb';
+    const cleanExt: 'glb' | 'gltf' | 'fbx' | 'obj' = rawExt === 'gltf' ? 'glb' : (rawExt as 'glb' | 'gltf' | 'fbx' | 'obj');
+
+    setGenerationError('');
+    setNsfwError(null);
+    setShouldTexture(true); // Preserve 100% original texture colors
+    setShowBoundingBox(false);
+    setIsSupportActive(false);
+    setGroundGridEnabled(false);
+    setLocal3DFiles(fileArray);
+    setActiveFileType(cleanExt);
+
+    const newAsset: GeneratedAsset = {
+      id: `local-3d-${Date.now()}`,
+      name: primaryFile.name.replace(/\.[^/.]+$/, ''),
+      date: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      status: 'succeeded',
+      stage: 'Hoàn tất',
+      progress: 100,
+      fileType: cleanExt,
+      localFiles: fileArray,
+    };
+
+    setAssets((prev) => [newAsset, ...prev]);
+    setActiveModelMesh(newAsset);
+  }, []);
+
+  const handleLoadSampleModel = useCallback(() => {
+    setGenerationError('');
+    setNsfwError(null);
+    setShouldTexture(true); // Enable textures to see vintage camera colors
+    setShowBoundingBox(false);
+    setIsSupportActive(false);
+    setGroundGridEnabled(false);
+    setLocal3DFiles(null);
+    setActiveFileType('glb');
+
+    const sampleAsset: GeneratedAsset = {
+      id: 'sample-camera-glb',
+      name: 'Camera Vintage 3D',
+      date: 'Mô hình mẫu',
+      status: 'succeeded',
+      stage: 'Hoàn tất',
+      progress: 100,
+      glbUrl: '/models/camera.glb',
+      fileType: 'glb',
+    };
+
+    setAssets((prev) => [sampleAsset, ...prev.filter((a) => a.id !== sampleAsset.id)]);
+    setActiveModelMesh(sampleAsset);
+  }, []);
+
+  // Window Drag & Drop for 3D files (.glb, .fbx, .obj)
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+        setIsDragging3D(true);
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      if (!e.relatedTarget || (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight)) {
+        setIsDragging3D(false);
+      }
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setIsDragging3D(false);
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const files = Array.from(e.dataTransfer.files);
+        const has3D = files.some((f) => {
+          const n = f.name.toLowerCase();
+          return n.endsWith('.glb') || n.endsWith('.gltf') || n.endsWith('.fbx') || n.endsWith('.obj');
+        });
+        if (has3D) {
+          handleLoad3DFiles(files);
+        }
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [handleLoad3DFiles]);
+
   const handleGenerate = async () => {
     setGenerationError('');
+    setNsfwError(null);
+
     const token = getAccessToken();
     if (!token || isAccessTokenExpired(token)) {
       setGenerationError('Hãy đăng nhập trước khi tạo mô hình 3D.');
@@ -706,46 +903,81 @@ export default function Create3DStudio() {
       );
       return;
     }
-    if (!uploadedFile && !uploadedImage) {
-      setGenerationError('Hãy tải lên ảnh PNG, JPEG hoặc WEBP (tối đa 15 MB) để tạo 3D.');
+
+    if (creditBalance !== null && creditBalance <= 0) {
+      setIsTopUpModalOpen(true);
+      return;
+    }
+
+    if (generationMode === 'text' && !promptText.trim()) {
+      setGenerationError('Hãy nhập mô tả cho mô hình 3D muốn tạo.');
+      return;
+    }
+
+    if (generationMode === 'image' && !uploadedFile && !uploadedImage) {
+      setGenerationError('Hãy tải lên ảnh PNG, JPG hoặc WEBP để tạo 3D.');
       return;
     }
 
     setIsGenerating(true);
     setGenerationProgress(0);
+
     try {
       let fileToUpload = uploadedFile;
-      // If user selected a preset URL, fetch as file blob
-      if (!fileToUpload && uploadedImage) {
+
+      if (generationMode === 'text') {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#181816';
+          ctx.fillRect(0, 0, 512, 512);
+          ctx.fillStyle = '#E2DFD7';
+          ctx.font = '22px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(promptText.trim().slice(0, 36) || 'Text-to-3D', 256, 256);
+        }
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+        fileToUpload = new File([blob || new Blob()], 'text-prompt.png', { type: 'image/png' });
+      } else if (!fileToUpload && uploadedImage) {
         const res = await fetch(uploadedImage);
         const blob = await res.blob();
         fileToUpload = new File([blob], 'preset-image.jpg', { type: blob.type || 'image/jpeg' });
       }
 
       if (!fileToUpload) {
-        throw new Error('Chưa có file ảnh hợp lệ');
+        throw new Error('Chưa có dữ liệu đầu vào hợp lệ.');
       }
+
+      const modelTaskName = generationMode === 'text'
+        ? promptText.trim().slice(0, 200)
+        : (promptText.trim().slice(0, 200) || selectedModel);
 
       const task = await createImageGeneration({
         image: fileToUpload,
-        modelName: selectedModel,
+        modelName: modelTaskName,
         shouldTexture,
         heightMm: Math.min(120, Math.max(100, Math.round(dimensions.y || 100))),
       });
+
+      void fetchUserCredit();
       const asset = updateAsset(task);
       setActiveModelMesh(asset);
       void pollGeneration(task.id);
     } catch (error: unknown) {
-      const message = error && typeof error === 'object' && 'response' in error
-        ? (error as { response?: { data?: { detail?: string; title?: string; message?: string } } }).response?.data?.detail
-        || (error as { response?: { data?: { title?: string } } }).response?.data?.title
-        || (error as { response?: { data?: { message?: string } } }).response?.data?.message
-        : undefined;
-      const lower = String(message || '').toLowerCase();
-      if (lower.includes('consent') || lower.includes('aimodelprocessing')) {
+      const parsed = parseGenerationError(error);
+      if (parsed.isNsfwBlocked) {
+        setNsfwError(parsed.message);
+        setGenerationError('');
+      } else {
+        setGenerationError(parsed.message);
+        setNsfwError(null);
+      }
+      if (/consent|aimodelprocessing/i.test(parsed.message)) {
         window.dispatchEvent(new CustomEvent('idea2model:open-ai-consent-modal'));
       }
-      setGenerationError(message || 'Không thể gửi yêu cầu tạo mô hình. Kiểm tra backend và kết nối.');
       setIsGenerating(false);
     }
   };
@@ -765,7 +997,7 @@ export default function Create3DStudio() {
     try {
       await downloadGenerationFile(url, `${asset.name.replace(/[^a-z0-9_-]/gi, '_') || 'model'}.${kind}`);
     } catch {
-      setGenerationError(`Không thể tải file ${kind.toUpperCase()}. Hãy đăng nhập lại rồi thử lại.`);
+      setGenerationError(`Không thể tải file ${kind.toUpperCase()}.`);
     } finally {
       setDownloadingFile(null);
     }
@@ -798,7 +1030,7 @@ export default function Create3DStudio() {
           void pollGeneration(activeTask.id);
         }
       })
-      .catch(() => setGenerationError('Không tải được danh sách mô hình từ backend.'));
+      .catch(() => setGenerationError('Không tải được danh sách mô hình từ máy chủ.'));
 
     return () => {
       pollTimers.current.forEach((timer) => window.clearTimeout(timer));
@@ -813,10 +1045,28 @@ export default function Create3DStudio() {
   }, [uploadedImage]);
 
   return (
-    <div className="relative w-full h-screen overflow-hidden select-none bg-[#06080d] flex">
-      {/* Three.js 3D Viewport with OrbitControls, Blender Orientation Gizmo, Shading modes & Realtime Stats */}
+    <div className="relative w-full h-screen overflow-hidden select-none bg-[#F6F3EE] text-[#231F1E] flex">
+      {/* 3D Global Drag & Drop Overlay */}
+      {isDragging3D && (
+        <div className="fixed inset-0 z-50 bg-[#231F1E]/50 backdrop-blur-sm flex items-center justify-center p-8 pointer-events-none">
+          <div className="border-2 border-dashed border-[#B83B2A] bg-[#FFFFFF] rounded-2xl p-8 max-w-md w-full shadow-2xl flex flex-col items-center justify-center text-center animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-2xl bg-[#FDF2F0] border border-[#B83B2A]/30 flex items-center justify-center text-[#B83B2A] mb-4 shadow-sm">
+              <Box className="w-8 h-8 stroke-[1.5]" />
+            </div>
+            <h3 className="text-base font-semibold text-[#231F1E]">
+              Thả file 3D vào đây để hiển thị
+            </h3>
+            <p className="text-xs text-[#7A706C] mt-1.5 leading-relaxed">
+              Hỗ trợ tệp <span className="font-mono text-[#B83B2A]">.GLB</span>, <span className="font-mono text-[#B83B2A]">.FBX</span>, <span className="font-mono text-[#B83B2A]">.OBJ</span> (+.mtl, textures)
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Three.js Viewport */}
       <Studio3DViewport
         faceCount={faceCount}
+        customFaceCountDisplay={displayFaceCount}
         shouldTexture={shouldTexture}
         groundGridEnabled={groundGridEnabled}
         onToggleGroundGrid={() => setGroundGridEnabled((prev) => !prev)}
@@ -824,6 +1074,9 @@ export default function Create3DStudio() {
         isRightPanelOpen={isRightPanelOpen}
         activeModelGlbUrl={activeModelMesh?.glbUrl}
         activeModelName={activeModelMesh?.name}
+        activeModelFiles={activeModelMesh?.localFiles || local3DFiles}
+        activeModelFileType={activeModelMesh?.fileType || activeFileType}
+        onModelMetricsCalculated={handleModelMetricsCalculated}
         isGenerating={isGenerating}
         showBoundingBox={showBoundingBox}
         onToggleBoundingBox={() => setShowBoundingBox((prev) => !prev)}
@@ -845,431 +1098,585 @@ export default function Create3DStudio() {
         hasBrim={adhesionType === 'brim'}
       />
 
-      {/* Left Column Stack: Tạo hình mô hình 3D (trên) & Kích thước & Scale (dưới) */}
-      <div className="absolute top-4 left-4 z-20 flex flex-col gap-2.5 w-[336px] max-w-[calc(100vw-4rem)] max-h-[calc(100vh-2rem)] overflow-y-auto no-scrollbar pointer-events-auto pb-8">
+      {/* Left Column Stack */}
+      <div className="absolute top-5 left-4 z-20 flex flex-col gap-2.5 w-[330px] max-w-[calc(100%-2rem)] max-h-[calc(100vh-2.5rem)] overflow-y-auto no-scrollbar pointer-events-auto pb-8 pt-1">
         {/* Panel 1: Tạo hình mô hình 3D */}
         {isLeftPanelOpen ? (
           <div
             ref={leftPanelRef}
-            className="w-full shrink-0 bg-[#0a0d13]/95 backdrop-blur-2xl border border-white/12 rounded-2xl p-3 shadow-2xl shadow-black/90 text-white flex flex-col gap-2"
+            className="w-full shrink-0 max-h-[48vh] overflow-y-auto no-scrollbar bg-[#FFFFFF] border border-[#E2D9D0] rounded-xl px-3.5 pt-3 pb-3.5 shadow-sm text-[#231F1E] flex flex-col gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
           >
-            {/* Header */}
-            <div className="flex items-center justify-between pb-1 border-b border-white/8">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.3)]">
-                  <Sparkles className="w-3.5 h-3.5" />
+            {/* Header - Sticky with solid white bg and top padding to prevent any clipping */}
+            <div className="sticky top-0 bg-[#FFFFFF] z-10 -mx-3.5 px-3.5 pt-1 pb-2 flex items-center justify-between border-b border-[#E2D9D0]">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="w-5 h-5 rounded bg-[#FDF2F0] border border-[#B83B2A]/30 flex items-center justify-center text-[#B83B2A] shrink-0">
+                  <Sparkles className="w-3 h-3" />
                 </div>
-                <h2 className="text-[13px] font-semibold text-white tracking-wide">
-                  Tạo hình mô hình 3D
+                <h2 className="text-xs font-semibold tracking-wide text-[#231F1E] leading-normal shrink-0">
+                  Tạo hình 3D
                 </h2>
-                <span className="text-[9.5px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-400/25 text-cyan-300 font-mono">
-                  AI 7.1
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsTopUpModalOpen(true)}
+                  className="text-[10px] px-2 py-0.5 rounded-lg bg-[#FDF2F0] hover:bg-[#FDF2F0]/80 border border-[#B83B2A]/30 text-[#B83B2A] font-mono tabular-nums flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm shrink-0"
+                  title="Nhấn để nạp thêm lượt tạo 3D (PayOS VietQR)"
+                >
+                  <Zap className="w-2.5 h-2.5 fill-current" />
+                  <span>{creditBalance !== null ? `${creditBalance} lượt` : '1 lượt'}</span>
+                  <span className="text-[#7A706C] text-[9px] border-l border-[#B83B2A]/20 pl-1 hover:text-[#231F1E]">
+                    Nạp thêm
+                  </span>
+                </button>
               </div>
               <button
                 onClick={() => setIsLeftPanelOpen(false)}
-                className="p-1 rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                className="p-1 rounded hover:bg-[#EFEAE2] text-[#7A706C] hover:text-[#231F1E] transition-colors cursor-pointer shrink-0"
                 title="Thu gọn bảng"
               >
-                <PanelLeftClose className="w-4 h-4" />
+                <PanelLeftClose className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            {/* Content Area: Image-to-3D Dropzone */}
-            <div className="flex flex-col gap-2">
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setIsDraggingFile(true);
+            {/* Mode Switcher Tabs */}
+            <div className="bg-[#F6F3EE] p-0.5 rounded-lg flex gap-1 border border-[#E2D9D0]">
+              <button
+                type="button"
+                onClick={() => {
+                  setGenerationMode('image');
+                  setGenerationError('');
+                  setNsfwError(null);
                 }}
-                onDragLeave={() => setIsDraggingFile(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setIsDraggingFile(false);
-                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                    const file = e.dataTransfer.files[0];
-                    if (uploadedImage && uploadedImage.startsWith('blob:')) {
-                      URL.revokeObjectURL(uploadedImage);
-                    }
-                    setUploadedFile(file);
-                    setUploadedImage(URL.createObjectURL(file));
-                    setGenerationError('');
-                  }
-                }}
-                className={`bg-black/40 border border-dashed rounded-xl p-2.5 flex flex-col items-center justify-center min-h-[72px] transition-all ${
-                  isDraggingFile
-                    ? 'border-cyan-400 bg-cyan-950/20'
-                    : 'border-white/15 hover:border-cyan-400/50 hover:bg-black/55'
+                className={`flex-1 py-1 px-2 rounded-md text-xs font-medium transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] text-center cursor-pointer ${
+                  generationMode === 'image'
+                    ? 'bg-[#FFFFFF] text-[#231F1E] border border-[#E2D9D0] shadow-sm font-semibold'
+                    : 'text-[#7A706C] hover:text-[#231F1E]'
                 }`}
               >
+                Từ ảnh
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setGenerationMode('text');
+                  setGenerationError('');
+                  setNsfwError(null);
+                }}
+                className={`flex-1 py-1 px-2 rounded-md text-xs font-medium transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] text-center cursor-pointer ${
+                  generationMode === 'text'
+                    ? 'bg-[#FFFFFF] text-[#231F1E] border border-[#E2D9D0] shadow-sm font-semibold'
+                    : 'text-[#7A706C] hover:text-[#231F1E]'
+                }`}
+              >
+                Từ chữ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setGenerationMode('file');
+                  setGenerationError('');
+                  setNsfwError(null);
+                }}
+                className={`flex-1 py-1 px-2 rounded-md text-xs font-medium transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] text-center cursor-pointer ${
+                  generationMode === 'file'
+                    ? 'bg-[#FFFFFF] text-[#231F1E] border border-[#E2D9D0] shadow-sm font-semibold'
+                    : 'text-[#7A706C] hover:text-[#231F1E]'
+                }`}
+              >
+                File 3D
+              </button>
+            </div>
+
+            {/* Content Area */}
+            {generationMode === 'file' ? (
+              <div className="flex flex-col gap-2">
                 <input
                   type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  accept="image/*"
+                  ref={file3DInputRef}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleLoad3DFiles(e.target.files);
+                    }
+                  }}
+                  multiple
+                  accept=".glb,.gltf,.fbx,.obj,.mtl,.png,.jpg,.jpeg"
                   className="hidden"
                 />
-                {uploadedImage ? (
-                  <div className="relative w-full h-24 rounded-lg overflow-hidden group">
-                    <img src={uploadedImage} alt="Input" className="w-full h-full object-contain bg-black/50" />
+
+                <div
+                  onClick={() => file3DInputRef.current?.click()}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDraggingFile(true);
+                  }}
+                  onDragLeave={() => setIsDraggingFile(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDraggingFile(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      handleLoad3DFiles(e.dataTransfer.files);
+                    }
+                  }}
+                  className={`bg-[#F6F3EE] border border-dashed rounded-lg p-3 flex flex-col items-center justify-center min-h-[110px] transition-all cursor-pointer ${
+                    isDraggingFile
+                      ? 'border-[#B83B2A] bg-[#FDF2F0]'
+                      : 'border-[#E2D9D0] hover:border-[#B83B2A]'
+                  }`}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] flex items-center justify-center text-[#B83B2A] shadow-sm mb-1.5">
+                    <Box className="w-4 h-4 stroke-[1.5]" />
+                  </div>
+                  <span className="text-xs font-semibold text-[#231F1E] text-center">
+                    Tải file 3D (.GLB, .FBX, .OBJ)
+                  </span>
+                  <span className="text-[10px] text-[#7A706C] text-center mt-0.5">
+                    Kéo thả hoặc chọn nhiều tệp (.mtl, texture .png/.jpg)
+                  </span>
+                </div>
+
+                {/* Quick Sample Model Button */}
+                <div className="flex items-center justify-between pt-1 border-t border-[#E2D9D0]">
+                  <span className="text-[10.5px] text-[#7A706C]">Mô hình mẫu:</span>
+                  <button
+                    type="button"
+                    onClick={handleLoadSampleModel}
+                    className="px-2 py-0.5 rounded bg-[#FDF2F0] hover:bg-[#FDF2F0]/80 border border-[#B83B2A]/40 text-[#B83B2A] text-[10.5px] font-medium flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+                    title="Mở mô hình mẫu Camera Vintage 3D kèm texture màu sắc"
+                  >
+                    <Sparkles className="w-3 h-3 fill-current" />
+                    <span>Camera Vintage (.GLB)</span>
+                  </button>
+                </div>
+
+                {/* Active loaded file info if any */}
+                {local3DFiles && local3DFiles.length > 0 && (
+                  <div className="p-1.5 rounded bg-[#FFFFFF] border border-[#E2D9D0] flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Box className="w-3.5 h-3.5 text-[#B83B2A] shrink-0" />
+                      <span className="truncate text-[10.5px] font-mono text-[#231F1E]">
+                        {local3DFiles[0].name} {local3DFiles.length > 1 ? `(+${local3DFiles.length - 1} tệp)` : ''}
+                      </span>
+                    </div>
                     <button
+                      type="button"
                       onClick={() => {
-                        if (uploadedImage.startsWith('blob:')) {
-                          URL.revokeObjectURL(uploadedImage);
-                        }
-                        setUploadedImage(null);
-                        setUploadedFile(null);
-                        if (fileInputRef.current) fileInputRef.current.value = '';
+                        setLocal3DFiles(null);
+                        setModelRealMetrics(null);
+                        if (file3DInputRef.current) file3DInputRef.current.value = '';
                       }}
-                      className="absolute top-1 right-1 p-1 bg-black/85 rounded-full hover:bg-rose-600 text-white cursor-pointer transition-colors"
-                      title="Xóa ảnh"
+                      className="p-0.5 rounded hover:bg-[#F6F3EE] text-[#7A706C] hover:text-[#B83B2A]"
+                      title="Gỡ file"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-3 h-3" />
                     </button>
                   </div>
-                ) : (
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex flex-col items-center gap-1 text-neutral-400 hover:text-cyan-300 cursor-pointer p-1.5 text-center transition-colors w-full"
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 group-hover:text-cyan-300 group-hover:border-cyan-400/40 transition-colors">
-                      <Upload className="w-3.5 h-3.5 stroke-[1.75]" />
+                )}
+              </div>
+            ) : generationMode === 'text' ? (
+              <div className="bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg p-2.5 flex flex-col justify-between min-h-[130px] focus-within:border-[#B83B2A] transition-colors">
+                <textarea
+                  value={promptText}
+                  onChange={(e) => {
+                    setPromptText(e.target.value.slice(0, 500));
+                    setGenerationError('');
+                    setNsfwError(null);
+                  }}
+                  placeholder="Mô tả hình khối và chi tiết mô hình 3D (ví dụ: Tượng gốm mộc thiền định)..."
+                  className="w-full h-20 bg-transparent resize-none outline-none text-xs text-[#231F1E] placeholder:text-[#7A706C] leading-relaxed"
+                />
+                <div className="flex items-center justify-between pt-1.5 border-t border-[#E2D9D0]">
+                  <span className="text-[10px] text-[#7A706C]">Gợi ý: Phong cách tối giản, đường nét mộc</span>
+                  <span className="text-[10px] text-[#7A706C] font-mono tabular-nums">
+                    {promptText.length}/500
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDraggingFile(true);
+                  }}
+                  onDragLeave={() => setIsDraggingFile(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDraggingFile(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      const file = e.dataTransfer.files[0];
+                      if (uploadedImage && uploadedImage.startsWith('blob:')) {
+                        URL.revokeObjectURL(uploadedImage);
+                      }
+                      setUploadedFile(file);
+                      setUploadedImage(URL.createObjectURL(file));
+                      setGenerationError('');
+                      setNsfwError(null);
+                    }
+                  }}
+                  className={`bg-[#F6F3EE] border border-dashed rounded-lg p-3 flex flex-col items-center justify-center min-h-[125px] transition-all ${
+                    isDraggingFile
+                      ? 'border-[#B83B2A] bg-[#FDF2F0]'
+                      : 'border-[#E2D9D0] hover:border-[#B83B2A]'
+                  }`}
+                >
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  {uploadedImage ? (
+                    <div className="relative w-full h-24 rounded overflow-hidden group">
+                      <img src={uploadedImage} alt="Input" className="w-full h-full object-contain bg-[#F6F3EE]" />
+                      <button
+                        onClick={() => {
+                          if (uploadedImage.startsWith('blob:')) {
+                            URL.revokeObjectURL(uploadedImage);
+                          }
+                          setUploadedImage(null);
+                          setUploadedFile(null);
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                          setNsfwError(null);
+                        }}
+                        className="absolute top-1 right-1 p-1 bg-[#FFFFFF]/80 rounded hover:bg-[#B83B2A] hover:text-white text-[#231F1E] cursor-pointer transition-colors shadow-sm"
+                        title="Xóa ảnh"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
-                    <span className="text-[11px] font-medium text-white/90">Kéo thả ảnh hoặc nhấp để tải</span>
-                    <span className="text-[9.5px] text-neutral-500">PNG, JPG, WEBP · Dán Ctrl+V</span>
+                  ) : (
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex flex-col items-center gap-1.5 text-[#7A706C] hover:text-[#231F1E] cursor-pointer p-2 text-center transition-colors w-full"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] flex items-center justify-center text-[#7A706C] shadow-sm">
+                        <Upload className="w-4 h-4 stroke-[1.5]" />
+                      </div>
+                      <span className="text-xs font-medium text-[#231F1E]">Tải ảnh hoặc Ctrl+V</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quick Presets */}
+                {!uploadedImage && (
+                  <div className="flex items-center gap-1.5 pt-0.5 overflow-x-auto no-scrollbar">
+                    <span className="text-[10px] text-[#7A706C] whitespace-nowrap">Mẫu:</span>
+                    {QUICK_PRESETS.map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          setUploadedImage(preset.url);
+                          setUploadedFile(null);
+                          setGenerationError('');
+                          setNsfwError(null);
+                        }}
+                        className="px-2 py-0.5 rounded bg-[#FFFFFF] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[10px] text-[#7A706C] hover:text-[#231F1E] transition-all whitespace-nowrap cursor-pointer shadow-sm"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
 
-              {/* Quick Preset Chips */}
-              {!uploadedImage && (
-                <div className="flex items-center gap-1 pt-0.5 overflow-x-auto no-scrollbar">
-                  <span className="text-[9.5px] text-neutral-500 whitespace-nowrap">Thử mẫu:</span>
-                  {QUICK_PRESETS.map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => {
-                        IdempotencyManager.refreshKey('generation:image');
-                        setUploadedImage(preset.url);
-                        setUploadedFile(null);
-                        setGenerationError('');
-                      }}
-                      className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/12 border border-white/10 hover:border-cyan-400/40 text-[9.5px] text-zinc-300 hover:text-white transition-all whitespace-nowrap cursor-pointer"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* AI Model & Quality Row */}
-            <div className="flex flex-col gap-1.5 pt-1 border-t border-white/8">
-              <div className="flex items-center justify-between">
-                <span className="text-[10.5px] text-neutral-300 font-medium">Mô hình AI:</span>
-                <button
-                  type="button"
-                  onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                  className="px-2 py-1 bg-black/40 border border-white/10 rounded-lg text-[10.5px] text-cyan-300 font-semibold flex items-center gap-1.5 hover:border-cyan-400/40 transition-colors cursor-pointer"
-                >
-                  <span className="truncate max-w-[170px]">{selectedModel}</span>
-                  <ChevronDown className={`w-3 h-3 text-neutral-400 transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
-              </div>
-
-              {isModelDropdownOpen && (
-                <div className="bg-[#0e121a]/95 border border-white/15 rounded-xl shadow-2xl py-1 z-30 max-h-48 overflow-y-auto no-scrollbar backdrop-blur-xl">
-                  {AI_MODELS.map((model) => (
-                    <button
-                      key={model.id}
-                      onClick={() => {
-                        setSelectedModel(model.name);
-                        setIsModelDropdownOpen(false);
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-neutral-300 hover:text-cyan-300 hover:bg-cyan-500/10 flex items-center justify-between cursor-pointer border-b border-white/5 last:border-b-0"
-                    >
-                      <span className="font-semibold text-[11px]">{model.name}</span>
-                      {selectedModel === model.name && <Check className="w-3 h-3 text-cyan-400" />}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Face Count Segmented Control */}
-              <div className="flex items-center justify-between pt-0.5">
-                <span className="text-[10.5px] text-neutral-400">Độ phân giải:</span>
-                <div className="flex items-center gap-1 bg-black/40 border border-white/10 rounded-lg p-0.5 text-[10px]">
-                  {FACE_COUNTS.map((count) => (
-                    <button
-                      key={count}
-                      type="button"
-                      onClick={() => setFaceCount(count)}
-                      className={`px-2 py-0.5 rounded text-center transition-all cursor-pointer font-mono font-semibold ${
-                        faceCount === count
-                          ? 'bg-cyan-500/25 border border-cyan-400/60 text-cyan-300 shadow-sm'
-                          : 'text-neutral-400 hover:text-white'
-                      }`}
-                    >
-                      {count}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {generationError && (
-              <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[10.5px] leading-relaxed text-rose-200">
-                {generationError}
-              </p>
             )}
 
-            {/* Generate Now Button (Directly visible, no scroll required) */}
-            <div className="pt-1.5 shrink-0">
+            {/* NSFW Terracotta Alert Banner */}
+            {nsfwError && (
+              <div
+                role="alert"
+                className="rounded-lg border border-[#B83B2A] bg-[#FDF2F0] p-2.5 text-xs text-[#231F1E] flex items-start gap-2 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              >
+                <AlertTriangle className="w-4 h-4 text-[#B83B2A] shrink-0 mt-0.5" />
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-semibold text-[#B83B2A]">Kiểm duyệt nội dung (NSFW)</span>
+                  <span className="text-[11px] text-[#231F1E]">{nsfwError}</span>
+                  <span className="text-[9.5px] text-[#7A706C] mt-0.5 font-mono tabular-nums">0 lượt trừ tín dụng · Vui lòng điều chỉnh ảnh hoặc từ khóa.</span>
+                </div>
+              </div>
+            )}
+
+            {/* Standard Error Alert */}
+            {generationError && !nsfwError && (
+              <div
+                role="alert"
+                className="rounded-lg border border-[#B83B2A]/40 bg-[#FDF2F0] p-2 text-[11px] leading-relaxed text-[#231F1E]"
+              >
+                {generationError}
+              </div>
+            )}
+
+            {/* AI Model, Texture & Face Count Settings - Only for Image/Text AI Generation */}
+            {generationMode !== 'file' && (
+              <>
+                {/* Model Selection Dropdown */}
+                <div className="relative flex flex-col gap-1 pt-0.5">
+                  <span className="text-[11px] text-[#7A706C] font-medium">Mô hình AI</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                    className="w-full px-2.5 py-1.5 bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg text-xs text-[#231F1E] flex items-center justify-between hover:border-[#B83B2A] transition-colors cursor-pointer"
+                  >
+                    <span className="truncate">{selectedModel}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-[#7A706C] transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isModelDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-[#FFFFFF] border border-[#E2D9D0] rounded-lg shadow-xl py-1 z-30 max-h-48 overflow-y-auto no-scrollbar">
+                      {AI_MODELS.map((model) => (
+                        <button
+                          key={model.id}
+                          onClick={() => {
+                            setSelectedModel(model.name);
+                            setIsModelDropdownOpen(false);
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 text-xs text-[#7A706C] hover:text-[#231F1E] hover:bg-[#F6F3EE] flex flex-col gap-0.5 cursor-pointer border-b border-[#E2D9D0] last:border-b-0"
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <span className="font-medium text-[#231F1E]">{model.name}</span>
+                            {selectedModel === model.name && <Check className="w-3.5 h-3.5 text-[#B83B2A]" />}
+                          </div>
+                          <span className="text-[9.5px] text-[#7A706C] line-clamp-1">{model.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Texture Switch */}
+                <div className="flex items-center justify-between pt-0.5">
+                  <span className="text-[11px] text-[#7A706C] font-medium">Texture màu sắc</span>
+                  <button
+                    type="button"
+                    onClick={() => setShouldTexture(!shouldTexture)}
+                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors focus:outline-none cursor-pointer ${
+                      shouldTexture ? 'bg-[#B83B2A]' : 'bg-[#EFEAE2] border border-[#E2D9D0]'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform shadow-sm ${
+                        shouldTexture ? 'translate-x-3.5' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Model Face Count */}
+                <div className="flex flex-col gap-1 pt-0.5">
+                  <span className="text-[11px] text-[#7A706C] font-medium">Lưới (Mesh)</span>
+                  <div className="bg-[#F6F3EE] border border-[#E2D9D0] rounded-lg p-0.5 flex items-center justify-between text-xs">
+                    {FACE_COUNTS.map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setFaceCount(count)}
+                        className={`flex-1 py-0.5 text-center rounded text-[11px] font-mono tabular-nums transition-all cursor-pointer ${
+                          faceCount === count
+                            ? 'bg-[#B83B2A] text-white font-semibold shadow-sm'
+                            : 'text-[#7A706C] hover:text-[#231F1E]'
+                        }`}
+                      >
+                        {count}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Generate Action Button */}
+            {generationMode === 'file' ? (
+              <button
+                type="button"
+                onClick={() => file3DInputRef.current?.click()}
+                className="w-full mt-1 py-2 rounded-lg font-medium text-xs flex items-center justify-center gap-2 text-white bg-[#B83B2A] hover:bg-[#9E2F20] border border-[#B83B2A] active:scale-[0.99] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer shadow-sm"
+              >
+                <Upload className="w-3.5 h-3.5 text-white" />
+                <span>Chọn file 3D từ máy tính</span>
+              </button>
+            ) : creditBalance === 0 ? (
+              <button
+                type="button"
+                onClick={() => setIsTopUpModalOpen(true)}
+                className="w-full mt-1 py-2 rounded-lg font-medium text-xs flex items-center justify-center gap-2 text-white bg-[#B83B2A] hover:bg-[#9E2F20] border border-[#B83B2A] active:scale-[0.99] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer shadow-sm"
+              >
+                <Zap className="w-3.5 h-3.5 text-white fill-current" />
+                <span>Nạp thêm lượt (Từ 50.000đ)</span>
+              </button>
+            ) : (
               <button
                 type="button"
                 disabled={isGenerating}
                 onClick={handleGenerate}
-                className="w-full py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 text-[#041014] bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 hover:brightness-110 active:scale-[0.98] transition-all shadow-[0_0_20px_rgba(6,182,212,0.35)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full mt-1 py-2 rounded-lg font-medium text-xs flex items-center justify-center gap-2 text-white bg-[#B83B2A] hover:bg-[#9E2F20] border border-[#B83B2A] active:scale-[0.99] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
               >
-                <Sparkles className="w-3.5 h-3.5 fill-[#041014]" />
-                <span>{isGenerating ? `Đang tạo (${generationProgress}%)...` : 'Tạo mô hình 3D'}</span>
+                <Sparkles className="w-3.5 h-3.5 text-white" />
+                <span>
+                  {isGenerating
+                    ? `Đang tạo (${generationProgress}%)...`
+                    : generationMode === 'text'
+                    ? 'Tạo mô hình từ văn bản'
+                    : 'Tạo mô hình từ ảnh'}
+                </span>
               </button>
-            </div>
+            )}
           </div>
         ) : (
-          <button
-            onClick={() => setIsLeftPanelOpen(true)}
-            className="pointer-events-auto p-2.5 rounded-xl bg-[#0c1017]/90 border border-white/12 text-zinc-300 hover:text-cyan-400 shadow-xl backdrop-blur-xl cursor-pointer self-start"
-            title="Mở bảng tạo hình 3D"
-          >
-            <PanelLeft className="w-5 h-5 text-cyan-400" />
-          </button>
+          <div className="pointer-events-auto flex items-center gap-2 self-start">
+            <button
+              onClick={() => setIsLeftPanelOpen(true)}
+              className="p-2 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] shadow-sm cursor-pointer"
+              title="Mở bảng tạo hình"
+            >
+              <PanelLeft className="w-4 h-4 text-[#B83B2A]" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsTopUpModalOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] text-xs font-mono tabular-nums text-[#231F1E] hover:border-[#B83B2A] transition-all cursor-pointer shadow-sm"
+              title="Nạp thêm lượt tạo AI"
+            >
+              <span className="text-[#B83B2A]">⚡</span>
+              <span>{creditBalance} lượt</span>
+              <span className="text-[10px] text-[#B83B2A] font-sans underline underline-offset-2">Nạp</span>
+            </button>
+          </div>
         )}
 
-        {/* Card 2: Kích thước & Scale (Nằm ngay dưới phần Tạo hình mô hình 3D) */}
+        {/* Panel 2: Kích thước & Scale */}
         <div className="pointer-events-auto w-full shrink-0">
           {!isDimensionsPanelOpen ? (
             <button
               type="button"
               onClick={() => setIsDimensionsPanelOpen(true)}
-              className="w-full bg-[#0b0f17]/90 backdrop-blur-2xl border border-white/12 hover:border-cyan-400/40 rounded-xl px-3.5 py-2.5 shadow-2xl flex items-center justify-between text-xs text-white transition-all hover:scale-[1.01] cursor-pointer group"
-              title="Mở bảng kích thước & Scale 3D"
+              className="w-full bg-[#FFFFFF] border border-[#E2D9D0] hover:border-[#B83B2A] rounded-xl px-3 py-2 shadow-sm flex items-center justify-between text-xs text-[#231F1E] transition-all cursor-pointer"
+              title="Mở bảng kích thước"
             >
-              <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded-lg bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center text-cyan-300 group-hover:shadow-[0_0_8px_rgba(6,182,212,0.4)]">
-                  <Box className="w-3.5 h-3.5" />
-                </div>
-                <div className="flex flex-col text-left font-mono">
-                  <span className="text-[10px] text-zinc-400 font-sans">Kích thước & Scale</span>
-                  <span className="text-xs font-semibold text-cyan-300">
-                    {dimensions.x} × {dimensions.z} × {dimensions.y} <span className="text-[10px] text-zinc-400">mm</span>
-                  </span>
-                </div>
-              </div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-400/20 text-cyan-300 font-mono">
-                  {scalePercent}%
+                <Box className="w-3.5 h-3.5 text-[#B83B2A]" />
+                <span className="text-xs font-mono tabular-nums">
+                  {dimensions.x} × {dimensions.z} × {dimensions.y} mm ({scalePercent}%)
                 </span>
-                <ChevronDown className="w-4 h-4 text-zinc-400 group-hover:text-cyan-300 transition-colors" />
               </div>
+              <ChevronDown className="w-3.5 h-3.5 text-[#7A706C]" />
             </button>
           ) : (
-            <div className="w-full bg-[#0c111c]/95 backdrop-blur-2xl border border-white/15 rounded-2xl p-3.5 shadow-2xl text-white flex flex-col gap-3 shadow-black/85">
-              {/* Card Header */}
-              <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.3)]">
-                    <Box className="w-3.5 h-3.5" />
-                  </div>
-                  <span className="text-xs font-semibold text-white tracking-wide">
-                    Kích thước & Scale
-                  </span>
-                </div>
-
+            <div className="w-full bg-[#FFFFFF] border border-[#E2D9D0] rounded-xl p-3 shadow-md text-[#231F1E] flex flex-col gap-2.5">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-[#E2D9D0] pb-2">
                 <div className="flex items-center gap-1.5">
-                  {/* Toggle Bounding Box Helper */}
+                  <Box className="w-3.5 h-3.5 text-[#B83B2A]" />
+                  <span className="text-xs font-semibold text-[#231F1E]">Kích thước & Scale</span>
+                </div>
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => setShowBoundingBox((prev) => !prev)}
-                    className={`px-2 py-1 rounded-lg border text-[10px] font-medium transition-all cursor-pointer ${showBoundingBox
-                        ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-300'
-                        : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
-                      }`}
-                    title={showBoundingBox ? 'Ẩn khung đo 3D (Phím B)' : 'Hiện khung đo 3D (Phím B)'}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono tabular-nums transition-all cursor-pointer border ${
+                      showBoundingBox
+                        ? 'bg-[#FDF2F0] border-[#B83B2A] text-[#B83B2A]'
+                        : 'bg-[#F6F3EE] border-[#E2D9D0] text-[#7A706C]'
+                    }`}
                   >
-                    Khung 3D
+                    Khung mm
                   </button>
-
-                  {/* Collapse Panel Button */}
                   <button
                     type="button"
                     onClick={() => setIsDimensionsPanelOpen(false)}
-                    className="p-1 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                    title="Thu gọn bảng"
+                    className="p-1 rounded hover:bg-[#F6F3EE] text-[#7A706C] hover:text-[#231F1E] transition-colors cursor-pointer"
                   >
-                    <ChevronUp className="w-4 h-4" />
+                    <ChevronUp className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
 
-              {/* 3 Axes Editable Inputs with Aspect Ratio Lock */}
+              {/* Axes inputs */}
               <div className="flex items-center gap-2">
-                <div className="flex-1 flex flex-col gap-1.5">
-                  {/* X - Width */}
-                  <div className="flex items-center justify-between bg-black/45 border border-white/10 rounded-lg px-2.5 py-1 focus-within:border-[#f43f5e] transition-colors">
-                    <span className="text-[10px] font-bold text-[#f43f5e] font-mono">X (Rộng)</span>
-                    <div className="flex items-center gap-1 font-mono">
-                      <button
-                        type="button"
-                        onClick={() => stepDimension('x', -5)}
-                        className="w-4 h-4 rounded bg-white/5 hover:bg-white/20 text-zinc-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer"
-                        title="Giảm 5mm"
-                      >
-                        -
-                      </button>
+                <div className="flex-1 flex flex-col gap-1 font-mono tabular-nums text-xs">
+                  {/* X */}
+                  <div className="flex items-center justify-between bg-[#F6F3EE] border border-[#E2D9D0] rounded px-2 py-1">
+                    <span className="text-[10px] text-[#B83B2A] font-medium">X (Rộng)</span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => stepDimension('x', -5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">-</button>
                       <input
                         type="text"
-                        inputMode="numeric"
                         value={dimInputs.x}
-                        onFocus={(e) => e.target.select()}
                         onChange={(e) => handleInputChange('x', e.target.value)}
                         onBlur={() => commitDimension('x')}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            (e.target as HTMLInputElement).blur();
-                          }
-                        }}
-                        className="w-14 bg-transparent text-right text-xs font-semibold text-white outline-none selection:bg-[#f43f5e]/40"
-                        placeholder="mm"
+                        className="w-12 bg-transparent text-right text-xs outline-none text-[#231F1E]"
                       />
-                      <button
-                        type="button"
-                        onClick={() => stepDimension('x', 5)}
-                        className="w-4 h-4 rounded bg-white/5 hover:bg-white/20 text-zinc-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer"
-                        title="Tăng 5mm"
-                      >
-                        +
-                      </button>
-                      <span className="text-[10px] text-zinc-500 font-sans">mm</span>
+                      <button onClick={() => stepDimension('x', 5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">+</button>
+                      <span className="text-[10px] text-[#7A706C]">mm</span>
                     </div>
                   </div>
 
-                  {/* Z - Depth */}
-                  <div className="flex items-center justify-between bg-black/45 border border-white/10 rounded-lg px-2.5 py-1 focus-within:border-[#06b6d4] transition-colors">
-                    <span className="text-[10px] font-bold text-[#06b6d4] font-mono">Z (Sâu)</span>
-                    <div className="flex items-center gap-1 font-mono">
-                      <button
-                        type="button"
-                        onClick={() => stepDimension('z', -5)}
-                        className="w-4 h-4 rounded bg-white/5 hover:bg-white/20 text-zinc-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer"
-                        title="Giảm 5mm"
-                      >
-                        -
-                      </button>
+                  {/* Z */}
+                  <div className="flex items-center justify-between bg-[#F6F3EE] border border-[#E2D9D0] rounded px-2 py-1">
+                    <span className="text-[10px] text-[#7A706C] font-medium">Z (Sâu)</span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => stepDimension('z', -5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">-</button>
                       <input
                         type="text"
-                        inputMode="numeric"
                         value={dimInputs.z}
-                        onFocus={(e) => e.target.select()}
                         onChange={(e) => handleInputChange('z', e.target.value)}
                         onBlur={() => commitDimension('z')}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            (e.target as HTMLInputElement).blur();
-                          }
-                        }}
-                        className="w-14 bg-transparent text-right text-xs font-semibold text-white outline-none selection:bg-[#06b6d4]/40"
-                        placeholder="mm"
+                        className="w-12 bg-transparent text-right text-xs outline-none text-[#231F1E]"
                       />
-                      <button
-                        type="button"
-                        onClick={() => stepDimension('z', 5)}
-                        className="w-4 h-4 rounded bg-white/5 hover:bg-white/20 text-zinc-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer"
-                        title="Tăng 5mm"
-                      >
-                        +
-                      </button>
-                      <span className="text-[10px] text-zinc-500 font-sans">mm</span>
+                      <button onClick={() => stepDimension('z', 5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">+</button>
+                      <span className="text-[10px] text-[#7A706C]">mm</span>
                     </div>
                   </div>
 
-                  {/* Y - Height */}
-                  <div className="flex items-center justify-between bg-black/45 border border-white/10 rounded-lg px-2.5 py-1 focus-within:border-[#10b981] transition-colors">
-                    <span className="text-[10px] font-bold text-[#10b981] font-mono">Y (Cao)</span>
-                    <div className="flex items-center gap-1 font-mono">
-                      <button
-                        type="button"
-                        onClick={() => stepDimension('y', -5)}
-                        className="w-4 h-4 rounded bg-white/5 hover:bg-white/20 text-zinc-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer"
-                        title="Giảm 5mm"
-                      >
-                        -
-                      </button>
+                  {/* Y */}
+                  <div className="flex items-center justify-between bg-[#F6F3EE] border border-[#E2D9D0] rounded px-2 py-1">
+                    <span className="text-[10px] text-[#4A5D4E] font-medium">Y (Cao)</span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => stepDimension('y', -5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">-</button>
                       <input
                         type="text"
-                        inputMode="numeric"
                         value={dimInputs.y}
-                        onFocus={(e) => e.target.select()}
                         onChange={(e) => handleInputChange('y', e.target.value)}
                         onBlur={() => commitDimension('y')}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            (e.target as HTMLInputElement).blur();
-                          }
-                        }}
-                        className="w-14 bg-transparent text-right text-xs font-semibold text-white outline-none selection:bg-[#10b981]/40"
-                        placeholder="mm"
+                        className="w-12 bg-transparent text-right text-xs outline-none text-[#231F1E]"
                       />
-                      <button
-                        type="button"
-                        onClick={() => stepDimension('y', 5)}
-                        className="w-4 h-4 rounded bg-white/5 hover:bg-white/20 text-zinc-400 hover:text-white flex items-center justify-center text-[10px] cursor-pointer"
-                        title="Tăng 5mm"
-                      >
-                        +
-                      </button>
-                      <span className="text-[10px] text-zinc-500 font-sans">mm</span>
+                      <button onClick={() => stepDimension('y', 5)} className="w-4 h-4 rounded bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-center">+</button>
+                      <span className="text-[10px] text-[#7A706C]">mm</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Uniform Aspect Ratio Lock Button */}
+                {/* Aspect ratio lock */}
                 <button
                   type="button"
                   onClick={() => setIsUniformScale((prev) => !prev)}
-                  className={`self-stretch px-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer shrink-0 ${isUniformScale
-                      ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-300'
-                      : 'bg-white/5 border-white/10 text-zinc-500 hover:text-white'
-                    }`}
-                  title={isUniformScale ? 'Đang khoá tỉ lệ đồng dạng (Nhấp để mở khoá)' : 'Đang scale tự do từng trục (Nhấp để khoá tỉ lệ)'}
+                  className={`self-stretch px-2 rounded-lg border flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                    isUniformScale
+                      ? 'bg-[#FDF2F0] border-[#B83B2A] text-[#B83B2A]'
+                      : 'bg-[#F6F3EE] border-[#E2D9D0] text-[#7A706C]'
+                  }`}
+                  title={isUniformScale ? 'Đang khóa tỷ lệ' : 'Tự do'}
                 >
                   {isUniformScale ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-                  <span className="text-[8.5px] font-mono uppercase tracking-tighter">
-                    {isUniformScale ? 'Khoá' : 'Tự do'}
-                  </span>
+                  <span className="text-[8px] font-mono uppercase">{isUniformScale ? 'Khóa' : 'Tự do'}</span>
                 </button>
               </div>
 
-              {/* Scale % Presets & Quick Buttons */}
-              <div className="flex flex-col gap-1.5 bg-black/30 p-2 rounded-xl border border-white/5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-zinc-400 flex items-center gap-1">
-                    <SlidersHorizontal className="w-3 h-3 text-cyan-400" /> Tỉ lệ Scale
-                  </span>
-                  <span className="font-mono text-cyan-300 font-bold">{scalePercent}%</span>
-                </div>
-
-                <div className="grid grid-cols-4 gap-1">
+              {/* Scale Presets */}
+              <div className="flex items-center justify-between bg-[#F6F3EE] p-1.5 rounded border border-[#E2D9D0] text-[11px]">
+                <span className="text-[#7A706C] flex items-center gap-1">
+                  <SlidersHorizontal className="w-3 h-3 text-[#B83B2A]" /> Tỷ lệ
+                </span>
+                <div className="flex gap-1 font-mono tabular-nums text-[10px]">
                   {[50, 100, 150, 200].map((p) => (
                     <button
                       key={p}
-                      type="button"
                       onClick={() => handleScalePercentChange(p)}
-                      className={`py-0.5 rounded text-[10px] font-mono transition-colors cursor-pointer ${scalePercent === p
-                          ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/40 font-bold'
-                          : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'
-                        }`}
+                      className={`px-1.5 py-0.5 rounded border ${
+                        scalePercent === p
+                          ? 'bg-[#B83B2A] border-[#B83B2A] text-white font-medium'
+                          : 'bg-[#FFFFFF] border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E]'
+                      }`}
                     >
                       {p}%
                     </button>
@@ -1277,37 +1684,14 @@ export default function Create3DStudio() {
                 </div>
               </div>
 
-              {/* 3D Print Metrics & Build Bed Check */}
-              <div className="flex flex-col gap-1.5 bg-white/[0.03] p-2 rounded-xl border border-white/5 text-[10.5px]">
-                <div className="flex items-center justify-between text-zinc-300 font-mono">
-                  <span className="text-zinc-500 font-sans">Thể tích & Khối lượng:</span>
-                  <span className="text-zinc-200">
-                    ~<strong className="text-cyan-300">{volumeCm3}</strong> cm³ · ~<strong className="text-emerald-300">{estimatedGrams}g</strong> PLA
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between pt-1 border-t border-white/5">
-                  <span className="text-zinc-500 font-sans">Khổ in tiêu chuẩn:</span>
-                  {isWithinStandardPrintBed ? (
-                    <span className="text-emerald-400 flex items-center gap-1 font-semibold text-[10px]">
-                      <CheckCircle2 className="w-3 h-3" /> Chuẩn (≤ 220mm)
-                    </span>
-                  ) : (
-                    <span className="text-amber-400 flex items-center gap-1 font-semibold text-[10px]">
-                      <AlertTriangle className="w-3 h-3" /> Cần thu nhỏ
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Reset Original Size Button */}
+              {/* Reset Button */}
               <button
                 type="button"
                 onClick={resetDimensions}
-                className="w-full py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-cyan-300 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="w-full py-1 rounded bg-[#F6F3EE] hover:bg-[#EFEAE2] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Đặt lại kích thước gốc</span>
+                <RotateCcw className="w-3 h-3" />
+                <span>Đặt lại (Reset)</span>
               </button>
             </div>
           )}
@@ -1316,39 +1700,42 @@ export default function Create3DStudio() {
 
       {/* Right Floating / Docked Panel: Assets & Inspector */}
       {isRightPanelOpen ? (
-        <div className="absolute top-0 right-0 bottom-0 w-[290px] max-w-[85vw] bg-[#0a0d13]/92 border-l border-white/10 flex flex-col z-20 backdrop-blur-2xl shadow-2xl transition-all duration-300 text-white">
-          {/* Top Header Tabs & Close Button */}
-          <div className="p-3 pb-2 flex items-center justify-between gap-1.5 border-b border-white/8">
+        <div className="absolute top-0 right-0 bottom-0 w-[290px] max-w-[85vw] bg-[#FFFFFF] border-l border-[#E2D9D0] flex flex-col z-20 shadow-xl transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] text-[#231F1E]">
+          {/* Header Tabs */}
+          <div className="p-2.5 pb-2 flex items-center justify-between gap-1 border-b border-[#E2D9D0]">
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setRightTab('Assets')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${rightTab === 'Assets'
-                    ? 'bg-white/15 text-white shadow-sm border border-white/20'
-                    : 'text-neutral-400 hover:text-white'
-                  }`}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  rightTab === 'Assets'
+                    ? 'bg-[#FDF2F0] text-[#B83B2A] border border-[#B83B2A]/40 font-semibold'
+                    : 'text-[#7A706C] hover:text-[#231F1E]'
+                }`}
               >
                 <span>Tài sản</span>
-                {assets.length > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 text-[10px] font-mono">
-                    {assets.length}
+                {displayAssets.length > 0 && (
+                  <span className="ml-1 px-1 py-0.2 rounded bg-[#F6F3EE] text-[#7A706C] border border-[#E2D9D0] text-[9.5px] font-mono tabular-nums">
+                    {displayAssets.length}
                   </span>
                 )}
               </button>
               <button
                 onClick={() => setRightTab('Layer')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${rightTab === 'Layer'
-                    ? 'bg-white/15 text-white shadow-sm border border-white/20'
-                    : 'text-neutral-400 hover:text-white'
-                  }`}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  rightTab === 'Layer'
+                    ? 'bg-[#FDF2F0] text-[#B83B2A] border border-[#B83B2A]/40 font-semibold'
+                    : 'text-[#7A706C] hover:text-[#231F1E]'
+                }`}
               >
-                Layer
+                Lát cắt
               </button>
               <button
                 onClick={() => setRightTab('Property')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${rightTab === 'Property'
-                    ? 'bg-white/15 text-white shadow-sm border border-white/20'
-                    : 'text-neutral-400 hover:text-white'
-                  }`}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                  rightTab === 'Property'
+                    ? 'bg-[#FDF2F0] text-[#B83B2A] border border-[#B83B2A]/40 font-semibold'
+                    : 'text-[#7A706C] hover:text-[#231F1E]'
+                }`}
               >
                 Thuộc tính
               </button>
@@ -1356,234 +1743,204 @@ export default function Create3DStudio() {
 
             <button
               onClick={() => setIsRightPanelOpen(false)}
-              className="p-1 rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors cursor-pointer"
+              className="p-1 rounded hover:bg-[#F6F3EE] text-[#7A706C] hover:text-[#231F1E] transition-colors cursor-pointer"
               title="Thu gọn bảng phải"
             >
-              <PanelRightClose className="w-4 h-4" />
+              <PanelRightClose className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* Quick Viewport Utility Bar */}
-          <div className="border-b border-white/8 px-3 py-2 flex items-center justify-between text-neutral-400 text-xs">
+          {/* Quick Utility Bar */}
+          <div className="border-b border-[#E2D9D0] px-2.5 py-1.5 flex items-center justify-between text-[#7A706C] text-xs">
             <button
               onClick={() => setGroundGridEnabled((prev) => !prev)}
-              className={`p-1 rounded hover:text-cyan-300 transition-colors ${groundGridEnabled ? 'text-cyan-400' : ''}`}
-              title={groundGridEnabled ? 'Ẩn lưới sàn 3D' : 'Hiện lưới sàn 3D'}
+              className={`p-1 rounded hover:text-[#231F1E] transition-colors ${groundGridEnabled ? 'text-[#B83B2A]' : ''}`}
+              title="Lưới sàn"
             >
               <LayoutGrid className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => window.dispatchEvent(new CustomEvent('studio-camera-view', { detail: 'iso' }))}
-              className="p-1 rounded hover:text-cyan-300 transition-colors cursor-pointer"
-              title="Đặt lại góc nhìn camera Isometric"
+              className="p-1 rounded hover:text-[#231F1E] transition-colors cursor-pointer"
+              title="Isometric"
             >
               <Box className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => window.dispatchEvent(new CustomEvent('studio-camera-view', { detail: 'top' }))}
-              className="p-1 rounded hover:text-cyan-300 transition-colors cursor-pointer"
-              title="Góc nhìn từ trên xuống (Top View)"
+              className="p-1 rounded hover:text-[#231F1E] transition-colors cursor-pointer"
+              title="Top View"
             >
               <Layers className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => window.dispatchEvent(new CustomEvent('studio-camera-view', { detail: 'bottom' }))}
-              className="p-1 rounded hover:text-cyan-300 transition-colors cursor-pointer"
-              title="Góc nhìn từ dưới lên (Bottom View - Trục Z đáy)"
+              className="p-1 rounded hover:text-[#231F1E] transition-colors cursor-pointer"
+              title="Bottom View"
             >
               <Compass className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => {
                 if (!document.fullscreenElement) {
-                  void document.documentElement.requestFullscreen().catch(() => { });
+                  void document.documentElement.requestFullscreen().catch(() => {});
                 } else {
-                  void document.exitFullscreen().catch(() => { });
+                  void document.exitFullscreen().catch(() => {});
                 }
               }}
-              className="p-1 rounded hover:text-cyan-300 transition-colors cursor-pointer"
-              title="Bật/Tắt Toàn màn hình"
+              className="p-1 rounded hover:text-[#231F1E] transition-colors cursor-pointer"
+              title="Toàn màn hình"
             >
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
-            <div className="w-[1px] h-3.5 bg-white/10 mx-0.5" />
-            <span className="text-[10px] text-cyan-400 font-mono px-1">
-              3D Orbit
-            </span>
           </div>
 
           {/* Tab Body */}
-          <div className="flex-1 overflow-y-auto p-3.5 flex flex-col text-left no-scrollbar">
+          <div className="flex-1 overflow-y-auto p-3 flex flex-col text-left no-scrollbar">
             {rightTab === 'Assets' && (
-              assets.length === 0 ? (
-                <div className="flex flex-col items-center justify-center my-auto gap-2.5 py-8 text-center">
-                  <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-zinc-400 shadow-inner">
-                    <Box className="w-6 h-6 stroke-[1.5]" />
-                  </div>
-                  <p className="text-xs text-white/90 font-medium">
-                    Chưa có mô hình nào
-                  </p>
-                  <p className="text-[11px] text-neutral-500 max-w-[210px] leading-relaxed">
-                    Tải ảnh hoặc chọn mẫu nhanh ở bảng bên trái và nhấn &quot;Tạo model từ ảnh&quot;.
-                  </p>
+              displayAssets.length === 0 ? (
+                <div className="flex flex-col items-center justify-center my-auto gap-2 py-8 text-center">
+                  <Box className="w-6 h-6 text-[#7A706C] stroke-[1.5]" />
+                  <span className="text-xs text-[#231F1E] font-medium">Chưa có mô hình</span>
+                  <span className="text-[10.5px] text-[#7A706C] max-w-[200px]">
+                    Tạo mô hình từ ảnh hoặc văn bản ở bảng bên trái.
+                  </span>
                 </div>
               ) : (
-                <div className="w-full flex flex-col gap-2.5">
-                  {assets.map((asset) => (
-                    <div
-                      key={asset.id}
-                      onClick={() => setActiveModelMesh(asset)}
-                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${activeModelMesh?.id === asset.id
-                          ? 'bg-cyan-950/25 border-cyan-400/50 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
-                          : 'bg-white/[0.03] border-white/8 hover:border-white/20'
+                <div className="w-full flex flex-col gap-2">
+                  {displayAssets.map((asset: GeneratedAsset) => {
+                    const isCurrent = activeModelMesh?.id === asset.id || (asset.id === 'active-viewport-mesh' && !activeModelMesh);
+                    return (
+                      <div
+                        key={asset.id}
+                        onClick={() => {
+                          setActiveModelMesh(asset);
+                          if (asset.localFiles) {
+                            setLocal3DFiles(asset.localFiles);
+                            setActiveFileType(asset.fileType || 'glb');
+                          } else {
+                            setLocal3DFiles(null);
+                            setActiveFileType(asset.fileType || 'glb');
+                          }
+                        }}
+                        className={`p-2.5 rounded-lg border text-left cursor-pointer transition-all ${
+                          isCurrent
+                            ? 'bg-[#FDF2F0] border-[#B83B2A] shadow-xs'
+                            : 'bg-[#FFFFFF] border-[#E2D9D0] hover:border-[#7A706C]'
                         }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-white truncate">{asset.name}</span>
-                        <span className={`text-[10px] font-medium ${asset.status === 'succeeded'
-                            ? 'text-emerald-300'
-                            : asset.status === 'failed'
-                              ? 'text-rose-300'
-                              : 'text-cyan-300'
-                          }`}>
-                          {statusLabel(asset.status)}
-                        </span>
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-[#FDF2F0] border border-[#B83B2A]/30 flex items-center justify-center text-[#B83B2A] shrink-0">
+                            <Box className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-semibold text-[#231F1E] truncate">{asset.name}</span>
+                              {isCurrent && (
+                                <span className="shrink-0 px-1.5 py-0.2 rounded bg-[#B83B2A]/10 border border-[#B83B2A]/30 text-[9.5px] text-[#B83B2A] font-medium">
+                                  Đang xem
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between gap-1 mt-0.5">
+                              <span className="text-[10px] text-[#7A706C] font-mono tabular-nums">
+                                {asset.customFaces || (isCurrent ? displayFaceCount : faceCount)} Faces
+                              </span>
+                              <span className={`text-[10px] font-mono tabular-nums shrink-0 ${
+                                asset.status === 'succeeded'
+                                  ? 'text-[#4A5D4E]'
+                                  : asset.status === 'failed'
+                                  ? 'text-[#B83B2A]'
+                                  : 'text-[#7A706C]'
+                              }`}>
+                                {statusLabel(asset.status)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {asset.errorMessage && (
+                          <span className="text-[10px] text-[#B83B2A] block mt-1 leading-relaxed">{asset.errorMessage}</span>
+                        )}
+
+                        {(asset.glbUrl || asset.stlUrl || asset.localFiles || isCurrent) && (
+                          <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+                            {(asset.status === 'succeeded' || isCurrent) && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setOrderTargetAsset(asset);
+                                  setIsPrintOrderModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1 rounded bg-[#B83B2A] hover:bg-[#9E2F20] px-2 py-0.5 text-[10px] text-white font-medium cursor-pointer shadow-xs"
+                              >
+                                <Sparkles className="h-3 w-3 text-white" />
+                                <span>Đặt in 3D</span>
+                              </button>
+                            )}
+                            {asset.fileType && (
+                              <span className="px-1.5 py-0.5 rounded bg-[#F6F3EE] border border-[#E2D9D0] text-[9.5px] font-mono uppercase text-[#7A706C]">
+                                .{asset.fileType}
+                              </span>
+                            )}
+                            {asset.glbUrl && (
+                              <button
+                                type="button"
+                                onClick={(event) => void handleDownload(event, asset, 'glb')}
+                                disabled={downloadingFile === `${asset.id}-glb`}
+                                className="inline-flex items-center gap-1 rounded bg-[#F6F3EE] hover:bg-[#EFEAE2] border border-[#E2D9D0] px-2 py-0.5 text-[10px] text-[#231F1E] disabled:opacity-50"
+                              >
+                                <Download className="h-3 w-3" />
+                                <span>GLB</span>
+                              </button>
+                            )}
+                            {asset.stlUrl && (
+                              <button
+                                type="button"
+                                onClick={(event) => void handleDownload(event, asset, 'stl')}
+                                disabled={downloadingFile === `${asset.id}-stl`}
+                                className="inline-flex items-center gap-1 rounded bg-[#F6F3EE] hover:bg-[#EFEAE2] border border-[#E2D9D0] px-2 py-0.5 text-[10px] text-[#231F1E] disabled:opacity-50"
+                              >
+                                <Download className="h-3 w-3" />
+                                <span>STL</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <span className="text-[10px] text-neutral-400 block mt-1">
-                        {asset.date} · {asset.status === 'succeeded' ? 'Hoàn tất' : `${asset.progress}%`}
-                      </span>
-                      {asset.errorMessage && (
-                        <div className="mt-1.5 px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[10px] flex items-center gap-1.5" title={asset.errorMessage}>
-                          <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
-                          <span className="truncate">{getFriendlyErrorMessage(asset.errorMessage)}</span>
-                        </div>
-                      )}
-
-                      {/* Badge Trạng thái Duyệt In (PrintReview Badge) */}
-                      {asset.status === 'succeeded' && (
-                        <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                          {asset.isApprovedForPrinting || asset.reviewStatus === 'Approved' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[10px] font-medium font-mono">
-                              <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                              Đạt chuẩn in 3D (Đã duyệt)
-                            </span>
-                          ) : asset.reviewStatus === 'Rejected' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/15 border border-rose-400/40 text-rose-300 text-[10px] font-medium">
-                              <AlertTriangle className="w-3 h-3 text-rose-400" />
-                              Cần chỉnh sửa lưới {asset.reviewNote ? `(${asset.reviewNote})` : ''}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-400/35 text-cyan-300 text-[10px] font-medium">
-                              <Clock className="w-3 h-3 text-cyan-400" />
-                              Chờ duyệt kỹ thuật in
-                            </span>
-                          )}
-
-                          {asset.versionId && approvedConfigMap[asset.versionId] && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono">
-                              <Check className="w-3 h-3" />
-                              Đã chốt: #{approvedConfigMap[asset.versionId].approvalDto.configurationHash.slice(0, 6)}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {(asset.glbUrl || asset.stlUrl) && (
-                        <div className="mt-2.5 flex gap-2">
-                          {asset.glbUrl && (
-                            <button
-                              type="button"
-                              onClick={(event) => void handleDownload(event, asset, 'glb')}
-                              disabled={downloadingFile === `${asset.id}-glb`}
-                              className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
-                            >
-                              <Download className="h-3 w-3" />
-                              {downloadingFile === `${asset.id}-glb` ? 'Đang tải...' : 'Tải GLB'}
-                            </button>
-                          )}
-                          {asset.stlUrl && (
-                            <button
-                              type="button"
-                              onClick={(event) => void handleDownload(event, asset, 'stl')}
-                              disabled={downloadingFile === `${asset.id}-stl`}
-                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
-                            >
-                              <Download className="h-3 w-3" />
-                              {downloadingFile === `${asset.id}-stl` ? 'Đang tải...' : 'Tải STL in 3D'}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )
             )}
 
             {rightTab === 'Layer' && (
-              <div className="w-full flex flex-col gap-3 text-left">
-                {/* Slicing Mode Toggle Header Card */}
-                <div className={`p-3 rounded-xl border transition-all ${
-                  isSlicingActive 
-                    ? 'bg-cyan-950/30 border-cyan-400/40 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
-                    : 'bg-white/[0.03] border-white/8'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                        isSlicingActive ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/5 text-neutral-400'
-                      }`}>
-                        <Scissors className="w-3.5 h-3.5" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold text-white">Mô phỏng Lát cắt</div>
-                        <div className="text-[10px] text-neutral-400">GPU Laser Slicing Plane</div>
-                      </div>
+              <div className="w-full flex flex-col gap-2.5 text-left text-xs font-mono tabular-nums">
+                {/* Slicing toggle & Scrubber */}
+                <div className="p-2.5 rounded-lg bg-[#F6F3EE] border border-[#E2D9D0] flex flex-col gap-2">
+                  <div className="flex items-center justify-between font-sans">
+                    <div className="flex items-center gap-1.5">
+                      <Scissors className="w-3.5 h-3.5 text-[#B83B2A]" />
+                      <span className="font-semibold text-[#231F1E]">Lát cắt</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => setIsSlicingActive((prev) => !prev)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
+                      className={`px-2 py-0.5 rounded text-[10.5px] font-medium cursor-pointer border ${
                         isSlicingActive
-                          ? 'bg-cyan-500 text-black shadow-[0_0_12px_rgba(6,182,212,0.5)]'
-                          : 'bg-white/10 text-neutral-300 hover:bg-white/20'
+                          ? 'bg-[#B83B2A] border-[#B83B2A] text-white'
+                          : 'bg-[#FFFFFF] border-[#E2D9D0] text-[#7A706C]'
                       }`}
                     >
                       {isSlicingActive ? 'Đang bật' : 'Bật cắt'}
                     </button>
                   </div>
 
-                  {/* Simulation Play/Pause button */}
-                  <div className="mt-2.5 pt-2 border-t border-white/8 flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={toggleSimulatingPrint}
-                      className={`w-full py-1.5 px-3 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                        isSimulatingPrint
-                          ? 'bg-amber-500/20 border border-amber-400/50 text-amber-300 animate-pulse'
-                          : 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/30'
-                      }`}
-                    >
-                      {isSimulatingPrint ? (
-                        <>
-                          <Pause className="w-3.5 h-3.5" />
-                          <span>Tạm dừng in mô phỏng</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>Mô phỏng in thời gian thực (Time-lapse)</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Slicing Scrub Slider & Layer Telemetry */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium text-neutral-300">Vị trí lát cắt</span>
-                    <span className="text-[11px] font-mono text-cyan-300 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-400/20">
-                      Layer {currentLayer} / {totalLayers} ({Math.round(slicingProgress)}%)
+                  <div className="flex items-center justify-between text-[10.5px]">
+                    <span className="text-[#7A706C]">Vị trí lớp:</span>
+                    <span className="text-[#231F1E] font-medium">
+                      Lớp {currentLayer} / {totalLayers} ({Math.round(slicingProgress)}%)
                     </span>
                   </div>
 
@@ -1597,728 +1954,182 @@ export default function Create3DStudio() {
                       handleSlicingProgressChange(parseFloat(e.target.value));
                       if (!isSlicingActive) setIsSlicingActive(true);
                     }}
-                    className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-white/10 rounded-lg appearance-none"
+                    className="w-full accent-[#B83B2A] cursor-pointer h-1.5 bg-[#E2D9D0] rounded appearance-none"
                   />
-
-                  {/* Step Buttons */}
-                  <div className="grid grid-cols-4 gap-1 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleSlicingProgressChange(slicingProgress - (100 / totalLayers) * 5);
-                        if (!isSlicingActive) setIsSlicingActive(true);
-                      }}
-                      className="py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-neutral-300 transition-colors text-center cursor-pointer"
-                      title="Lùi 5 lớp"
-                    >
-                      -5 Lớp
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleSlicingProgressChange(slicingProgress - (100 / totalLayers));
-                        if (!isSlicingActive) setIsSlicingActive(true);
-                      }}
-                      className="py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-neutral-300 transition-colors text-center cursor-pointer"
-                      title="Lùi 1 lớp"
-                    >
-                      -1 Lớp
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleSlicingProgressChange(slicingProgress + (100 / totalLayers));
-                        if (!isSlicingActive) setIsSlicingActive(true);
-                      }}
-                      className="py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-neutral-300 transition-colors text-center cursor-pointer"
-                      title="Tới 1 lớp"
-                    >
-                      +1 Lớp
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleSlicingProgressChange(slicingProgress + (100 / totalLayers) * 5);
-                        if (!isSlicingActive) setIsSlicingActive(true);
-                      }}
-                      className="py-1 rounded bg-white/5 hover:bg-white/10 text-[10px] text-neutral-300 transition-colors text-center cursor-pointer"
-                      title="Tới 5 lớp"
-                    >
-                      +5 Lớp
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[10px] text-neutral-400 pt-1 border-t border-white/5">
-                    <span>Độ cao tia cắt:</span>
-                    <span className="font-mono text-white font-medium">
-                      {currentHeightMm.toFixed(2)} / {dimensions.y.toFixed(1)} mm
-                    </span>
-                  </div>
                 </div>
 
-                {/* Layer Height Presets */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium text-neutral-300">Độ dày mỗi lớp (Layer Height)</span>
-                    <span className="text-[10px] font-mono text-cyan-300">{layerHeightMm} mm</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {[
-                      { val: 0.05, label: '0.05mm', desc: 'Siêu nét' },
-                      { val: 0.12, label: '0.12mm', desc: 'Chi tiết cao' },
-                      { val: 0.20, label: '0.20mm', desc: 'Tiêu chuẩn' },
-                      { val: 0.28, label: '0.28mm', desc: 'In nhanh' },
-                    ].map((preset) => (
-                      <button
-                        key={preset.val}
-                        type="button"
-                        onClick={() => setLayerHeightMm(preset.val)}
-                        className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
-                          layerHeightMm === preset.val
-                            ? 'bg-cyan-500/15 border-cyan-400/40 text-cyan-200'
-                            : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
-                        }`}
-                      >
-                        <div className="text-xs font-semibold">{preset.label}</div>
-                        <div className="text-[9.5px] opacity-75">{preset.desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Infill Density */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium text-neutral-300">Mật độ đặc bên trong (Infill)</span>
-                    <span className="text-[10px] font-mono text-cyan-300">{infillDensity}%</span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-1">
-                    {[15, 20, 40, 100].map((density) => (
-                      <button
-                        key={density}
-                        type="button"
-                        onClick={() => setInfillDensity(density)}
-                        className={`py-1.5 rounded-lg border text-xs font-medium transition-all text-center cursor-pointer ${
-                          infillDensity === density
-                            ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
-                            : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
-                        }`}
-                      >
-                        {density}%
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Physical Stability & Mechanical Equilibrium Card */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-5 h-5 rounded bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-400">
-                        <Scale className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-[11px] font-semibold text-white">Độ Ổn định Thăng bằng (Stability)</span>
-                    </div>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold border font-mono ${
-                        stabilityScore >= 90
-                          ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
-                          : stabilityScore >= 75
-                          ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300'
-                          : 'bg-amber-500/20 border-amber-400/50 text-amber-300'
-                      }`}
-                    >
-                      {stabilityScore}% Vững chắc
-                    </span>
-                  </div>
-
-                  {/* Stability Progress Gauge */}
-                  <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-500 ${
-                        stabilityScore >= 90
-                          ? 'bg-gradient-to-r from-emerald-500 to-cyan-400'
-                          : stabilityScore >= 75
-                          ? 'bg-cyan-400'
-                          : 'bg-amber-400'
-                      }`}
-                      style={{ width: `${stabilityScore}%` }}
-                    />
-                  </div>
-
-                  {/* Physics Center of Mass Analysis */}
-                  <div className="p-2 rounded-lg bg-black/40 border border-white/6 text-[10px] space-y-1 text-neutral-300">
-                    <div className="flex justify-between">
-                      <span className="text-neutral-400">Độ cao Trọng tâm (CoM):</span>
-                      <span className="font-mono text-white font-medium">~{(dimensions.y * 0.5).toFixed(1)} mm</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-400">Diện tích chân tiếp xúc:</span>
-                      <span className="font-mono text-cyan-300 font-medium">
-                        {adhesionType === 'raft'
-                          ? '~42.0 cm² (Tăng 15x nhờ Bè Raft)'
-                          : adhesionType === 'brim'
-                          ? '~18.5 cm² (Vành Brim)'
-                          : '~2.8 cm² (Chỉ chạm 1 điểm đáy)'}
-                      </span>
-                    </div>
-                    <p className="text-[9px] text-neutral-400 pt-1 border-t border-white/5 leading-relaxed">
-                      {adhesionType === 'raft'
-                        ? '✓ Bè in Raft khoá chặt mô hình vào bàn nhiệt, triệt tiêu 100% mô-men uốn khi đầu in chạy tốc độ cao.'
-                        : adhesionType === 'brim'
-                        ? '⚠ Vành Brim tăng độ bám nhưng cần cẩn thận quán tính rung chấn nếu in tốc độ trên 150mm/s.'
-                        : '❌ Cực kỳ nguy hiểm: Mô hình nặng chỉ tiếp xúc 1 điểm nhỏ, rất dễ bị gãy đổ khi in!'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Bed Adhesion Platform Selector (Bè in Raft vs Vành Brim vs Skirt) */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-white">Bệ đế Bàn in (Bed Adhesion)</span>
-                    <span className="text-[9.5px] text-neutral-400 font-mono">
-                      {adhesionType === 'raft' ? '+11% Nhựa hao hụt' : adhesionType === 'brim' ? '+3.5% Nhựa' : '0% Nhựa'}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setAdhesionType('raft')}
-                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
-                        adhesionType === 'raft'
-                          ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
-                          : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
-                      }`}
-                    >
-                      <div className="text-[10.5px] font-semibold flex items-center justify-between">
-                        <span>Bè Raft</span>
-                        <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/30 text-emerald-300 font-normal">Khuyên dùng</span>
-                      </div>
-                      <div className="text-[8.5px] opacity-75 mt-0.5 leading-tight">Khối đệm đặc 1.8mm, chống lật tuyệt đối</div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setAdhesionType('brim')}
-                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
-                        adhesionType === 'brim'
-                          ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
-                          : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
-                      }`}
-                    >
-                      <div className="text-[10.5px] font-semibold">Vành Brim</div>
-                      <div className="text-[8.5px] opacity-75 mt-0.5 leading-tight">Vành 1 lớp mỏng, tiết kiệm nhựa hơn</div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setAdhesionType('skirt')}
-                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
-                        adhesionType === 'skirt'
-                          ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
-                          : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
-                      }`}
-                    >
-                      <div className="text-[10.5px] font-semibold">Chỉ Skirt</div>
-                      <div className="text-[8.5px] opacity-75 mt-0.5 leading-tight">Chỉ viền xả đầu in, không bám đáy</div>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 3D Printing Support & Strength Card */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-5 h-5 rounded bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400">
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-[11px] font-semibold text-white">Điểm tựa & Cột đỡ (Support)</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsSupportActive((prev) => !prev)}
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all cursor-pointer border ${
-                        isSupportActive
-                          ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
-                          : 'bg-red-500/15 border-red-400/30 text-red-300'
-                      }`}
-                    >
-                      {isSupportActive ? 'BẬT' : 'TẮT'}
-                    </button>
-                  </div>
-
-                  {/* Overhang Status Alert */}
-                  {!isSupportActive && (
-                    <div className="p-2 rounded-lg bg-amber-500/15 border border-amber-400/30 flex items-start gap-2 text-amber-200">
-                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
-                      <div className="text-[9.5px] leading-tight">
-                        <span className="font-semibold">Cảnh báo: </span>
-                        Các vòng xoắn lơ lửng sẽ in trên không khí và biến thành sợi nhựa rơi (Spaghetti failure) nếu không có cột đỡ!
-                      </div>
-                    </div>
-                  )}
-
-                  {isSupportActive && (
-                    <>
-                      {/* Pattern Selector */}
-                      <div className="grid grid-cols-2 gap-1.5">
+                {/* Layer Height & Infill */}
+                <div className="grid grid-cols-2 gap-1.5 font-sans">
+                  <div className="p-2 rounded-lg bg-[#F6F3EE] border border-[#E2D9D0] flex flex-col gap-1">
+                    <span className="text-[10px] text-[#7A706C]">Độ dày lớp</span>
+                    <div className="grid grid-cols-2 gap-1 font-mono tabular-nums">
+                      {[0.12, 0.20].map((h) => (
                         <button
+                          key={h}
                           type="button"
-                          onClick={() => setSupportType('tree')}
-                          className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
-                            supportType === 'tree'
-                              ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200'
-                              : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                          onClick={() => setLayerHeightMm(h)}
+                          className={`py-0.5 rounded text-[10px] border cursor-pointer ${
+                            layerHeightMm === h
+                              ? 'bg-[#B83B2A] border-[#B83B2A] text-white font-medium'
+                              : 'bg-[#FFFFFF] border-[#E2D9D0] text-[#7A706C]'
                           }`}
                         >
-                          <div className="text-[10.5px] font-semibold">Tree Support</div>
-                          <div className="text-[8.5px] opacity-75">Cành cây uốn lượn ôm sát</div>
+                          {h}mm
                         </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-lg bg-[#F6F3EE] border border-[#E2D9D0] flex flex-col gap-1">
+                    <span className="text-[10px] text-[#7A706C]">Độ đặc (Infill)</span>
+                    <div className="grid grid-cols-2 gap-1 font-mono tabular-nums">
+                      {[20, 40].map((inf) => (
                         <button
+                          key={inf}
                           type="button"
-                          onClick={() => setSupportType('lattice')}
-                          className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
-                            supportType === 'lattice'
-                              ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200'
-                              : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
+                          onClick={() => setInfillDensity(inf)}
+                          className={`py-0.5 rounded text-[10px] border cursor-pointer ${
+                            infillDensity === inf
+                              ? 'bg-[#B83B2A] border-[#B83B2A] text-white font-medium'
+                              : 'bg-[#FFFFFF] border-[#E2D9D0] text-[#7A706C]'
                           }`}
                         >
-                          <div className="text-[10.5px] font-semibold">Lattice Grid</div>
-                          <div className="text-[8.5px] opacity-75">Khung giàn lưới chịu lực</div>
+                          {inf}%
                         </button>
-                      </div>
-
-                      {/* Sturdiness Load Rating */}
-                      <div className="flex flex-col gap-1.5 pt-1 border-t border-white/6">
-                        <div className="flex justify-between items-center text-[10px]">
-                          <span className="text-neutral-400">Độ dày & Tải trọng thân trụ:</span>
-                          <span className="font-mono text-cyan-300 font-semibold">
-                            {supportStrength === 'heavy' ? 'Trụ Kết Cấu (Ø14mm + Gân V)' : supportStrength === 'standard' ? 'Tiêu chuẩn (Ø8mm)' : 'Thanh mảnh (Ø4mm)'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-1">
-                          {[
-                            { id: 'heavy', label: 'Trụ Kết Cấu', desc: 'Khóa rung & sai số' },
-                            { id: 'standard', label: 'Tiêu chuẩn', desc: 'Cân bằng' },
-                            { id: 'light', label: 'Thanh mảnh', desc: 'Tiết kiệm' },
-                          ].map((s) => (
-                            <button
-                              key={s.id}
-                              type="button"
-                              onClick={() => setSupportStrength(s.id as 'heavy' | 'standard' | 'light')}
-                              className={`p-1 rounded border text-center transition-all cursor-pointer ${
-                                supportStrength === s.id
-                                  ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'
-                                  : 'bg-white/[0.02] border-white/6 hover:border-white/15 text-neutral-400'
-                              }`}
-                            >
-                              <div className="text-[10px] font-semibold">{s.label}</div>
-                              <div className="text-[8px] opacity-70">{s.desc}</div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Structural Cantilever & Precision Engineering Insight */}
-                      <div className="p-2.5 rounded-lg bg-emerald-950/20 border border-emerald-500/25 text-[10px] space-y-1.5 text-neutral-300">
-                        <div className="flex items-center justify-between text-emerald-300 font-semibold text-[10.5px]">
-                          <span className="flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                            Phân tích Nhánh Yếu & Sai số in
-                          </span>
-                          <span className="font-mono text-[9.5px]">
-                            {supportStrength === 'heavy' ? '±0.08 mm (Siêu chuẩn)' : supportStrength === 'standard' ? '±0.25 mm' : '±0.85 mm (Rủi ro lệch)'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-1.5 text-[9px] pt-1 border-t border-white/5">
-                          <div className="bg-black/30 p-1.5 rounded border border-white/5">
-                            <div className="text-neutral-400">Nhánh yếu phát hiện:</div>
-                            <div className="font-semibold text-white mt-0.5">2 vòm treo trên cao + 2 đáy</div>
-                          </div>
-                          <div className="bg-black/30 p-1.5 rounded border border-white/5">
-                            <div className="text-neutral-400">Độ võng uốn vòi phun:</div>
-                            <div className={`font-semibold mt-0.5 ${supportStrength === 'heavy' ? 'text-emerald-300' : 'text-amber-300'}`}>
-                              {supportStrength === 'heavy' ? '< 0.05 mm (Khóa cứng)' : '0.85 - 1.20 mm'}
-                            </div>
-                          </div>
-                        </div>
-                        <p className="text-[8.5px] text-neutral-400 leading-tight pt-1 border-t border-white/5">
-                          {supportStrength === 'heavy'
-                            ? '💡 Trụ kết cấu Ø14mm cắm thẳng lên nhánh yếu trên cao, giảm 90% sai số in. Bạn có thể an tâm chuyển sang Vành Brim để tiết kiệm 16g nhựa ở đế.'
-                            : '⚠ Trụ mảnh dễ bị uốn cong theo vòi phun khi in lên cao, gây gợn sóng bề mặt hoặc sai lệch lớp.'}
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Filament Waste & Telemetry Breakdown Card */}
-                <div className="p-3 rounded-xl bg-cyan-950/20 border border-cyan-500/20 flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between text-xs font-semibold text-cyan-300">
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Ước tính Nhựa & Hao hụt (Waste Analysis)</span>
-                    </div>
-                    <span className="text-[10px] font-mono text-amber-300">
-                      Hao hụt: {wasteRatioPercent}%
-                    </span>
-                  </div>
-
-                  {/* Stacked Visual Bar Chart */}
-                  <div className="space-y-1">
-                    <div className="w-full bg-black/40 rounded-full h-2.5 flex overflow-hidden border border-white/10">
-                      <div
-                        className="bg-cyan-400 transition-all duration-300"
-                        style={{ width: `${netProductPercent}%` }}
-                        title={`Sản phẩm: ${filamentGrams}g (${netProductPercent}%)`}
-                      />
-                      <div
-                        className="bg-amber-400 transition-all duration-300"
-                        style={{ width: `${Math.round((adhesionGrams / totalFilamentGrams) * 100)}%` }}
-                        title={`Bệ đế: ${adhesionGrams}g`}
-                      />
-                      <div
-                        className="bg-emerald-400 transition-all duration-300"
-                        style={{ width: `${Math.round((supportGrams / totalFilamentGrams) * 100)}%` }}
-                        title={`Cột đỡ: ${supportGrams}g`}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[9px] text-neutral-400 pt-0.5">
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" />
-                        Sản phẩm ({filamentGrams}g)
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
-                        Bệ đế ({adhesionGrams}g)
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
-                        Cột đỡ ({supportGrams}g)
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5 text-[11px] pt-1 border-t border-cyan-500/15">
-                    <div className="flex justify-between text-neutral-300">
-                      <span className="text-neutral-400">Thời gian in dự kiến:</span>
-                      <span className="font-semibold text-white font-mono">{printTimeFormatted}</span>
-                    </div>
-                    <div className="flex justify-between text-neutral-300">
-                      <span className="text-neutral-400">Tổng số lớp in:</span>
-                      <span className="font-semibold text-white font-mono">{totalLayers.toLocaleString()} layers</span>
-                    </div>
-                    <div className="flex justify-between text-amber-300/90">
-                      <span className="text-neutral-400">Nhựa hao hụt bóc bỏ:</span>
-                      <span className="font-semibold text-amber-300 font-mono">+{totalWasteGrams} g (~{wasteCostVnd} đ)</span>
-                    </div>
-                    <div className="flex justify-between text-neutral-300 pt-1 border-t border-cyan-500/15">
-                      <span className="text-neutral-400">Tổng nhựa PLA tiêu thụ:</span>
-                      <span className="font-bold text-cyan-200 font-mono">{totalFilamentGrams} g (~{totalFilamentMeters}m)</span>
-                    </div>
-                    <div className="flex justify-between text-neutral-300">
-                      <span className="text-neutral-400">Tổng chi phí ước tính:</span>
-                      <span className="font-bold text-emerald-300 font-mono">~{totalEstimatedCostVnd} đ</span>
+                      ))}
                     </div>
                   </div>
                 </div>
 
-                {/* Pre-flight Print Checks */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
-                  <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Kiểm tra chuẩn in (Pre-flight Checks)</span>
-                  </div>
-                  <div className="space-y-1.5 text-[10.5px]">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span className="text-neutral-300">Khổ bàn in (220×220×250mm):</span>
-                      <span className={`ml-auto font-medium ${isWithinStandardPrintBed ? 'text-emerald-300' : 'text-amber-300'}`}>
-                        {isWithinStandardPrintBed ? 'Đạt' : 'Vượt khổ'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span className="text-neutral-300">Tính kín nước (Manifold):</span>
-                      <span className="ml-auto text-emerald-300 font-medium">100% Watertight</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {isSupportActive ? (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          <span className="text-neutral-300">Điểm tựa góc nghiêng:</span>
-                          <span className="ml-auto text-emerald-300 font-medium">Đã có Cột đỡ ({supportType === 'tree' ? 'Tree' : 'Lattice'})</span>
-                        </>
-                      ) : (
-                        <>
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span className="text-neutral-300">Điểm tựa góc nghiêng:</span>
-                          <span className="ml-auto text-amber-400 font-medium">Cảnh báo: Rơi sợi nhựa!</span>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {stabilityScore >= 75 ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      ) : (
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      )}
-                      <span className="text-neutral-300">Độ vững cơ học chống lật:</span>
-                      <span className={`ml-auto font-medium ${stabilityScore >= 90 ? 'text-emerald-300' : stabilityScore >= 75 ? 'text-cyan-300' : 'text-amber-300'}`}>
-                        {stabilityScore >= 90 ? 'Xuất sắc (Chống lật 98%)' : stabilityScore >= 75 ? 'Đạt chuẩn (80%)' : 'Nguy cơ lật (42%)'}
-                      </span>
-                    </div>
-                  </div>
+                {/* Print Time */}
+                <div className="p-2.5 rounded-lg bg-[#F6F3EE] border border-[#E2D9D0] flex items-center justify-between text-xs">
+                  <span className="text-[#7A706C] font-sans">Thời gian in:</span>
+                  <span className="text-[#231F1E] font-semibold">{printTimeFormatted}</span>
                 </div>
               </div>
             )}
 
             {rightTab === 'Property' && (
-              <div className="w-full flex flex-col gap-3 text-left">
-                {/* Model Overview Card */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center text-cyan-300">
-                      <Box className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="overflow-hidden">
-                      <div className="text-xs font-semibold text-white truncate">
-                        {activeModelMesh?.name || 'Mô hình 3D Hiện tại'}
-                      </div>
-                      <div className="text-[10px] text-neutral-400">
-                        {activeModelMesh ? 'AI Generated GLB' : 'Procedural Mesh Preview'}
-                      </div>
-                    </div>
+              <div className="w-full flex flex-col gap-2.5 text-left text-xs font-mono tabular-nums">
+                {/* 3-Material Quick Picker (Wabi-Sabi Low-Text) */}
+                <div className="p-2.5 rounded-lg bg-[#F6F3EE] border border-[#E2D9D0] flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-[#231F1E] font-sans flex items-center gap-1">
+                      <Layers className="w-3.5 h-3.5 text-[#B83B2A]" /> Vật liệu in 3D
+                    </span>
+                    <span className="text-[10px] text-[#7A706C] font-sans">
+                      {materialConfig.tag}
+                    </span>
                   </div>
-                </div>
 
-                {/* Topology Specifications */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
-                  <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                    <Activity className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Thông số lưới hình học (Topology)</span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(
+                      [
+                        { id: 'PLA' as const, label: 'PLA', rate: '2.5k/cm³', sub: 'Tiêu chuẩn' },
+                        { id: 'Resin SLA' as const, label: 'Resin SLA', rate: '6.5k/cm³', sub: 'Mịn cao' },
+                        { id: 'ABS' as const, label: 'ABS', rate: '3.5k/cm³', sub: 'Bền bỉ' },
+                      ]
+                    ).map((mat) => {
+                      const isSel = selectedMaterial === mat.id;
+                      return (
+                        <button
+                          key={mat.id}
+                          type="button"
+                          onClick={() => setSelectedMaterial(mat.id)}
+                          className={`p-2 rounded-lg border text-left flex flex-col gap-0.5 transition-all cursor-pointer ${
+                            isSel
+                              ? 'bg-[#FDF2F0] border-[#B83B2A] text-[#231F1E] shadow-xs'
+                              : 'bg-[#FFFFFF] border-[#E2D9D0] text-[#7A706C] hover:border-[#7A706C]'
+                          }`}
+                        >
+                          <span className={`text-[11px] font-semibold ${isSel ? 'text-[#B83B2A]' : 'text-[#231F1E]'}`}>
+                            {mat.label}
+                          </span>
+                          <span className="text-[10px] font-mono tabular-nums text-[#B83B2A] font-medium">
+                            {mat.rate}
+                          </span>
+                          <span className="text-[9px] text-[#7A706C] font-sans">
+                            {mat.sub}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="space-y-2 text-[11px]">
-                    <div className="flex justify-between items-center text-neutral-300">
-                      <span className="text-neutral-400">Số mặt (Polygons / Triangles):</span>
-                      <span className="font-semibold text-white font-mono">
-                        {faceCount === '1.5M' ? '1,500,000 tris' : faceCount === '1M' ? '1,000,000 tris' : faceCount === '500k' ? '500,000 tris' : '50,000 tris'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-neutral-300">
-                      <span className="text-neutral-400">Số đỉnh (Vertices):</span>
-                      <span className="font-semibold text-white font-mono">
-                        {faceCount === '1.5M' ? '~750,000' : faceCount === '1M' ? '~500,000' : faceCount === '500k' ? '~250,000' : '~25,000'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-neutral-300">
-                      <span className="text-neutral-400">Mức độ chi tiết:</span>
-                      <span className="font-semibold text-cyan-300 capitalize">{faceCount}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-neutral-300">
-                      <span className="text-neutral-400">Vật liệu & Texture:</span>
-                      <span className="font-semibold text-white">{shouldTexture ? 'PBR Texture Có màu' : 'Đơn sắc (Clay Solid)'}</span>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Physical Dimensions & Volume */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2.5">
-                  <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                    <Scale className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Kích thước & Thể tích vật lý</span>
-                  </div>
-                  <div className="space-y-2 text-[11px]">
-                    <div className="flex justify-between items-center text-neutral-300">
-                      <span className="text-neutral-400">Hộp bao (X × Y × Z):</span>
-                      <span className="font-semibold text-white font-mono">
-                        {dimensions.x} × {dimensions.y} × {dimensions.z} mm
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-neutral-300">
-                      <span className="text-neutral-400">Tỷ lệ Scale:</span>
-                      <span className="font-semibold text-white font-mono">{scalePercent}%</span>
-                    </div>
-                    <div className="flex justify-between items-center text-neutral-300">
-                      <span className="text-neutral-400">Thể tích vật thể:</span>
-                      <span className="font-semibold text-white font-mono">{volumeCm3.toLocaleString()} cm³</span>
-                    </div>
-                    <div className="flex justify-between items-center text-neutral-300">
-                      <span className="text-neutral-400">Khối lượng ước tính:</span>
-                      <span className="font-semibold text-white font-mono">{estimatedGrams} g (PLA)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3D Printing Recommendations */}
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/8 flex flex-col gap-2">
-                  <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                    <Flame className="w-3.5 h-3.5 text-rose-400" />
-                    <span>Khuyến nghị thông số máy in</span>
-                  </div>
-                  <div className="space-y-1.5 text-[10.5px]">
-                    <div className="flex justify-between text-neutral-300">
-                      <span className="text-neutral-400">Nhiệt độ đầu phun (Nozzle):</span>
-                      <span className="font-mono text-white">200°C - 215°C</span>
-                    </div>
-                    <div className="flex justify-between text-neutral-300">
-                      <span className="text-neutral-400">Nhiệt độ bàn nhiệt (Bed):</span>
-                      <span className="font-mono text-white">55°C - 60°C</span>
-                    </div>
-                    <div className="flex justify-between text-neutral-300">
-                      <span className="text-neutral-400">Tốc độ in khuyên dùng:</span>
-                      <span className="font-mono text-white">50 - 150 mm/s</span>
-                    </div>
-                    <div className="flex justify-between text-neutral-300">
-                      <span className="text-neutral-400">Định dạng file xuất:</span>
-                      <span className="font-mono text-cyan-300">STL / GLB / OBJ</span>
-                    </div>
+                  {/* Single Estimated Weight Line */}
+                  <div className="pt-2 border-t border-[#E2D9D0] flex justify-between items-center text-[10.5px]">
+                    <span className="text-[#7A706C] font-sans">Khối lượng ước tính:</span>
+                    <span className="text-[#231F1E] font-semibold font-mono tabular-nums">
+                      ~{Math.round(volumeCm3 * materialConfig.infill * materialConfig.density)}g ({selectedMaterial})
+                    </span>
                   </div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Fixed Bottom CTA for Active Model (CustomerApproval & QuoteModalV2) */}
-          {activeModelMesh && activeModelMesh.status === 'succeeded' && (
-            <div className="p-3 border-t border-cyan-500/25 bg-[#080d14]/95 backdrop-blur-xl flex flex-col gap-2.5 shadow-[0_-10px_25px_rgba(0,0,0,0.5)]">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                  Chốt Mẫu In Sản Xuất
-                </span>
-                <span className="text-[10px] font-mono text-cyan-300">
-                  Cao: {Math.min(120, Math.max(100, Math.round(dimensions.y || 100)))} mm
-                </span>
-              </div>
-
-              {/* Material Selector Buttons */}
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setPrintMaterial('Resin')}
-                  className={`py-1.5 px-2 rounded-lg border text-left transition-all cursor-pointer ${
-                    printMaterial === 'Resin'
-                      ? 'bg-cyan-500/20 border-cyan-400/60 text-white shadow-[0_0_10px_rgba(0,240,255,0.15)]'
-                      : 'bg-white/[0.02] border-white/8 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <div className="text-[10.5px] font-semibold flex items-center justify-between">
-                    <span>SLA Resin</span>
-                    <span className="text-[8px] font-mono text-cyan-300">Siêu Mịn</span>
-                  </div>
+          {activeModelMesh?.status === 'succeeded' && activeModelMesh.versionId && (
+            <div className="p-3 border-t border-[#E2D9D0] bg-white space-y-2 text-xs text-[#231F1E]">
+              <p className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                {activeModelMesh.latestPrintReview?.decision === 'Approved' || activeModelMesh.isApprovedForPrinting
+                  ? 'Kỹ thuật viên đã duyệt in'
+                  : 'Chờ kỹ thuật viên duyệt in'}
+              </p>
+              {isStaffOrAdmin && (
+                <button type="button" onClick={() => void handleQuickStaffApprove()} disabled={isStaffReviewing}
+                  className="w-full rounded-lg border border-[#E2D9D0] px-3 py-2 disabled:opacity-50">
+                  {isStaffReviewing ? 'Đang duyệt...' : 'Duyệt in ngay (Staff)'}
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPrintMaterial('PLA')}
-                  className={`py-1.5 px-2 rounded-lg border text-left transition-all cursor-pointer ${
-                    printMaterial === 'PLA'
-                      ? 'bg-cyan-500/20 border-cyan-400/60 text-white shadow-[0_0_10px_rgba(0,240,255,0.15)]'
-                      : 'bg-white/[0.02] border-white/8 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <div className="text-[10.5px] font-semibold flex items-center justify-between">
-                    <span>FDM PLA</span>
-                    <span className="text-[8px] font-mono text-cyan-300">Nhựa Bền</span>
-                  </div>
-                </button>
-              </div>
-
-              {/* Staff Print Review Status Banner */}
-              {activeModelMesh && (
-                <div className="mb-2">
-                  {!activeModelMesh.versionId ? (
-                    <div className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span>Đang nạp phiên bản mô hình...</span>
-                    </div>
-                  ) : activeModelMesh.latestPrintReview?.decision === 'Approved' || activeModelMesh.isApprovedForPrinting ? (
-                    <div className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span className="truncate">Kỹ thuật viên đã duyệt in</span>
-                      </div>
-                      <span className="font-mono text-[10px] text-emerald-400/80 shrink-0">
-                        #{activeModelMesh.latestPrintReview?.configurationHash ? activeModelMesh.latestPrintReview.configurationHash.slice(0, 6) : 'VERIFIED'}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="px-2.5 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span>Chờ kỹ thuật viên duyệt in</span>
-                        </div>
-                        {isStaffOrAdmin && (
-                          <button
-                            type="button"
-                            disabled={isStaffReviewing}
-                            onClick={handleQuickStaffApprove}
-                            className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-300 text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm disabled:opacity-50"
-                          >
-                            {isStaffReviewing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3 text-emerald-400" />}
-                            <span>⚡ Duyệt in ngay (Staff)</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
               )}
-
-              {/* Nút 1: Xác nhận chốt mẫu in */}
-              <button
-                type="button"
-                onClick={() => void handleCustomerApproval(false)}
-                disabled={
-                  isApprovingPrint ||
-                  !activeModelMesh?.versionId ||
-                  !(activeModelMesh?.latestPrintReview?.decision === 'Approved' || activeModelMesh?.isApprovedForPrinting)
-                }
-                className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                  activeApproved
-                    ? 'bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                    : 'bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/25 shadow-[0_0_15px_rgba(0,240,255,0.1)]'
-                }`}
-              >
-                {isApprovingPrint ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : activeApproved ? (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                ) : (
-                  <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                )}
-                <span className="truncate">
-                  {activeApproved
-                    ? '✓ Đã chốt cấu hình in 3D'
-                    : '1. Xác nhận chốt mẫu in 3D'}
-                </span>
+              <button type="button" onClick={() => void handleCustomerApproval(false)}
+                disabled={isApprovingPrint || !(activeModelMesh.latestPrintReview?.decision === 'Approved' || activeModelMesh.isApprovedForPrinting)}
+                className="w-full rounded-lg border border-[#E2D9D0] px-3 py-2 disabled:opacity-50">
+                {isApprovingPrint ? <Loader2 className="mx-auto w-4 h-4 animate-spin" /> : activeApproved ? 'Đã chốt cấu hình in 3D' : 'Xác nhận chốt mẫu in 3D'}
               </button>
-
-              {/* Nút 2: Mở Modal Báo Giá */}
-              <button
-                type="button"
-                onClick={() => void handleOpenQuoteModal()}
-                disabled={
-                  !activeModelMesh?.versionId ||
-                  !(activeModelMesh?.latestPrintReview?.decision === 'Approved' || activeModelMesh?.isApprovedForPrinting)
-                }
-                className="btn-pooled-cyan w-full py-2.5 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(0,240,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Zap className="w-3.5 h-3.5 text-cyan-200" />
-                <span>2. Lấy Báo Giá & Đặt In 3D</span>
+              <button type="button" onClick={() => void handleOpenQuoteModal()}
+                disabled={isApprovingPrint || !(activeModelMesh.latestPrintReview?.decision === 'Approved' || activeModelMesh.isApprovedForPrinting)}
+                className="w-full rounded-lg border border-[#B83B2A] px-3 py-2 text-[#B83B2A] disabled:opacity-50">
+                Lấy báo giá V2
               </button>
             </div>
           )}
+          {/* Sticky Checkout CTA (Chốt đơn in 3D) */}
+          <div className="p-3 bg-[#FFFFFF] border-t border-[#E2D9D0] shrink-0 flex flex-col gap-2 shadow-sm">
+            <div className="flex items-center justify-between text-xs font-mono tabular-nums">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-[#7A706C]">Thể tích & Diện tích</span>
+                <span className="text-[#231F1E] font-medium text-[11px]">
+                  {volumeCm3} cm³ · {surfaceAreaCm2} cm²
+                </span>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] text-[#7A706C]">Tạm tính ({selectedMaterial})</span>
+                <span className="text-sm font-semibold text-[#B83B2A]">
+                  {liveTotalPriceVnd.toLocaleString('vi-VN')} đ
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOrderTargetAsset(activeModelMesh || displayAssets[0] || null);
+                setIsPrintOrderModalOpen(true);
+              }}
+              className="w-full py-2.5 px-3 rounded-lg bg-[#B83B2A] hover:bg-[#9E2F20] text-xs font-semibold text-white flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.99] cursor-pointer"
+            >
+              <span>Đặt in 3D ngay →</span>
+            </button>
+          </div>
         </div>
       ) : (
         <button
           onClick={() => setIsRightPanelOpen(true)}
-          className="absolute top-4 right-4 z-20 p-2.5 rounded-xl bg-[#0c1017]/90 border border-white/12 text-zinc-300 hover:text-cyan-400 shadow-xl backdrop-blur-xl cursor-pointer"
-          title="Mở bảng Tài sản & Lớp"
+          className="absolute top-4 right-4 z-20 p-2 rounded-lg bg-[#FFFFFF] border border-[#E2D9D0] text-[#7A706C] hover:text-[#231F1E] shadow-sm cursor-pointer"
+          title="Mở bảng thông số"
         >
-          <PanelRight className="w-5 h-5 text-cyan-400" />
+          <PanelRight className="w-4 h-4 text-[#B83B2A]" />
         </button>
       )}
       {/* Modal Báo Giá Sản Xuất V2 */}
@@ -2332,6 +2143,35 @@ export default function Create3DStudio() {
           initialMaterial={printMaterial}
           initialScale={scalePercent / 100}
           approvedConfigHash={activeApproved?.approvalDto.configurationHash || ''}
+        />
+      )}
+
+      {/* 3D Print Order & PayOS VietQR Modal */}
+      {isPrintOrderModalOpen && (orderTargetAsset || activeModelMesh || displayAssets[0]) && (
+        <PrintOrderModal
+          isOpen={isPrintOrderModalOpen}
+          onClose={() => {
+            setIsPrintOrderModalOpen(false);
+            setOrderTargetAsset(null);
+          }}
+          asset={orderTargetAsset || activeModelMesh || displayAssets[0]!}
+          dimensions={dimensions}
+          infillDensity={infillDensity}
+          layerHeightMm={layerHeightMm}
+          initialMaterial={selectedMaterial}
+        />
+      )}
+
+      {/* Credit Top-Up PayOS VietQR Modal */}
+      {isTopUpModalOpen && (
+        <CreditTopUpModal
+          isOpen={isTopUpModalOpen}
+          onClose={() => setIsTopUpModalOpen(false)}
+          onSuccess={(newBalance) => {
+            setCreditBalance(newBalance);
+            void fetchUserCredit();
+          }}
+          initialBalance={creditBalance}
         />
       )}
     </div>

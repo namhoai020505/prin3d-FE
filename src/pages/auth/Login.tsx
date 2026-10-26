@@ -1,5 +1,4 @@
-import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 
 /**
  * Legacy `/login` route adapter:
@@ -7,14 +6,5 @@ import { useNavigate } from 'react-router-dom';
  * with OTP verification and modern auth state machine.
  */
 export default function Login() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    navigate('/', { replace: true });
-    window.dispatchEvent(
-      new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
-    );
-  }, [navigate]);
-
-  return null;
+  return <Navigate to="/" replace state={{ openLoginModal: true }} />;
 }

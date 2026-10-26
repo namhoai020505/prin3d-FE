@@ -130,7 +130,10 @@ export const GoogleLoginButton = ({ onSuccess, isLoading = false }: GoogleLoginB
             d="M12 4.909c2.39 0 4.19.982 5.09 1.836l3.5-3.5C18.39 1.155 15.427 0 12 0 7.33 0 3.324 2.69 1.405 6.618l3.86 3.147C6.186 6.84 8.845 4.91 12 4.909z"
           />
         </svg>
-        Đăng Nhập Bằng Google
+        <span className="flex items-center gap-2">
+          <span>Đăng Nhập Bằng Google</span>
+          <span className="text-[10px] normal-case font-medium bg-amber-500/20 text-amber-800 border border-amber-500/30 px-2 py-0.5 rounded-full">Sắp ra mắt</span>
+        </span>
       </button>
 
       {/* Invisible overlay containing the actual GoogleLogin button */}

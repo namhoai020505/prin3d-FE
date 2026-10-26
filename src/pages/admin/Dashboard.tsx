@@ -75,6 +75,9 @@ const SEED_PARTNER_LABS = [
   { id: '11111111-2222-3333-4444-555555555502', name: 'Saigon Precision Resin & FDM Lab' },
 ];
 
+const shipmentTrackingNumberNow = () => `TB-SHIP-${Date.now().toString().slice(-6)}`;
+const shipmentEventKeyNow = () => `EVT-${Date.now()}`;
+
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('observability');
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -292,7 +295,7 @@ export default function AdminDashboard() {
       const t = await fulfillmentService.getOrderTimeline(orderId);
       setCurrentTimeline(t);
       if (!shipmentTrackingNumber) {
-        setShipmentTrackingNumber(`TB-SHIP-${Date.now().toString().slice(-6)}`);
+        setShipmentTrackingNumber(shipmentTrackingNumberNow());
       }
     } catch (err) {
       console.warn('Lỗi nạp timeline đơn:', err);
@@ -386,7 +389,7 @@ export default function AdminDashboard() {
         shippingActualVnd: 25000,
       });
       showToast(`Đã xuất vận đơn ${shipmentTrackingNumber} (${shipmentCarrier})!`);
-      setShipmentTrackingNumber(`TB-SHIP-${Date.now().toString().slice(-6)}`);
+      setShipmentTrackingNumber(shipmentTrackingNumberNow());
       await fetchTimeline(selectedFulfillmentOrderId);
       await fetchOrders();
     } catch (err: unknown) {
@@ -400,7 +403,7 @@ export default function AdminDashboard() {
   const handleRecordShipmentEvent = async (shipmentId: string, status: string, note: string) => {
     try {
       await fulfillmentService.recordShipmentEvent(shipmentId, {
-        eventKey: `EVT-${Date.now()}`,
+        eventKey: shipmentEventKeyNow(),
         status,
         note,
         source: 'Staff Admin',
@@ -514,8 +517,13 @@ export default function AdminDashboard() {
   };
 
   const handleAddCredits = async (userId: string) => {
+    const reason = userCreditReason.trim();
+    if (reason.length < 3) {
+      showToast('Vui lòng nhập lý do nạp (tối thiểu 3 ký tự).', 'error');
+      return;
+    }
     try {
-      await adminService.addUserCredits(userId, userCreditAmount, userCreditReason);
+      await adminService.addUserCredits(userId, userCreditAmount, reason);
       showToast(`Đã cấp thêm ${userCreditAmount} lượt tạo 3D cho tài khoản.`);
       await fetchUsersAndPackages();
     } catch (err: unknown) {
@@ -593,7 +601,8 @@ export default function AdminDashboard() {
 
   // Set default selected order for fulfillment/payment when orders load
   useEffect(() => {
-    if (orders.length > 0) {
+    void Promise.resolve().then(() => {
+      if (orders.length > 0) {
       if (!selectedFulfillmentOrderId) {
         setSelectedFulfillmentOrderId(orders[0].id);
         void fetchTimeline(orders[0].id);
@@ -602,7 +611,8 @@ export default function AdminDashboard() {
         setSelectedPaymentOrderId(orders[0].id);
         void fetchPaymentData(orders[0].id);
       }
-    }
+      }
+    });
   }, [orders]);
 
   const formatVnd = (amount: number) => amount.toLocaleString('vi-VN') + ' đ';

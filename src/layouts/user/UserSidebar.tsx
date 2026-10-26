@@ -3,7 +3,6 @@ import { useLocation } from 'react-router-dom';
 import { useVTNavigate as useNavigate } from '../../hooks/useVTNavigate';
 import {
   User as UserIcon,
-  Sparkles,
   LogOut,
   ChevronRight,
   ShieldCheck,
@@ -105,6 +104,8 @@ export default function UserSidebar() {
     );
   };
 
+  const managementPath = isStaffRole(currentUser?.role) ? '/staff/reviews' : '/admin/orders';
+
   const navItems = [
     {
       label: 'Trang chủ',
@@ -134,9 +135,9 @@ export default function UserSidebar() {
       ? [
           {
             label: 'Trung tâm quản trị',
-            path: '/admin/orders',
+            path: managementPath,
             icon: LayoutDashboard,
-            isActive: location.pathname.startsWith('/admin'),
+            isActive: location.pathname.startsWith('/admin') || location.pathname.startsWith('/staff'),
           },
         ]
       : []),
@@ -147,22 +148,22 @@ export default function UserSidebar() {
       <aside
         data-choreo="sidebar"
         style={{ viewTransitionName: 'app-sidebar' }}
-        className="app-sidebar fixed left-0 top-0 bottom-0 w-[64px] md:w-[72px] bg-[#070a0f]/95 backdrop-blur-2xl border-r border-white/10 flex flex-col items-center justify-between pt-3.5 pb-4 md:pb-5 z-[60] select-none shadow-[4px_0_24px_rgba(0,0,0,0.5)] overflow-visible transition-colors duration-300"
+        className="fixed left-0 top-0 bottom-0 w-[64px] md:w-[72px] bg-[#F6F3EE] border-r border-[#E2D9D0] flex flex-col items-center justify-between py-3 z-50 select-none shadow-sm overflow-visible transition-colors duration-300"
       >
         {/* Top: LOGOTheBoy & User Profile */}
         <div className="flex flex-col items-center w-full gap-3">
           {/* LOGOTheBoy */}
           <div
             onClick={() => handleNavClick('/')}
-            className="relative w-10 h-10 rounded-xl cursor-pointer hover:scale-105 transition-all flex items-center justify-center group"
+            className="relative w-10 h-10 rounded-xl cursor-pointer hover:scale-105 transition-all flex items-center justify-center group bg-[#FDF2F0] border border-[#B83B2A]/40 shadow-sm"
             title="Idea2Model - Về trang chủ"
           >
             <img
               src={logoTheBoy}
               alt="Idea2Model Logo"
-              className="w-9 h-9 object-contain rounded-lg filter drop-shadow-[0_0_8px_rgba(0,240,255,0.35)] group-hover:brightness-110 transition-all"
+              className="w-7 h-7 object-contain rounded-lg filter group-hover:brightness-105 transition-all"
             />
-            <Sparkles className="absolute -top-1 -left-1 w-3 h-3 text-cyan-300 pointer-events-none drop-shadow-[0_0_4px_rgba(0,240,255,0.75)]" />
+
           </div>
 
           {/* User profile button */}
@@ -172,8 +173,8 @@ export default function UserSidebar() {
               onClick={handleProfileClick}
               className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all shadow-sm cursor-pointer group ${
                 isLoggedIn
-                  ? 'border-cyan-400/40 bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 shadow-[0_0_10px_rgba(0,240,255,0.15)]'
-                  : 'border-white/15 bg-white/[0.05] hover:bg-white/15 hover:border-cyan-400/40 text-white/80 hover:text-white'
+                  ? 'border-[#B83B2A]/40 bg-[#FDF2F0] text-[#B83B2A] hover:bg-[#B83B2A] hover:text-white'
+                  : 'border-[#E2D9D0] bg-[#FFFFFF] hover:bg-[#F6F3EE] hover:border-[#B83B2A] text-[#7A706C] hover:text-[#231F1E]'
               }`}
               title={isLoggedIn ? `Tài khoản: ${fullName || 'Người dùng'}` : 'Đăng nhập / Đăng ký'}
             >
@@ -190,11 +191,11 @@ export default function UserSidebar() {
             {isAccountMenuOpen && (
               <div
                 ref={accountMenuRef}
-                className="absolute left-full ml-3 top-0 w-60 bg-[#0c1017]/95 border border-cyan-500/30 rounded-2xl shadow-[0_0_30px_rgba(0,240,255,0.2)] p-2 z-[70] text-xs text-white flex flex-col gap-1 backdrop-blur-2xl"
+                className="absolute left-full ml-3 top-0 w-52 bg-[#FFFFFF] border border-[#E2D9D0] rounded-2xl shadow-xl p-2 z-[60] text-xs text-[#231F1E] flex flex-col gap-1 backdrop-blur-md"
               >
-                <div className="px-3 py-2.5 border-b border-white/10 space-y-1">
-                  <p className="font-bold text-white truncate text-sm">{fullName || 'Người dùng'}</p>
-                  <div className="flex items-center justify-between text-[11px] text-cyan-300 font-medium">
+                <div className="px-3 py-2 border-b border-[#E2D9D0] space-y-1">
+                  <p className="font-bold text-[#231F1E] truncate">{fullName || 'Người dùng'}</p>
+                  <div className="flex items-center justify-between text-[10px] text-[#7A706C] font-mono">
                     <span>Lượt Free: {currentUser?.freeTrialRemaining ?? 0}</span>
                     <span>Mua: {currentUser?.purchasedRemaining ?? 0}</span>
                   </div>
@@ -205,10 +206,10 @@ export default function UserSidebar() {
                     setIsAccountMenuOpen(false);
                     navigate('/profile');
                   }}
-                  className="w-full px-3 py-2 rounded-lg hover:bg-white/10 text-left text-white/85 hover:text-white flex items-center justify-between cursor-pointer"
+                  className="w-full px-3 py-2 rounded-lg hover:bg-[#F6F3EE] text-left text-[#231F1E] flex items-center justify-between cursor-pointer"
                 >
                   <span>Hồ sơ cá nhân</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-white/50" />
+                  <ChevronRight className="w-3.5 h-3.5 text-[#7A706C]" />
                 </button>
                 <button
                   type="button"
@@ -216,10 +217,10 @@ export default function UserSidebar() {
                     setIsAccountMenuOpen(false);
                     navigate('/my-bookings');
                   }}
-                  className="w-full px-3 py-2 rounded-lg hover:bg-white/10 text-left text-white/85 hover:text-white flex items-center justify-between cursor-pointer"
+                  className="w-full px-3 py-2 rounded-lg hover:bg-[#F6F3EE] text-left text-[#231F1E] flex items-center justify-between cursor-pointer"
                 >
                   <span>Đơn in 3D của tôi</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-white/50" />
+                  <ChevronRight className="w-3.5 h-3.5 text-[#7A706C]" />
                 </button>
                 <button
                   type="button"
@@ -227,10 +228,10 @@ export default function UserSidebar() {
                     setIsAccountMenuOpen(false);
                     navigate('/ticket-prices');
                   }}
-                  className="w-full px-3 py-2 rounded-lg hover:bg-white/10 text-left text-white/85 hover:text-white flex items-center justify-between cursor-pointer"
+                  className="w-full px-3 py-2 rounded-lg hover:bg-[#F6F3EE] text-left text-[#231F1E] flex items-center justify-between cursor-pointer"
                 >
                   <span>Bảng giá & Gói in 3D</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-white/50" />
+                  <ChevronRight className="w-3.5 h-3.5 text-[#7A706C]" />
                 </button>
                 <button
                   type="button"
@@ -251,7 +252,7 @@ export default function UserSidebar() {
                     type="button"
                     onClick={() => {
                       setIsAccountMenuOpen(false);
-                      navigate('/admin/orders');
+                      navigate(managementPath);
                     }}
                     className="w-full px-3 py-2 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-left text-cyan-300 hover:text-cyan-100 border border-cyan-500/40 flex items-center justify-between cursor-pointer font-bold shadow-sm"
                   >
@@ -274,7 +275,7 @@ export default function UserSidebar() {
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="w-full px-3 py-2 rounded-lg hover:bg-white/10 text-left text-slate-300 hover:text-white flex items-center gap-2 cursor-pointer font-medium"
+                  className="w-full px-3 py-2 rounded-lg hover:bg-[#FDF2F0] text-left text-[#B83B2A] flex items-center gap-2 cursor-pointer font-medium"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Đăng xuất</span>

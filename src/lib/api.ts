@@ -92,6 +92,10 @@ const requestFreshAccessToken = async (shouldOpenModal = true): Promise<string |
       }
     }
 
+    if (response.data.success === false) {
+      throw new Error('Refresh token request failed.');
+    }
+
     const payload = response.data?.data || response.data;
     const nextAccessToken = payload?.accessToken || payload?.token;
     const nextFullName =

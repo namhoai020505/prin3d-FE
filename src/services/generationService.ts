@@ -41,7 +41,7 @@ export type GenerationTask = {
     widthMm: number;
     depthMm: number;
     heightMm: number;
-  };
+  } | null;
   modelVolumeCm3?: number | null;
   printabilityStatus?: string;
   isWatertight?: boolean;
@@ -72,10 +72,67 @@ export type PrintQuote = {
 
 export type CreateGenerationInput = {
   image?: File;
+  prompt?: string;
   modelName?: string;
   shouldTexture?: boolean;
   heightMm?: number;
   idempotencyKey?: string;
+};
+
+export type GenerationApiError = {
+  status?: number;
+  code?: string;
+  message: string;
+  isNsfwBlocked: boolean;
+};
+
+export const parseGenerationError = (error: unknown): GenerationApiError => {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const axiosError = error as {
+      response?: {
+        status?: number;
+        data?: {
+          code?: string;
+          message?: string;
+          detail?: string;
+          title?: string;
+        };
+      };
+      message?: string;
+    };
+
+    const status = axiosError.response?.status;
+    const data = axiosError.response?.data;
+    const code = data?.code;
+    const isNsfwBlocked = status === 422 || code === 'NSFW_CONTENT_BLOCKED';
+
+    const message =
+      data?.message ||
+      data?.detail ||
+      data?.title ||
+      (isNsfwBlocked
+        ? 'Nội dung hình ảnh hoặc từ khóa vi phạm tiêu chuẩn kiểm duyệt (nhạy cảm, bạo lực hoặc 18+).'
+        : axiosError.message || 'Không thể tạo mô hình 3D.');
+
+    return {
+      status,
+      code,
+      message,
+      isNsfwBlocked,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      isNsfwBlocked: false,
+    };
+  }
+
+  return {
+    message: 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.',
+    isNsfwBlocked: false,
+  };
 };
 
 const unwrap = <T>(res: unknown): T => {
@@ -107,6 +164,9 @@ export const createImageGeneration = async (
   if (inputOrFormData instanceof FormData) {
     form = inputOrFormData;
   } else {
+    if (!inputOrFormData.image) {
+      throw new Error('Ảnh nguồn là bắt buộc để tạo mô hình 3D.');
+    }
     form = new FormData();
     if (inputOrFormData.image) form.append('image', inputOrFormData.image);
     form.append('heightMm', String(inputOrFormData.heightMm ?? 100));
