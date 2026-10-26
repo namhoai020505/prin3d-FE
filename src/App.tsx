@@ -6,6 +6,8 @@ import {
   RouterProvider,
 } from 'react-router-dom';
 import ConfirmDialogHost from './components/ConfirmDialogHost';
+import LoginModal from './components/LoginModal';
+import AiConsentModal from './components/AiConsentModal';
 import RequireAuth from './components/RequireAuth';
 import { useIdleTimeout } from './hooks/useIdleTimeout';
 import { useSessionHeartbeat } from './lib/sessionHeartbeat';
@@ -23,25 +25,39 @@ const Create3DStudio = lazy(() => import('./pages/user/Create3DStudio'));
 const TicketPrices = lazy(() => import('./pages/user/TicketPrices'));
 const MyBookings = lazy(() => import('./pages/user/MyBookings'));
 const Profile = lazy(() => import('./pages/user/Profile'));
+const OrderCheckoutReturn = lazy(() => import('./pages/user/OrderCheckoutReturn'));
 
 // Admin pages
-const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
+const DashboardPage = lazy(() => import('./pages/admin/dashboard/DashboardPage'));
+const OrdersPage = lazy(() => import('./pages/admin/orders/OrdersPage'));
+const ReviewsPage = lazy(() => import('./pages/admin/reviews/ReviewsPage'));
+const AdminFulfillmentPage = lazy(() => import('./pages/admin/fulfillment/AdminFulfillmentPage'));
+const FinancePage = lazy(() => import('./pages/admin/finance/FinancePage'));
+const WarrantyPage = lazy(() => import('./pages/admin/warranty/WarrantyPage'));
+const SystemAdminPage = lazy(() => import('./pages/admin/system/SystemAdminPage'));
 
-// Fallback spinner while lazy chunks are loading
+// Fallback spinner while lazy chunks are loading - Cyberpunk Dark Obsidian & Neon Cyan
 const PageLoader = () => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#140204' }}>
-    <div style={{ width: 40, height: 40, border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#e11d48', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#090d14' }}>
+    <div style={{ width: 40, height: 40, border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#00f0ff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
   </div>
 );
 
 const customerRoles = ['customer', 'cus', 'staff', 'admin'];
-const adminRoles = ['admin'];
+const adminRoles = ['admin', 'staff'];
 
 const RootLayout = () => {
   useIdleTimeout(10);
   useSessionHeartbeat();
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <ConfirmDialogHost />
+      <LoginModal />
+      <AiConsentModal />
+    </>
+  );
 };
 
 const router = createBrowserRouter([
@@ -60,7 +76,11 @@ const router = createBrowserRouter([
             element: <RequireAuth allowedRoles={customerRoles} />,
             children: [
               { path: '/my-bookings', element: <MyBookings /> },
-              { path: '/orders', element: <Navigate to="/my-bookings" replace /> },
+              { path: '/orders', element: <MyBookings /> },
+              { path: '/orders/:id/checkout-return', element: <OrderCheckoutReturn /> },
+              { path: '/orders/:id/checkout-cancel', element: <OrderCheckoutReturn /> },
+              { path: '/checkout/success', element: <OrderCheckoutReturn /> },
+              { path: '/checkout/cancel', element: <OrderCheckoutReturn /> },
               { path: '/profile', element: <Profile /> },
             ],
           },
@@ -73,9 +93,25 @@ const router = createBrowserRouter([
             path: '/admin',
             element: <AdminLayout />,
             children: [
-              { index: true, element: <Navigate to="dashboard" replace /> },
-              { path: 'dashboard', element: <Dashboard /> },
-              { path: '*', element: <Navigate to="dashboard" replace /> },
+              { index: true, element: <Navigate to="orders" replace /> },
+              { path: 'dashboard', element: <DashboardPage /> },
+              { path: 'orders', element: <OrdersPage /> },
+              { path: 'orders/:id', element: <OrdersPage /> },
+              { path: 'reviews', element: <ReviewsPage /> },
+              { path: 'reviews/:generationId', element: <ReviewsPage /> },
+              { path: 'fulfillment', element: <AdminFulfillmentPage /> },
+              { path: 'fulfillment/:orderId', element: <AdminFulfillmentPage /> },
+              { path: 'finance', element: <FinancePage /> },
+              { path: 'warranty', element: <WarrantyPage /> },
+              {
+                path: 'system',
+                element: (
+                  <RequireAuth allowedRoles={['admin']} verifyAdmin>
+                    <SystemAdminPage />
+                  </RequireAuth>
+                ),
+              },
+              { path: '*', element: <Navigate to="orders" replace /> },
             ],
           },
         ],
@@ -85,7 +121,7 @@ const router = createBrowserRouter([
       { path: '/cinemas/*', element: <Navigate to="/" replace /> },
       { path: '/cinema-schedule', element: <Navigate to="/" replace /> },
       { path: '/booking/*', element: <Navigate to="/" replace /> },
-      { path: '/manager/*', element: <Navigate to="/admin/dashboard" replace /> },
+      { path: '/manager/*', element: <Navigate to="/admin/orders" replace /> },
       { path: '/staff/*', element: <Navigate to="/" replace /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
@@ -94,12 +130,9 @@ const router = createBrowserRouter([
 
 function App() {
   return (
-    <>
-      <Suspense fallback={<PageLoader />}>
-        <RouterProvider router={router} />
-      </Suspense>
-      <ConfirmDialogHost />
-    </>
+    <Suspense fallback={<PageLoader />}>
+      <RouterProvider router={router} />
+    </Suspense>
   );
 }
 

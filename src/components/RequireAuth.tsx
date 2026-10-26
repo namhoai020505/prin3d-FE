@@ -16,6 +16,7 @@ type AuthCheckState = 'checking' | 'allowed' | 'login' | 'forbidden';
 type RequireAuthProps = {
   allowedRoles?: string[];
   verifyAdmin?: boolean;
+  children?: React.ReactNode;
 };
 
 const getErrorStatus = (error: unknown) =>
@@ -29,7 +30,11 @@ const getErrorStatus = (error: unknown) =>
     ? error.response.status
     : undefined;
 
-const RequireAuth = ({ allowedRoles = [], verifyAdmin = false }: RequireAuthProps) => {
+const RequireAuth = ({
+  allowedRoles = [],
+  verifyAdmin = false,
+  children,
+}: RequireAuthProps) => {
   const [authState, setAuthState] = useState<AuthCheckState>('checking');
 
   useEffect(() => {
@@ -109,20 +114,25 @@ const RequireAuth = ({ allowedRoles = [], verifyAdmin = false }: RequireAuthProp
   if (authState === 'checking') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0F172A] text-sm font-semibold text-white">
-        Dang kiem tra quyen truy cap...
+        Đang kiểm tra quyền truy cập...
       </div>
     );
   }
 
   if (authState === 'login') {
-    return <Navigate to="/login" replace />;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
+    }
+    return <Navigate to="/" replace />;
   }
 
   if (authState === 'forbidden') {
     return <Navigate to="/" replace />;
   }
 
-  return <Outlet />;
+  return children ? <>{children}</> : <Outlet />;
 };
 
 export default RequireAuth;

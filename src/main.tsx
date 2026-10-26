@@ -6,7 +6,9 @@ import 'react-toastify/dist/ReactToastify.css';
 import './index.css';
 import App from './App.tsx';
 
-const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string;
+const googleClientId =
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) ||
+  '928800899912-81ire3k9j09sibcegq1hriqgg231ahqr.apps.googleusercontent.com';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -14,8 +16,8 @@ createRoot(document.getElementById('root')!).render(
       <App />
       <ToastContainer
         theme="dark"
-        position="top-center"
-        autoClose={300}
+        position="top-right"
+        autoClose={3500}
         closeButton={false}
         hideProgressBar
         newestOnTop
@@ -23,7 +25,7 @@ createRoot(document.getElementById('root')!).render(
         pauseOnFocusLoss={false}
         pauseOnHover={false}
         draggable={false}
-        limit={1}
+        limit={3}
         toastClassName="g2c-toast"
         progressClassName="g2c-toast-progress"
       />

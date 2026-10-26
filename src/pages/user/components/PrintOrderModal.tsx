@@ -346,7 +346,7 @@ export default function PrintOrderModal({
           streetAddress: streetAddress.trim(),
           district: district.trim(),
           city: city.trim(),
-          customerNote: customerNote.trim() || null,
+          customerNote: customerNote.trim() || undefined,
         },
       });
 

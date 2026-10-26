@@ -26,6 +26,8 @@ import {
   type ModelPreset,
 } from '../../../constants/models';
 import { getAccessToken } from '../../../lib/auth';
+import { useParallax } from '../../../hooks/useParallax';
+import TiltCard from '../../../components/ui/TiltCard';
 
 interface DetailOption {
   label: string;
@@ -87,6 +89,8 @@ const PILL_ACTIONS = [
 
 export default function HeroCreateSection() {
   const navigate = useNavigate();
+  const layer1Offset = useParallax({ speed: -0.1, maxOffset: 40 });
+  const layer2Offset = useParallax({ speed: 0.05, maxOffset: 25 });
   const isLoggedIn = Boolean(getAccessToken());
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -108,7 +112,6 @@ export default function HeroCreateSection() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const dropzoneRef = useRef<HTMLDivElement>(null);
 
   const { displayed, done } = useTypewriter(TYPEWRITER_COPY, 28, 400);
 
@@ -181,13 +184,9 @@ export default function HeroCreateSection() {
   };
 
   const handleGoToLogin = () => {
-    if (typeof document !== 'undefined' && 'startViewTransition' in document) {
-      document.startViewTransition(() => {
-        navigate('/login', { viewTransition: true });
-      });
-    } else {
-      navigate('/login', { viewTransition: true });
-    }
+    window.dispatchEvent(
+      new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+    );
   };
 
   const handleStartGeneration = () => {
@@ -252,13 +251,13 @@ export default function HeroCreateSection() {
           </span>
         </div>
 
-        {/* Desktop nav links (center, hidden below md) */}
-        <nav className="hidden md:flex items-center text-[16px] lg:text-[18px] font-medium text-white">
+        {/* Desktop nav links: 3 links cleanly spaced with whitespace-nowrap */}
+        <nav className="hidden md:flex items-center text-[15px] lg:text-[17px] font-medium text-white whitespace-nowrap">
           {[
             { label: 'Studio 3D', onClick: handleStartGeneration },
-            { label: 'In 3D SLA/FDM', onClick: handleStartGeneration },
+
             { label: 'Thư viện mẫu', onClick: scrollToCommunity },
-            { label: 'Đơn hàng', onClick: () => navigate('/my-bookings') },
+            { label: 'Bảng giá in', onClick: () => navigate('/ticket-prices') },
           ].map((item, idx, arr) => (
             <span key={item.label} className="inline-flex items-center">
               <button
@@ -361,7 +360,7 @@ export default function HeroCreateSection() {
               setMobileMenuOpen(false);
               handleGoToLogin();
             }}
-            className="text-[28px] font-medium text-amber-300 hover:opacity-75 transition-opacity cursor-pointer"
+            className="text-[28px] font-medium text-cyan-400 hover:text-cyan-300 transition-opacity cursor-pointer"
           >
             Đăng nhập
           </button>
@@ -372,21 +371,28 @@ export default function HeroCreateSection() {
           Positioned on the left column so the 3D character on the right (70% center) is 100% unobstructed */}
       <div className="relative z-10 w-full max-w-[1440px] mx-auto my-auto py-4">
         <div className="w-full max-w-[656px] mr-auto flex flex-col items-start gap-5">
-          {/* 1. Blurred Project Intro + Typewriter Block */}
+          {/* Layer 1 & 2: Parallax Ambient Flare + Bold Display Headline */}
+          <div
+            style={{ transform: `translateY(${layer1Offset}px)` }}
+            className="pointer-events-none absolute -left-20 -top-10 w-96 h-96 rounded-full bg-cyan-500/10 blur-3xl -z-10"
+            aria-hidden="true"
+          />
           <div className="w-full">
             <div
-              className="pointer-events-none select-none mb-2.5"
+              className="pointer-events-none select-none mb-2.5 transition-transform duration-150"
               style={{
-                fontSize: 'clamp(15px, 2vw, 20px)',
-                lineHeight: 1.35,
-                fontWeight: 500,
+                fontSize: 'clamp(32px, 4.5vw, 56px)',
+
+                fontWeight: 900,
+                lineHeight: 1.1,
+                transform: `translateY(${layer2Offset}px)`,
                 color: '#fff',
-                filter: 'blur(3px)',
+
               }}
             >
-              THE BOYS 7.1 · AI Spatial Mesh &amp; 3D Printing Studio
-              <br />
-              Hệ thống khởi tạo lưới đa giác 3D từ ảnh 2D &amp; Đặt in SLA/FDM
+              <span className="text-cyan-400 font-mono tracking-widest text-xs uppercase block font-semibold mb-2">01 // AI SPATIAL MESH &amp; 3D PRINTING STUDIO</span>Biến Ảnh 2D Thành <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-teal-200">Mô Hình 3D</span>
+
+
             </div>
 
             <p
@@ -399,7 +405,7 @@ export default function HeroCreateSection() {
             >
               {displayed}
               {!done && (
-                <span className="inline-block w-[2px] h-[1.1em] bg-white align-middle ml-[2px] animate-cursor-blink" />
+                <span className="inline-block w-[2px] h-[1.1em] bg-cyan-400 align-middle ml-[2px] animate-cursor-blink" />
               )}
             </p>
           </div>
@@ -426,37 +432,17 @@ export default function HeroCreateSection() {
               className="hidden"
             />
 
-            {/* Synchronized Crimson/Burgundy Frosted Glass Console Shell */}
-            <div
-              ref={dropzoneRef}
-              onPointerMove={(e) => {
-                if (!dropzoneRef.current) return;
-                const rect = dropzoneRef.current.getBoundingClientRect();
-                dropzoneRef.current.style.setProperty(
-                  '--mx',
-                  `${(e.clientX - rect.left).toFixed(1)}px`
-                );
-                dropzoneRef.current.style.setProperty(
-                  '--my',
-                  `${(e.clientY - rect.top).toFixed(1)}px`
-                );
-              }}
-              className={`relative w-full rounded-[20px] p-3.5 sm:p-4 bg-[#121217]/75 backdrop-blur-2xl border transition-all duration-300 shadow-[0_24px_60px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.18)] ${
+            {/* Dark Obsidian Glassmorphism 3D Console Shell */}
+            <TiltCard
+              maxTilt={3}
+              perspective={1000}
+              scale={1.008}
+              className={`relative w-full rounded-[22px] p-3.5 sm:p-4 bg-gradient-to-b from-[#0e1628]/92 via-[#0a101e]/94 to-[#060a14]/98 backdrop-blur-2xl border transition-all duration-300 shadow-[0_24px_60px_rgba(0,0,0,0.85),0_0_35px_rgba(0,240,255,0.12),inset_0_1px_1px_rgba(255,255,255,0.22),inset_0_-1px_1px_rgba(0,240,255,0.1)] ${
                 isDragging
-                  ? 'border-white bg-[#1a1a24]/85'
-                  : 'border-white/20 hover:border-white/35'
+                  ? 'border-cyan-400 bg-cyan-950/40 shadow-[0_0_40px_rgba(0,240,255,0.3)]'
+                  : 'border-cyan-500/30 hover:border-cyan-400/50'
               }`}
             >
-              {/* Subtle cursor-following white spotlight */}
-              <div
-                className="pointer-events-none absolute inset-0 rounded-[20px] overflow-hidden z-0"
-                style={{
-                  background:
-                    'radial-gradient(280px circle at var(--mx, 50%) var(--my, 50%), rgba(255, 255, 255, 0.08), transparent 70%)',
-                }}
-                aria-hidden="true"
-              />
-
               {/* Interactive Upload Area */}
               <div
                 onClick={() => fileInputRef.current?.click()}
@@ -468,13 +454,14 @@ export default function HeroCreateSection() {
                 onDrop={handleDrop}
                 className={`relative z-10 w-full rounded-[14px] border border-dashed transition-all duration-300 px-5 py-6 sm:py-7 flex flex-col items-center justify-center cursor-pointer min-h-[148px] ${
                   isDragging
-                    ? 'border-white bg-white/15'
-                    : 'border-white/25 hover:border-white/55 bg-black/35 hover:bg-black/50'
+                    ? 'border-cyan-400 bg-cyan-500/15'
+                    : 'border-cyan-500/30 hover:border-cyan-400/60 bg-black/40 hover:bg-black/60 shadow-[inset_0_2px_8px_rgba(0,0,0,0.6)]'
                 }`}
+                style={{ transform: 'translateZ(14px)' }}
               >
                 {previewUrl ? (
                   <div className="relative group/preview flex flex-col items-center">
-                    <div className="relative rounded-xl overflow-hidden border border-white/35 bg-black/60 shadow-[0_12px_30px_rgba(0,0,0,0.65)] p-1.5">
+                    <div className="relative rounded-xl overflow-hidden border border-cyan-400/40 bg-black/60 shadow-[0_12px_30px_rgba(0,0,0,0.65),0_0_20px_rgba(0,240,255,0.2)] p-1.5">
                       <img
                         src={previewUrl}
                         alt="Bản xem trước"
@@ -483,43 +470,49 @@ export default function HeroCreateSection() {
                       <button
                         type="button"
                         onClick={handleRemoveFile}
-                        className="absolute -top-2 -right-2 w-6 h-6 bg-[#181820] hover:bg-white text-white hover:text-[#09090b] border border-white/40 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-110 cursor-pointer"
+                        className="absolute -top-2 -right-2 w-6 h-6 bg-[#0a101d] hover:bg-rose-500 text-white border border-cyan-400/40 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-110 cursor-pointer"
                         title="Xóa ảnh"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
                     <div className="mt-2.5 flex items-center gap-2 text-xs text-white font-medium">
-                      <span className="px-2 py-0.5 rounded-md bg-white/15 border border-white/30 font-mono-mesh text-[10.5px]">
+                      <span className="px-2 py-0.5 rounded-md bg-cyan-500/20 border border-cyan-400/40 font-mono text-[10.5px] text-cyan-300">
                         {selectedFaceCount}
                       </span>
-                      <span className="text-white/95">
+                      <span className="text-white/95 font-semibold">
                         {selectedFile?.name || selectedPresetTitle || 'Mẫu ảnh đã chọn'}
                       </span>
-                      <span className="text-zinc-400">· Nhấp để đổi</span>
+                      <span className="text-cyan-400/80">· Nhấp để đổi</span>
                     </div>
                   </div>
                 ) : (
                   <>
                     {/* 3D Cube / Upload Icon synchronized with Obsidian Glass */}
                     <div className="relative flex items-center justify-center">
-                      <div className="w-11 h-11 rounded-xl bg-gradient-to-b from-white/20 to-black/60 border border-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_8px_18px_rgba(0,0,0,0.4)] flex items-center justify-center text-white">
-                        <Box className="w-5 h-5 stroke-[1.75] text-white" />
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-b from-cyan-500/25 to-black/60 border border-cyan-400/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_8px_18px_rgba(0,240,255,0.25)] flex items-center justify-center text-cyan-300">
+                        <Box className="w-6 h-6 stroke-[1.8] text-cyan-300" />
                       </div>
-                      <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white border border-[#09090b] flex items-center justify-center text-[#09090b] shadow-[0_0_8px_rgba(255,255,255,0.5)]">
+                      <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-cyan-400 border border-[#09090b] flex items-center justify-center text-[#09090b] shadow-[0_0_8px_rgba(0,240,255,0.6)]">
                         <Plus className="w-2.5 h-2.5 stroke-[3]" />
                       </span>
                     </div>
+                    <p className="mt-3 text-xs sm:text-sm font-semibold text-slate-200 text-center">
+                      Kéo thả ảnh hoặc <span className="text-cyan-400 underline underline-offset-4">chọn từ thiết bị</span>
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                      PNG, JPG, WEBP · Tối đa 25MB · Nhận diện 3D tức thì
+                    </p>
                   </>
                 )}
               </div>
 
-              {/* Integrated Single-Row Console Control Bar (100% contained inside box, zero overlap) */}
+              {/* Integrated Single-Row Console Control Bar */}
               <div
                 ref={toolbarRef}
-                className="relative z-20 w-full mt-3 pt-2.5 border-t border-white/15 flex items-center justify-end gap-2 text-xs flex-wrap sm:flex-nowrap"
+                className="relative z-20 w-full mt-3 pt-2.5 border-t border-white/10 flex items-center justify-end gap-2 text-xs flex-wrap sm:flex-nowrap"
+                style={{ transform: 'translateZ(18px)' }}
               >
-                {/* Burgundy Glass Dropdowns, Settings Gear, and Crisp White CTA */}
                 <div className="flex items-center justify-end gap-2 shrink-0 ml-auto flex-wrap sm:flex-nowrap">
                   {/* Detail & Mesh Resolution Dropdown */}
                   <div className="relative shrink-0">
@@ -529,19 +522,19 @@ export default function HeroCreateSection() {
                         setShowDetailDropdown(!showDetailDropdown);
                         setShowModelDropdown(false);
                       }}
-                      className="flex items-center gap-1.5 px-2.5 h-[32px] rounded-[9px] bg-white/10 hover:bg-white/18 border border-white/20 hover:border-white/45 text-white transition-all text-[11.5px] cursor-pointer whitespace-nowrap"
+                      className="flex items-center gap-1.5 px-2.5 h-[34px] rounded-[10px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 hover:border-cyan-400/50 text-white transition-all text-[11.5px] cursor-pointer whitespace-nowrap shadow-sm backdrop-blur-md"
                     >
-                      <Layers className="w-3 h-3 text-white/90 shrink-0" />
+                      <Layers className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                       <span>{detailLevel}</span>
-                      <span className="px-1.5 py-0.2 rounded bg-white/20 text-white font-mono-mesh text-[10px] font-semibold">
+                      <span className="px-1.5 py-0.2 rounded bg-cyan-500/25 text-cyan-300 border border-cyan-400/30 font-mono text-[10px] font-semibold">
                         {selectedFaceCount}
                       </span>
-                      <ChevronDown className="w-3 h-3 text-rose-100/75 shrink-0" />
+                      <ChevronDown className="w-3 h-3 text-cyan-400/80 shrink-0" />
                     </button>
 
                     {showDetailDropdown && (
-                      <div className="absolute left-0 sm:left-auto sm:right-0 bottom-full mb-2 w-60 bg-[#260408]/95 backdrop-blur-2xl border border-white/25 rounded-2xl shadow-[0_20px_50px_rgba(14,1,3,0.9)] p-1.5 z-50">
-                        <div className="px-2.5 py-1.5 text-[10px] font-mono-mesh uppercase tracking-wider text-rose-100/70 border-b border-white/10">
+                      <div className="absolute left-0 sm:left-auto sm:right-0 bottom-full mb-2 w-64 bg-[#0b121e]/98 backdrop-blur-2xl border border-cyan-500/30 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_30px_rgba(0,240,255,0.12)] p-1.5 z-50">
+                        <div className="px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-cyan-400/80 border-b border-white/10">
                           Độ phân giải lưới (Mesh Polycount)
                         </div>
                         {DETAIL_OPTIONS.map((opt) => {
@@ -558,19 +551,19 @@ export default function HeroCreateSection() {
                               }}
                               className={`w-full text-left px-2.5 py-2 rounded-xl text-xs transition-colors flex items-center justify-between gap-2 cursor-pointer ${
                                 isActive
-                                  ? 'bg-white/18 text-white'
-                                  : 'text-white/90 hover:bg-white/10'
+                                  ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                                  : 'text-slate-300 hover:text-white hover:bg-white/10'
                               }`}
                             >
                               <div className="flex flex-col">
                                 <span className="font-semibold">{opt.label}</span>
-                                <span className="text-[10px] text-zinc-400">{opt.desc}</span>
+                                <span className="text-[10px] text-slate-400">{opt.desc}</span>
                               </div>
                               <div className="flex items-center gap-1.5">
-                                <span className="px-1.5 py-0.5 rounded bg-black/30 border border-white/25 font-mono-mesh text-[10.5px] text-white">
+                                <span className="px-1.5 py-0.5 rounded bg-black/40 border border-white/20 font-mono text-[10.5px] text-cyan-300">
                                   {opt.faceCount}
                                 </span>
-                                {isActive && <Check className="w-3.5 h-3.5 text-white" />}
+                                {isActive && <Check className="w-3.5 h-3.5 text-cyan-400" />}
                               </div>
                             </button>
                           );
@@ -587,15 +580,15 @@ export default function HeroCreateSection() {
                         setShowModelDropdown(!showModelDropdown);
                         setShowDetailDropdown(false);
                       }}
-                      className="flex items-center justify-between gap-1.5 px-2.5 h-[32px] w-[136px] rounded-[9px] bg-white/10 hover:bg-white/18 border border-white/20 hover:border-white/45 text-white transition-all text-[11.5px] cursor-pointer whitespace-nowrap overflow-hidden"
+                      className="flex items-center justify-between gap-1.5 px-2.5 h-[34px] w-[140px] rounded-[10px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 hover:border-cyan-400/50 text-white transition-all text-[11.5px] cursor-pointer whitespace-nowrap overflow-hidden shadow-sm backdrop-blur-md"
                     >
                       <span className="truncate">{modelName}</span>
-                      <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
+                      <ChevronDown className="w-3 h-3 text-cyan-400/80 shrink-0" />
                     </button>
 
                     {showModelDropdown && (
-                      <div className="absolute left-0 sm:left-auto sm:right-0 bottom-full mb-2 w-64 bg-[#14141a]/95 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.9)] p-1.5 z-50">
-                        <div className="px-2.5 py-1.5 text-[10px] font-mono-mesh uppercase tracking-wider text-zinc-400 border-b border-white/10">
+                      <div className="absolute left-0 sm:left-auto sm:right-0 bottom-full mb-2 w-64 bg-[#0b121e]/98 backdrop-blur-2xl border border-cyan-500/30 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_30px_rgba(0,240,255,0.12)] p-1.5 z-50">
+                        <div className="px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-cyan-400/80 border-b border-white/10">
                           AI Spatial Mesh Engine
                         </div>
                         {AI_MODELS.map((model) => {
@@ -610,22 +603,22 @@ export default function HeroCreateSection() {
                               }}
                               className={`w-full text-left px-2.5 py-2 rounded-xl text-xs transition-colors flex flex-col gap-0.5 cursor-pointer ${
                                 isActive
-                                  ? 'bg-white/18 text-white'
-                                  : 'text-white/90 hover:bg-white/10'
+                                  ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                                  : 'text-slate-300 hover:text-white hover:bg-white/10'
                               }`}
                             >
                               <div className="flex items-center justify-between w-full">
                                 <span className="font-semibold">{model.name}</span>
                                 <div className="flex items-center gap-1.5">
                                   {model.badge && (
-                                    <span className="px-1.5 py-0.2 rounded bg-white/20 border border-white/30 text-[9.5px] font-semibold text-white">
+                                    <span className="px-1.5 py-0.2 rounded bg-cyan-500/25 border border-cyan-400/30 text-[9.5px] font-semibold text-cyan-300">
                                       {model.badge}
                                     </span>
                                   )}
-                                  {isActive && <Check className="w-3.5 h-3.5 text-white" />}
+                                  {isActive && <Check className="w-3.5 h-3.5 text-cyan-400" />}
                                 </div>
                               </div>
-                              <span className="text-[10px] text-zinc-400 line-clamp-1">
+                              <span className="text-[10px] text-slate-400 line-clamp-1">
                                 {model.description}
                               </span>
                             </button>
@@ -639,24 +632,24 @@ export default function HeroCreateSection() {
                   <button
                     type="button"
                     onClick={handleStartGeneration}
-                    className="w-[32px] h-[32px] rounded-[9px] bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/45 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer shrink-0"
+                    className="w-[34px] h-[34px] rounded-[10px] bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 hover:border-cyan-400/50 flex items-center justify-center text-slate-300 hover:text-cyan-300 transition-colors cursor-pointer shrink-0 shadow-sm"
                     title="Mở cài đặt nâng cao trong Studio 3D"
                   >
                     <Settings className="w-3.5 h-3.5" />
                   </button>
 
-                  {/* Primary CTA Button ("Tạo ra") — Flush inside the glass box */}
+                  {/* Primary CTA Button ("Tạo ra") — 18-stop Pooled Cyan Glow */}
                   <button
                     type="button"
                     onClick={handleStartGeneration}
-                    className="inline-flex items-center justify-center gap-1.5 px-3.5 h-[32px] rounded-[9px] bg-white hover:bg-zinc-100 text-[#09090b] font-bold text-xs shadow-[0_4px_14px_rgba(255,255,255,0.2)] hover:scale-[1.02] active:scale-[0.98] transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                    className="btn-pooled-cyan h-[34px] px-4 rounded-[10px] font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(0,240,255,0.35)] hover:scale-[1.02] active:scale-[0.98] transition-all whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[#09090b] stroke-[2.2]" />
+                    <Sparkles className="w-3.5 h-3.5 text-white stroke-[2.2]" />
                     <span>Tạo ra</span>
                   </button>
                 </div>
               </div>
-            </div>
+            </TiltCard>
           </div>
 
           {/* 3. Project Action Pill Buttons (Fade-in + slide-up 400ms after load) */}
@@ -683,7 +676,7 @@ export default function HeroCreateSection() {
             <button
               type="button"
               onClick={handleCopyEmail}
-              className="inline-flex items-center justify-center gap-2 text-white bg-[#2a0408]/40 backdrop-blur-md border border-white/75 rounded-full text-[12.5px] sm:text-[13.5px] px-4 py-[0.35em] mb-2 whitespace-nowrap hover:bg-white hover:text-[#240307] transition-colors duration-200 cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 text-cyan-200 bg-cyan-950/40 backdrop-blur-md border border-cyan-400/40 rounded-full text-[12.5px] sm:text-[13.5px] px-4 py-[0.35em] mb-2 whitespace-nowrap hover:bg-cyan-500/20 hover:text-white transition-colors duration-200 cursor-pointer"
             >
               <span>
                 {copiedEmail ? (

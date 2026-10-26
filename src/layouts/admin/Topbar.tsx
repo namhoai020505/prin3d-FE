@@ -1,6 +1,7 @@
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { FaBars, FaMoon, FaPowerOff, FaSun } from 'react-icons/fa';
 import { logout } from '../../services/authService';
+import NotificationBellV2 from '../../components/NotificationBellV2';
 
 interface TopbarProps {
   sidebarCollapsed: boolean;
@@ -9,68 +10,52 @@ interface TopbarProps {
   onToggleTheme: () => void;
 }
 
-const routeTitles: Record<string, { title: string; subtitle: string }> = {
-  '/admin/dashboard': {
-    title: 'Dashboard Quản Lý Hệ Thống',
-    subtitle: 'Theo dõi nhanh tình trạng vận hành và doanh thu hệ thống rạp.',
-  },
-  '/admin/movies': {
-    title: 'Quản Lý Danh Mục Phim',
-    subtitle: 'Điều phối danh mục phim, trailer, thể loại và thời lượng chiếu.',
-  },
-  '/admin/rooms': {
-    title: 'Quản Lý Phòng Chiếu & Rạp',
-    subtitle: 'Kiểm soát danh sách phòng, sức chứa và sơ đồ ghế.',
-  },
-  '/admin/showtime': {
-    title: 'Quản Lý Lịch Chiếu & Suất Chiếu',
-    subtitle: 'Sắp xếp suất chiếu theo rạp, phòng chiếu và khung giờ.',
-  },
-  '/admin/fb-items': {
-    title: 'Quản Lý F&B',
-    subtitle: 'Quản lý danh mục món bắp nước và tồn kho theo từng chi nhánh.',
-  },
-  '/admin/review': {
-    title: 'Kiểm Duyệt Bình Luận & Đánh Giá',
-    subtitle: 'Xử lý đánh giá đang chờ và duyệt bình luận phim.',
-  },
-  '/admin/reviews': {
-    title: 'Kiểm Duyệt Bình Luận & Đánh Giá',
-    subtitle: 'Xử lý đánh giá đang chờ và duyệt bình luận phim.',
-  },
-  '/admin/vouchers': {
-    title: 'Voucher & Mã Giảm Giá',
-    subtitle: 'Quản lý mã giảm giá và chương trình khuyến mãi toàn hệ thống.',
-  },
-  '/admin/refunds': {
-    title: 'Quản Lý Hoàn Tiền (Refunds)',
-    subtitle: 'Theo dõi và xử lý yêu cầu hoàn tiền thủ công.',
-  },
-  '/admin/banners': {
-    title: 'Quản Lý Banner Quảng Cáo',
-    subtitle: 'Cấu hình banner trình chiếu và hình ảnh trang chủ.',
-  },
-  '/admin/notifications': {
-    title: 'Quản Lý Thông Báo Hệ Thống',
-    subtitle: 'Phát và quản lý thông báo tới toàn bộ đối tượng người dùng.',
-  },
-  '/admin/staff': {
-    title: 'Quản Lý Nhân Viên',
-    subtitle: 'Tạo lời mời và quản trị tài khoản nhân viên nội bộ.',
-  },
-};
-
-const getRouteTitle = (pathname: string) => {
-  if (pathname.includes('/rooms/') && pathname.includes('/seats')) {
+const getRouteHeader = (pathname: string) => {
+  if (pathname.startsWith('/admin/orders')) {
     return {
-      title: 'Sơ Đồ Ghế & Cấu Hình Phòng',
-      subtitle: 'Cấu hình sơ đồ ghế, loại ghế và trạng thái sử dụng.',
+      title: 'Quản lý Đơn hàng',
+      subtitle: 'Danh sách đơn hàng, tiến độ vận hành, thanh toán và xử lý hủy đơn',
     };
   }
-
-  return routeTitles[pathname] ?? {
-    title: 'Hệ Thống Quản Trị Admin',
-    subtitle: 'Trung tâm điều hành Cinema Booking System.',
+  if (pathname.startsWith('/admin/reviews')) {
+    return {
+      title: 'Thẩm định Mẫu in 3D',
+      subtitle: 'Kiểm định hình học, độ kín nước và phê duyệt cấu hình sản xuất',
+    };
+  }
+  if (pathname.startsWith('/admin/fulfillment')) {
+    return {
+      title: 'Điều phối Sản xuất & Xưởng in',
+      subtitle: 'Bảng Kanban quy trình sản xuất 5 bước, phân bổ xưởng, kiểm định QC và vận chuyển',
+    };
+  }
+  if (pathname.startsWith('/admin/dashboard')) {
+    return {
+      title: 'Tổng quan Vận hành',
+      subtitle: 'Báo cáo chỉ số toàn sàn và giám sát tác vụ hệ thống',
+    };
+  }
+  if (pathname.startsWith('/admin/finance')) {
+    return {
+      title: 'Quản lý Giao dịch & Hoàn tiền',
+      subtitle: 'Đối soát cổng thanh toán PayOS và giải quyết yêu cầu hoàn tiền',
+    };
+  }
+  if (pathname.startsWith('/admin/warranty')) {
+    return {
+      title: 'Bảo hành & Khiếu nại Sản phẩm',
+      subtitle: 'Tiếp nhận báo cáo lỗi in, thẩm định bằng chứng và xử lý đền bù',
+    };
+  }
+  if (pathname.startsWith('/admin/system')) {
+    return {
+      title: 'Quản trị Hệ thống & Cấu hình',
+      subtitle: 'Quản lý tài khoản người dùng, phân quyền và cấu hình bảng giá in 3D',
+    };
+  }
+  return {
+    title: 'Trung tâm Quản trị',
+    subtitle: 'Nền tảng Quản trị & Điều phối Sản xuất In 3D THE BOYS',
   };
 };
 
@@ -83,7 +68,7 @@ const Topbar = ({
   const navigate = useNavigate();
   const location = useLocation();
   const fullName = localStorage.getItem('fullName') || 'Quản trị viên';
-  const page = getRouteTitle(location.pathname);
+  const { title, subtitle } = getRouteHeader(location.pathname);
 
   const handleLogout = async () => {
     await logout();
@@ -91,10 +76,10 @@ const Topbar = ({
   };
 
   const iconButtonClass = [
-    'grid h-10 w-10 shrink-0 place-items-center rounded-lg border transition',
+    'grid h-10 w-10 shrink-0 place-items-center rounded-xl border transition cursor-pointer',
     isLightMode
-      ? 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600'
-      : 'border-white/10 bg-white/5 text-slate-300 hover:border-blue-400/40 hover:bg-blue-500/10 hover:text-white',
+      ? 'border-slate-200 bg-white text-slate-600 hover:border-cyan-400 hover:bg-cyan-50 hover:text-cyan-700'
+      : 'border-white/10 bg-white/5 text-slate-300 hover:border-cyan-400/50 hover:bg-cyan-500/10 hover:text-white',
   ].join(' ');
 
   return (
@@ -103,7 +88,7 @@ const Topbar = ({
         'sticky top-0 z-30 flex h-[72px] shrink-0 items-center gap-4 border-b px-6 backdrop-blur-xl transition-colors',
         isLightMode
           ? 'border-slate-200 bg-white/90 text-slate-950'
-          : 'border-white/10 bg-[#0B1220]/90 text-white',
+          : 'border-white/10 bg-[#0B0F17]/90 text-white',
       ].join(' ')}
     >
       <button
@@ -116,61 +101,69 @@ const Topbar = ({
       </button>
 
       <div className="min-w-0">
-        <strong className="block truncate text-base font-black">{page.title}</strong>
+        <strong className="block truncate text-base font-black text-white">
+          {title}
+        </strong>
         <span
           className={`mt-0.5 hidden truncate text-xs font-semibold sm:block ${
-            isLightMode ? 'text-slate-500' : 'text-slate-400'
+            isLightMode ? 'text-slate-500' : 'text-white/60'
           }`}
         >
-          {page.subtitle}
+          {subtitle}
         </span>
       </div>
 
       <div className="ml-auto flex items-center gap-3">
+        {/* In-App Notifications Bell */}
+        <NotificationBellV2 placement="topbar" />
+
+        {/* Theme Toggle */}
         <button
           type="button"
           onClick={onToggleTheme}
           aria-label={isLightMode ? 'Chuyển sang dark mode' : 'Chuyển sang light mode'}
           title={isLightMode ? 'Dark mode' : 'Light mode'}
           className={[
-            'inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black uppercase tracking-wide transition',
+            'inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-black uppercase tracking-wide transition cursor-pointer',
             isLightMode
               ? 'border-slate-200 bg-slate-950 text-white hover:bg-slate-800'
-              : 'border-amber-300/30 bg-amber-300/10 text-amber-200 hover:bg-amber-300/20',
+              : 'border-cyan-500/30 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-950/60',
           ].join(' ')}
         >
           {isLightMode ? <FaMoon /> : <FaSun />}
           <span className="hidden sm:inline">{isLightMode ? 'Dark' : 'Light'}</span>
         </button>
 
+        {/* Profile Link */}
         <Link
           to="/profile"
           className={[
-            'hidden min-h-10 items-center gap-2 rounded-lg border px-2 py-1 no-underline transition md:flex',
+            'hidden min-h-10 items-center gap-2 rounded-xl border px-2.5 py-1 no-underline transition md:flex cursor-pointer',
             isLightMode
-              ? 'border-slate-200 bg-white text-slate-950 hover:border-blue-200'
-              : 'border-white/10 bg-white/5 text-white hover:border-blue-400/40',
+              ? 'border-slate-200 bg-white text-slate-950 hover:border-cyan-400'
+              : 'border-white/10 bg-white/5 text-white hover:border-cyan-400/50 hover:bg-white/10',
           ].join(' ')}
           title="Hồ sơ"
         >
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 text-xs font-black text-white">
+          <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 text-xs font-black text-black shadow">
             {fullName.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
             <div className="max-w-32 truncate text-xs font-black">{fullName}</div>
-            <div className={`text-[10px] font-bold ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+            <div className={`text-[10px] font-bold ${isLightMode ? 'text-slate-500' : 'text-cyan-400 font-mono'}`}>
               Administrator
             </div>
           </div>
         </Link>
 
+        {/* Logout */}
         <button
           onClick={handleLogout}
           className={[
-            'inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-black transition',
+            'inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-black transition cursor-pointer',
             isLightMode
               ? 'border-red-100 bg-red-50 text-red-700 hover:border-red-600 hover:bg-red-600 hover:text-white'
-              : 'border-red-400/20 bg-red-500/10 text-red-200 hover:bg-red-600 hover:text-white',
+              : 'border-red-500/20 bg-red-500/10 text-rose-300 hover:bg-rose-600 hover:text-white',
           ].join(' ')}
           type="button"
         >

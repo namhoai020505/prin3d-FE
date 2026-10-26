@@ -22,7 +22,6 @@ type JwtPayload = {
 
 type AuthSession = {
   accessToken: string | null;
-  refreshToken: string | null;
   fullName: string | null;
 };
 
@@ -34,23 +33,43 @@ export type AuthSessionInput = {
 
 export const AUTH_SESSION_EVENT = 'g2c-auth-session-changed';
 
-const LEGACY_TOKEN_KEYS = ['role'];
+const LEGACY_TOKEN_KEYS = ['role', 'refreshToken'];
+
+// In-memory module storage for access token (prevents anonymous/incognito session leakage)
+let memoryAccessToken: string | null = null;
 
 const authSession: AuthSession = {
   accessToken: null,
-  refreshToken: null,
-  fullName:
-    typeof window === 'undefined' ? null : localStorage.getItem('fullName'),
+  fullName: null,
 };
 
-const removeLegacyStoredTokens = () => {
+// 1-Time Migration: Purge localStorage access/refresh tokens to eliminate cross-window session leak
+const runTokenStorageMigration = () => {
   if (typeof window === 'undefined') {
     return;
   }
 
-  for (const key of LEGACY_TOKEN_KEYS) {
-    localStorage.removeItem(key);
-    sessionStorage.removeItem(key);
+  try {
+    // Xóa vĩnh viễn token khỏi localStorage
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    for (const key of LEGACY_TOKEN_KEYS) {
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
+    }
+
+    // Phục hồi session hiện tại từ sessionStorage của tab hiện tại nếu có
+    const sessionToken = sessionStorage.getItem('accessToken');
+    if (sessionToken) {
+      memoryAccessToken = sessionToken;
+      authSession.accessToken = sessionToken;
+    }
+    const sessionName = sessionStorage.getItem('fullName') || localStorage.getItem('fullName');
+    if (sessionName) {
+      authSession.fullName = sessionName;
+    }
+  } catch {
+    // Ignore storage quota/security errors
   }
 };
 
@@ -69,46 +88,73 @@ const decodeBase64Url = (value: string) => {
   return new TextDecoder().decode(bytes);
 };
 
-removeLegacyStoredTokens();
+runTokenStorageMigration();
 
 export const setAuthSession = ({
   accessToken,
-  refreshToken = null,
   fullName = null,
 }: AuthSessionInput) => {
+  memoryAccessToken = accessToken;
   authSession.accessToken = accessToken;
-  authSession.refreshToken = refreshToken;
-  localStorage.setItem('accessToken', accessToken);
-
-  if (refreshToken) {
-    localStorage.setItem('refreshToken', refreshToken);
-  }
-
   authSession.fullName = fullName || 'Người dùng';
 
-  removeLegacyStoredTokens();
-  localStorage.setItem('fullName', authSession.fullName);
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem('accessToken', accessToken);
+      sessionStorage.setItem('fullName', authSession.fullName);
+      // Đảm bảo không lưu token vào localStorage
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+    } catch {
+      // Ignore sessionStorage exceptions
+    }
+  }
+
   notifyAuthSessionChanged();
 };
 
-export const getAccessToken = () =>
-  authSession.accessToken || localStorage.getItem('accessToken');
+export const getAccessToken = (): string | null => {
+  if (memoryAccessToken) {
+    return memoryAccessToken;
+  }
+  if (typeof window !== 'undefined') {
+    const sessionToken = sessionStorage.getItem('accessToken');
+    if (sessionToken) {
+      memoryAccessToken = sessionToken;
+      return sessionToken;
+    }
+  }
+  return null;
+};
 
-export const getRefreshToken = () =>
-  authSession.refreshToken || localStorage.getItem('refreshToken');
+// Refresh token được quản lý hoàn toàn bằng HttpOnly cookie, không lưu ở JavaScript
+export const getRefreshToken = (): string | null => null;
 
-export const getAuthFullName = () =>
-  authSession.fullName || localStorage.getItem('fullName') || 'Thành viên';
+export const getAuthFullName = () => {
+  if (authSession.fullName) return authSession.fullName;
+  if (typeof window !== 'undefined') {
+    return sessionStorage.getItem('fullName') || localStorage.getItem('fullName') || 'Thành viên';
+  }
+  return 'Thành viên';
+};
 
 export const clearAuthSession = () => {
+  memoryAccessToken = null;
   authSession.accessToken = null;
-  authSession.refreshToken = null;
   authSession.fullName = null;
 
-  localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
-  removeLegacyStoredTokens();
-  localStorage.removeItem('fullName');
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.removeItem('accessToken');
+      sessionStorage.removeItem('fullName');
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('fullName');
+    } catch {
+      // Ignore
+    }
+  }
+
   notifyAuthSessionChanged();
 };
 
@@ -178,16 +224,8 @@ export const isCustomerRole = (role: string | null | undefined) => {
 };
 
 export const getPostLoginRedirect = (role: string | null | undefined) => {
-  if (isAdminRole(role)) {
-    return '/admin/dashboard';
-  }
-
-  if (isManagerRole(role)) {
-    return '/manager/dashboard';
-  }
-
-  if (isStaffRole(role)) {
-    return '/staff/ticket-scanner';
+  if (isAdminRole(role) || isStaffRole(role) || isManagerRole(role)) {
+    return '/admin/orders';
   }
 
   return '/';

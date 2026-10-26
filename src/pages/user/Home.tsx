@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 import HeroCreateSection from './components/HeroCreateSection';
+import ScrollStory from '../../components/ui/ScrollStory';
 import CommunitySection from './components/CommunitySection';
 
-const VIDEO_SRC =
-  'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260826_041744_63efcd78-bf7d-4039-99e2-2461e8a61903.mp4';
+const VIDEO_SRC = '/videos/hero_character.mp4';
 const SENSITIVITY = 0.8;
 
 export default function Home() {
@@ -65,7 +65,7 @@ export default function Home() {
 
   return (
     <div className="theboys-home-stage w-full flex flex-col items-center min-h-[calc(100vh-60px)]">
-      {/* Full-Screen Mouse-Scrub Controlled Background Video (z-index: 0) */}
+      {/* Full-Screen Mouse-Scrub Controlled Background Video - Fixed strictly to right of sidebar */}
       <video
         ref={videoRef}
         src={VIDEO_SRC}
@@ -73,37 +73,37 @@ export default function Home() {
         playsInline
         preload="auto"
         onSeeked={handleVideoSeeked}
-        className="fixed inset-0 z-0 w-full h-full object-cover pointer-events-none select-none"
+        className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 w-full h-full object-cover pointer-events-none select-none"
         style={{ objectPosition: '70% center' }}
       />
 
-      {/* Studio Dark Noir Overlays: Dims the crimson studio backdrop into an elegant cinema dark tone while highlighting the 3D character */}
+      {/* Studio Dark Noir Overlays: Dims backdrop into an obsidian dark tone */}
       {/* 1. Left-to-right dark wash: ensures console, pills, and typography are crisp and ultra-readable */}
       <div
-        className="fixed inset-0 z-0 pointer-events-none"
+        className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 pointer-events-none"
         style={{
           background:
-            'linear-gradient(90deg, #09090b 0%, rgba(9, 9, 11, 0.94) 34%, rgba(9, 9, 11, 0.72) 55%, rgba(9, 9, 11, 0.22) 78%, rgba(9, 9, 11, 0.42) 100%)',
+            'linear-gradient(90deg, #070a0f 0%, rgba(7, 10, 15, 0.92) 32%, rgba(7, 10, 15, 0.5) 54%, transparent 75%)',
         }}
         aria-hidden="true"
       />
 
-      {/* 2. Character Spotlight Vignette: soft vignette keeping the 3D boy highlighted at 74% 45% while subduing edge red */}
+      {/* 2. Character Spotlight Vignette */}
       <div
-        className="fixed inset-0 z-0 pointer-events-none"
+        className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(circle at 74% 45%, rgba(9, 9, 11, 0) 18%, rgba(9, 9, 11, 0.38) 52%, rgba(6, 6, 8, 0.88) 100%)',
+            'radial-gradient(circle at 74% 45%, rgba(7, 10, 15, 0) 25%, rgba(7, 10, 15, 0.2) 60%, rgba(7, 10, 15, 0.8) 100%)',
         }}
         aria-hidden="true"
       />
 
       {/* 3. Top and bottom cinema edge feathering */}
       <div
-        className="fixed inset-0 z-0 pointer-events-none"
+        className="fixed inset-y-0 right-0 left-[64px] md:left-[72px] z-0 pointer-events-none"
         style={{
           background:
-            'linear-gradient(180deg, rgba(9, 9, 11, 0.55) 0%, transparent 16%, transparent 80%, #09090b 100%)',
+            'linear-gradient(180deg, rgba(7, 10, 15, 0.5) 0%, transparent 16%, transparent 80%, #070a0f 100%)',
         }}
         aria-hidden="true"
       />
@@ -113,7 +113,10 @@ export default function Home() {
         {/* Mainframe Hero + THE BOYS 3D Upload Console */}
         <HeroCreateSection />
 
-        {/* Community 3D Showcase Section */}
+        {/* Section Cách Hoạt Động: Scrollytelling 5 Bước */}
+        <ScrollStory />
+
+        {/* Community 3D Showcase Section with 3D Tilt */}
         <CommunitySection />
       </div>
     </div>

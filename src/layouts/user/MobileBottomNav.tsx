@@ -5,7 +5,7 @@ import {
   FiHome,
   FiUser,
 } from 'react-icons/fi';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AUTH_SESSION_EVENT, getAccessToken } from '../../lib/auth';
 
@@ -62,6 +62,15 @@ export default function MobileBottomNav() {
     };
   }, []);
 
+  const handleNavClick = (e: React.MouseEvent, requiresAuth?: boolean) => {
+    if (requiresAuth && !isLoggedIn) {
+      e.preventDefault();
+      window.dispatchEvent(
+        new CustomEvent('idea2model:open-login-modal', { detail: { mode: 'login' } }),
+      );
+    }
+  };
+
   return (
     <nav
       aria-label="Điều hướng khách hàng"
@@ -71,23 +80,23 @@ export default function MobileBottomNav() {
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.match(pathname);
-          const href = item.requiresAuth && !isLoggedIn ? '/login' : item.to;
 
           return (
             <Link
               key={item.label}
-              to={href}
+              to={item.to}
+              onClick={(e) => handleNavClick(e, item.requiresAuth)}
               viewTransition
-              className={`flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD166] ${
+              className={`flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-xl px-1 text-[11px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 ${
                 isActive
-                  ? 'text-[#E11D48] dark:text-[#FFD166]'
+                  ? 'text-cyan-400 dark:text-cyan-400'
                   : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-white/55 dark:hover:bg-white/10 dark:hover:text-white'
               }`}
             >
               <span
                 className={`flex h-7 w-9 items-center justify-center rounded-full border transition-colors ${
                   isActive
-                    ? 'border-[#E11D48]/25 bg-[#E11D48]/10 dark:border-[#FFD166]/35 dark:bg-[#FFD166]/15'
+                    ? 'border-cyan-400/35 bg-cyan-400/15 dark:border-cyan-400/35 dark:bg-cyan-400/15'
                     : 'border-transparent bg-transparent'
                 }`}
               >
