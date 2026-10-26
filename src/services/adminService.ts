@@ -85,7 +85,12 @@ export const adminService = {
   },
 
   getPricingPackages: async (): Promise<AdminPricingPackage[]> => {
-    return (await listPricingPackages()) as unknown as AdminPricingPackage[];
+    try {
+      const response = await api.get('/api/admin/pricing-packages');
+      return response as unknown as AdminPricingPackage[];
+    } catch {
+      return (await listPricingPackages()) as unknown as AdminPricingPackage[];
+    }
   },
 
   updatePricingPackage: async (
